@@ -4,7 +4,9 @@
 #include <linux/ptrace.h>
 #include <kern_util.h>
 #include <asm/syscall.h>
+#include <asm/prctl.h>
 #include <os.h>
+#include "syscalls.h"
 
 __visible void do_syscall_64(struct pt_regs *regs)
 {
@@ -37,4 +39,10 @@ __visible void do_syscall_64(struct pt_regs *regs)
 
 	/* handle tasks and signals at the end */
 	interrupt_end();
+
+	/* restore back fs register to userspace configured one */
+	os_x86_arch_prctl(0, ARCH_SET_FS,
+		      (void *)(current->thread.regs.regs.gp[FS_BASE
+						     / sizeof(unsigned long)]));
+
 }
