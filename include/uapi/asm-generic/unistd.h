@@ -866,9 +866,17 @@ __SYSCALL(__NR_rseq_slice_yield, sys_rseq_slice_yield)
 /* fs/open.c */
 #define __NR_fchroot 472
 __SYSCALL(__NR_fchroot, sys_fchroot)
+#define __NR_nommu_swmmu_alloc 473
+__SYSCALL(__NR_nommu_swmmu_alloc, sys_nommu_swmmu_alloc)
+#define __NR_nommu_swmmu_free 474
+__SYSCALL(__NR_nommu_swmmu_free, sys_nommu_swmmu_free)
+#define __NR_nommu_swmmu_load 475
+__SYSCALL(__NR_nommu_swmmu_load, sys_nommu_swmmu_load)
+#define __NR_nommu_swmmu_store 476
+__SYSCALL(__NR_nommu_swmmu_store, sys_nommu_swmmu_store)
 
 #undef __NR_syscalls
-#define __NR_syscalls 473
+#define __NR_syscalls 477
 
 /*
  * 32 bit systems traditionally used different
