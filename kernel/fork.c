@@ -1158,6 +1158,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p)
 #ifdef CONFIG_NOMMU_SWMMU
 	struct nommu_swmmu_space *new_space;
 
+	mm->swmmu_mode = NOMMU_SWMMU_OFF;
+
 	new_space = nommu_swmmu_space_create();
 	if (!new_space)
 		goto fail_pcpu;
@@ -1552,6 +1554,12 @@ static struct mm_struct *dup_mm(struct task_struct *tsk,
 	if (!mm)
 		goto fail_nomem;
 
+#ifdef CONFIG_NOMMU_SWMMU
+	enum nommu_swmmu_mode swmmu_mode;
+
+	swmmu_mode = oldmm->swmmu_mode;
+#endif
+
 	memcpy(mm, oldmm, sizeof(*mm));
 
 #ifdef CONFIG_NOMMU_SWMMU
@@ -1564,6 +1572,14 @@ static struct mm_struct *dup_mm(struct task_struct *tsk,
 
 	if (!mm_init(mm, tsk))
 		goto fail_nomem;
+
+#ifdef CONFIG_NOMMU_SWMMU
+	/*
+	 * mm_init() initializes a newly created mm to OFF. Restore
+	 * the parent's mode for the duplicated address space.
+	 */
+	mm->swmmu_mode = swmmu_mode;
+#endif
 
 	uprobe_start_dup_mmap();
 	err = dup_mmap(mm, oldmm);
