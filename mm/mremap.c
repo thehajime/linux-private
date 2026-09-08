@@ -308,6 +308,7 @@ static unsigned long prep_move_vma(struct vma_remap_struct *vrm)
 			return err;
 	}
 
+#ifdef CONFIG_MMU
 	/*
 	 * Advise KSM to break any KSM pages in the area to be moved:
 	 * it would be confusing if they were to turn up at the new
@@ -319,7 +320,7 @@ static unsigned long prep_move_vma(struct vma_remap_struct *vrm)
 			  MADV_UNMERGEABLE, &dummy);
 	if (err)
 		return err;
-
+#endif
 	return 0;
 }
 
@@ -512,10 +513,12 @@ static void dontunmap_complete(struct vma_remap_struct *vrm,
 	/* We always clear VMA_LOCKED[ONFAULT]_BIT on the old VMA. */
 	vma_clear_flags_mask(vma, VMA_LOCKED_MASK);
 
+#ifdef CONFIG_MMU
 	/*
 	 * anon_vma links of the old vma is no longer needed after its page
 	 * table has been moved.
 	 */
+#ifdef CONFIG_MMU
 	if (new_vma != vma && start == old_start && end == old_end) {
 		const pgoff_t pgoff_unfaulted = vma->vm_start >> PAGE_SHIFT;
 
@@ -529,6 +532,8 @@ static void dontunmap_complete(struct vma_remap_struct *vrm,
 		if (vma_is_anonymous(vma) && !vma->vm_file)
 			vma_set_pgoff(vma, pgoff_unfaulted);
 	}
+#endif
+	/* Because we won't unmap we don't need to touch locked_vm. */
 }
 
 static unsigned long move_vma(struct vma_remap_struct *vrm)
@@ -1015,9 +1020,10 @@ static int check_prep_vma(struct vma_remap_struct *vrm)
 	if (vma_test_any(vma, VMA_DONTEXPAND_BIT, VMA_PFNMAP_BIT))
 		return -EFAULT;
 
+#ifdef CONFIG_MMU
 	if (!mlock_future_ok(mm, vma_test(vma, VMA_LOCKED_BIT), vrm->delta))
 		return -EAGAIN;
-
+#endif
 	if (!may_expand_vm(mm, &vma->flags, vrm->delta >> PAGE_SHIFT))
 		return -ENOMEM;
 
@@ -1170,6 +1176,7 @@ static unsigned long remap_move(struct vma_remap_struct *vrm)
 	return res;
 }
 
+#ifdef CONFIG_MMU
 static unsigned long do_mremap(struct vma_remap_struct *vrm)
 {
 	struct mm_struct *mm = current->mm;
@@ -1217,6 +1224,7 @@ out:
 	notify_uffd(vrm, failed);
 	return res;
 }
+#endif
 
 /*
  * Expand (or shrink) an existing mapping, potentially moving it at the
@@ -1256,7 +1264,7 @@ SYSCALL_DEFINE5(mremap, unsigned long, addr, unsigned long, old_len,
 
 		.remap_type = MREMAP_INVALID, /* We set later. */
 		.mm = current->mm,
-		.backend = &vma_mmu_mapping_ops,
+		.backend = vma_mapping_ops_for_mm(current->mm),
 		.backend_state = NULL,
 	};
 
