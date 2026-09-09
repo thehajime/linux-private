@@ -396,12 +396,11 @@
 469	common	file_setattr		sys_file_setattr
 470	common	listns			sys_listns
 471	common	rseq_slice_yield	sys_rseq_slice_yield
-472	common	fchroot			sys_fchroot
+472	common	fchroot	sys_fchroot
 473	common	nommu_swmmu_alloc	sys_nommu_swmmu_alloc
 474	common	nommu_swmmu_free	sys_nommu_swmmu_free
 475	common	nommu_swmmu_load	sys_nommu_swmmu_load
 476	common	nommu_swmmu_store	sys_nommu_swmmu_store
-477	common	nommu_swmmu_remap	sys_nommu_swmmu_remap
 
 #
 # Due to a historical design error, certain syscalls are numbered differently
