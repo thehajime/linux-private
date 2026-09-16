@@ -401,6 +401,7 @@
 474	common	nommu_swmmu_free	sys_nommu_swmmu_free
 475	common	nommu_swmmu_load	sys_nommu_swmmu_load
 476	common	nommu_swmmu_store	sys_nommu_swmmu_store
+477	common	nommu_swmmu_cmpxchg	sys_nommu_swmmu_cmpxchg
 
 #
 # Due to a historical design error, certain syscalls are numbered differently
