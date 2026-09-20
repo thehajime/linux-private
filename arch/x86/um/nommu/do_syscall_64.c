@@ -43,9 +43,4 @@ __visible void do_syscall_64(struct pt_regs *regs)
 	/* restore fp registers */
 	asm volatile("fxrstorq %0" : : "m"((current->thread.regs.regs.fp)));
 
-	/* restore back fs register to userspace configured one */
-	os_x86_arch_prctl(0, ARCH_SET_FS,
-		      (void *)(current->thread.regs.regs.gp[FS_BASE
-						     / sizeof(unsigned long)]));
-
 }

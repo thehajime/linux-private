@@ -95,6 +95,8 @@ ENTRY(userspace)
 	/* Handle any immediate reschedules or signals */
 	call	interrupt_end
 
+	call	arch_restore_guest_fs
+
 	movq	current_ptregs, %rsp
 
 	POP_REGS
