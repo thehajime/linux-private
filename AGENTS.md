@@ -108,6 +108,26 @@ without carrying forward its superseded plans and experimental claims.
 - [x] Consolidate the former status document into this `AGENTS.md` handoff and
   document the fresh local kselftest build workflow.
 
+## SAS alias teardown validation (2026-10-05)
+
+- Guard host alias unmapping when a different mm is active. After exit/exec
+  invalidates the active-mm cache, delayed teardown of an inactive child may
+  otherwise remove the parent's aliases at the same addresses. Clear the
+  inactive range's mapping state; retain physical cleanup when active mm is
+  NULL or owns the range.
+- The old minimal rootfs reproduces this stack fault in SAS-seccomp mode under
+  GDB even when mremap tests are excluded. Normal execution is timing-sensitive;
+  Alpine and minimal rootfs use identical instrumented musl and SWMMU binaries.
+- After the guard, both rootfs profiles complete guest mmap (6 pass/1 skip)
+  and SWMMU (37 pass/7 skip) with zpoline=0 and zpoline=1. Dedicated SWMMU
+  KUnit: 27 pass/1 skip; UML register suite: 1 pass. These are focused results,
+  not complete official-runner or broad application coverage.
+- Exclude nommu_mremap_test from this validation: its implementation is still
+  under separate draft work. This does not remove tests from the repository.
+- Cloud zpoline=1 runs in a scoped Docker workload with CAP_SYS_RAWIO for
+  address-zero mapping; host mmap_min_addr remains4096. zpoline=0 does not
+  require that capability. Keep the existing is_user audit TODO deferred.
+
 ## Current limitations and postponed work
 
 These remain known boundaries; do not imply they are supported just because
