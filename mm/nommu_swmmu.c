@@ -280,6 +280,7 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 				struct swmmu_pagetable_range *range)
 {
 	const struct nommu_swmmu_host_ops *host_ops;
+	struct mm_struct *active_mm;
 	unsigned long i;
 
 	host_ops = space->host_ops;
@@ -287,11 +288,21 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 	    !host_ops || !host_ops->unmap_page)
 		return;
 
+	/*
+	 * An inactive mm may retain mapping state after its active-mm cache
+	 * was invalidated. Its teardown must not remove another mm's aliases.
+	 * With no active mm, keep unmapping aliases left by exit or exec.
+	 */
+	active_mm = READ_ONCE(swmmu_host_active_mm);
+	if (active_mm && active_mm != space->mm)
+		goto clear_mapping_state;
+
 	for (i = 0; i < range->nr_ptes; i++) {
 		host_ops->unmap_page(
 			range->host_start + i * SWMMU_PAGE_SIZE);
 	}
 
+clear_mapping_state:
 	range->host_start = 0;
 	range->host_mapped = false;
 }
