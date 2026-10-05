@@ -84,4 +84,3 @@ int __init os_setup_seccomp(void)
 
 	return 0;
 }
-
