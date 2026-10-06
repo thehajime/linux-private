@@ -192,6 +192,8 @@ the focused tests pass:
   `3.20.3-um-nommu` image only after the UML build and test matrix succeeds
   and by an explicit dispatch. Record the tested kernel and aports revisions
   and image digest.
+- [ ] Propose the UML `.lbss` linker-script placement fix upstream after
+  validating static and dynamic UML builds against the `uml/next` base.
 
 The former status document had a longer TODO ledger. The entries below retain
 items that were not already captured above. Entries superseded by the current
