@@ -275,10 +275,19 @@ jobs:
       - name: kunit test
         if: matrix.testname != 'um-mmu-tt'
         run: |
+          mkdir -p output/kunit
           for config in `find ./ -name .kunitconfig | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
             echo "==" $config "==" ; \
-            ./tools/testing/kunit/kunit.py run --kunitconfig=$config ${{ matrix.kunit_opts }}
+            result_name=$(printf '%s' "$config" | sed 's#[^A-Za-z0-9._-]#_#g'); \
+            ./tools/testing/kunit/kunit.py run --json "output/kunit/kunit-${{ matrix.testname }}-${result_name}.json" --kunitconfig="$config" ${{ matrix.kunit_opts }}
           done
+      - name: Upload KUnit result data
+        if: ${{ always() && matrix.testname != 'um-mmu-tt' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: kunit-results-${{ matrix.testname }}
+          path: output/kunit/*.json
+          if-no-files-found: warn
       - name: build-1
         run: |
           curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
@@ -660,9 +669,10 @@ jobs:
           path: output/ltp/*
 
   bench-result:
+    if: ${{ always() }}
     runs-on: ubuntu-22.04
     name: bench-result
-    needs: [benchmark,test_ltp]
+    needs: [build_uml,benchmark,test_ltp]
     permissions:
       actions: read
       contents: read
@@ -670,17 +680,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
+        continue-on-error: true
         with:
             path: output
             pattern: test-result-*
             merge-multiple: true
+      - uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+            path: output/kunit-results
+            pattern: kunit-results-*
       - name: Display structure of downloaded files
-        run: ls -R output
+        run: mkdir -p output && ls -R output || true
       - name: Install packages
+        if: ${{ needs.benchmark.result == 'success' }}
         run: |
           sudo apt update -y
           sudo apt install -y gnuplot lmbench iperf3 netperf jq
       - name: benchmark-host
+        if: ${{ needs.benchmark.result == 'success' }}
         run: |
            mkdir -p output
            sudo ln -s /usr/include/x86_64-linux-gnu/sys /usr/include/sys
@@ -694,100 +712,106 @@ jobs:
            iperf3 -c localhost -fm -R | tee -a output/native-iperf3.dat
            bash .github/workflows/netperf-bench.sh localhost netperf | tee -a output/native-iperf3.dat
       - name: bench data parse/out
+        if: ${{ needs.benchmark.result == 'success' }}
         run: |
           bash .github/workflows/um-nommu-plot.sh output |& tee um-nommu.log
           bash .github/workflows/netperf-plot.sh output |& tee -a um-nommu.log
-          export TMP_OUTPUT=$(cat um-nommu.log)
-          echo "TMP_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$TMP_OUTPUT" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          echo ${{env.TMP_OUTPUT}}
-      - name: ltp data parse/out
-        run: |
-          echo '### LTP results' > ltp-result.log
-          echo '| | passed | failed | broken | skipped | warnings| ' >> ltp-result.log
-          echo '|--|--|--|--|--|--|' >> ltp-result.log
-          cat output/result-native.json | jq  \
-            '.stats |.  + {"name": "native"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-um-mmu.json | jq  \
-            '.stats |.  + {"name": "mmu"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-um-mmu-seccomp.json | jq  \
-            '.stats |.  + {"name": "mmu-s"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-um-nommu.json | jq  \
-            '.stats |.  + {"name": "nommu"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-um-nommu-seccomp.json | jq  \
-            '.stats |.  + {"name": "nommu-s"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-um-nommu-sas-seccomp.json | jq  \
-            '.stats |.  + {"name": "nommu-sas-seccomp"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-um-nommu-sas-zpoline.json | jq  \
-            '.stats |.  + {"name": "nommu-sas-zpoline"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-riscv-nommu.json | jq  \
-            '.stats |.  + {"name": "riscv-nommu"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
-          echo "" >> ltp-result.log
-          echo "" >> ltp-result.log
-          cat output/native-url.txt >> ltp-result.log
-          cat output/um-mmu-url.txt >> ltp-result.log
-          cat output/um-mmu-seccomp-url.txt >> ltp-result.log
-          cat output/um-nommu-url.txt >> ltp-result.log
-          cat output/um-nommu-seccomp-url.txt >> ltp-result.log
-          cat output/um-nommu-sas-seccomp-url.txt >> ltp-result.log
-          cat output/um-nommu-sas-zpoline-url.txt >> ltp-result.log
-          cat output/riscv-nommu-url.txt >> ltp-result.log
-          export LTP_OUTPUT=$(cat ltp-result.log)
-          echo "LTP_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$LTP_OUTPUT" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          echo ${{env.LTP_OUTPUT}}
       - uses: actions/upload-artifact@v7
+        if: ${{ needs.benchmark.result == 'success' }}
         with:
           name: test-result-all
           path: output/out/*
       - name: publish to imgur
+        if: ${{ needs.benchmark.result == 'success' }}
         uses: devicons/public-upload-to-imgur@v2.2.2
         id: lmbench-imgur
         with:
           path: "output/out/lmbench.png"
           client_id: ${{secrets.IMGUR_CLIENT_ID}}
       - name: publish to imgur-iperf
+        if: ${{ needs.benchmark.result == 'success' }}
         uses: devicons/public-upload-to-imgur@v2.2.2
         id: iperf3-imgur
         with:
           path: "output/out/iperf3.png"
           client_id: ${{secrets.IMGUR_CLIENT_ID}}
       - name: publish to imgur-netperf
+        if: ${{ needs.benchmark.result == 'success' }}
         uses: devicons/public-upload-to-imgur@v2.2.2
         id: netperf-imgur
         with:
           path: "output/out/tcp-stream.png"
           client_id: ${{secrets.IMGUR_CLIENT_ID}}
-      - name: prepare action post
-        run: |
-          export SCRIPT_OUTPUT="${{ join(fromJSON(steps.lmbench-imgur.outputs.markdown_urls)) }} ${{ join(fromJSON(steps.iperf3-imgur.outputs.markdown_urls)) }} ${{ join(fromJSON(steps.netperf-imgur.outputs.markdown_urls)) }}"
-          echo "SCRIPT_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$TMP_OUTPUT" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "$SCRIPT_OUTPUT" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "$LTP_OUTPUT" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-          echo ${{env.SCRIPT_OUTPUT}}
-      - uses: actions/github-script@v9
+      - name: Load previous result snapshot
+        uses: actions/github-script@v9
         env:
-          COMMENT_BODY: ${{env.SCRIPT_OUTPUT}}
+          SNAPSHOT_PATH: ${{ runner.temp }}/previous-results.json
         with:
           script: |
-            github.rest.issues.createComment({
+            const fs = require('fs');
+            const zlib = require('zlib');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 4,
+              per_page: 100
+            });
+            let snapshot = null;
+            for (const comment of comments.reverse()) {
+              const match = comment.body.match(/<!-- uml-ci-result-snapshot:v1\n([A-Za-z0-9+/=\r\n]+)\n-->/);
+              if (!match) continue;
+              snapshot = JSON.parse(zlib.gunzipSync(Buffer.from(match[1].replace(/\s/g, ''), 'base64')).toString());
+              break;
+            }
+            fs.writeFileSync(process.env.SNAPSHOT_PATH, JSON.stringify(snapshot));
+            core.info(snapshot ? `Loaded baseline from ${snapshot.run_url}` : 'No prior report snapshot found');
+      - name: Create comparison report
+        env:
+          REPORT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPORT_SHA: ${{ github.sha }}
+          TESTED_REF: ${{ inputs.kernel_ref || github.ref_name }}
+          BUILD_STATUS: ${{ needs.build_uml.result }}
+          BENCHMARK_STATUS: ${{ needs.benchmark.result }}
+          LTP_STATUS: ${{ needs.test_ltp.result }}
+        run: |
+          python3 .github/workflows/result-report.py \
+            --data-dir output \
+            --previous "$RUNNER_TEMP/previous-results.json" \
+            --snapshot "$RUNNER_TEMP/result-snapshot.json" \
+            --report "$RUNNER_TEMP/comparison-report.md" \
+            --run-url "$REPORT_URL" \
+            --sha "$REPORT_SHA" \
+            --tested-ref "$TESTED_REF" \
+            --build-status "$BUILD_STATUS" \
+            --benchmark-status "$BENCHMARK_STATUS" \
+            --ltp-status "$LTP_STATUS"
+      - name: prepare action post
+        env:
+          LMBENCH_URLS: ${{ join(fromJSON(steps.lmbench-imgur.outputs.markdown_urls || '[]')) }}
+          IPERF_URLS: ${{ join(fromJSON(steps.iperf3-imgur.outputs.markdown_urls || '[]')) }}
+          NETPERF_URLS: ${{ join(fromJSON(steps.netperf-imgur.outputs.markdown_urls || '[]')) }}
+        run: |
+          {
+            cat um-nommu.log 2>/dev/null || true
+            printf '\n### Published benchmark charts\n\n%s\n%s\n%s\n\n' \
+              "$LMBENCH_URLS" "$IPERF_URLS" "$NETPERF_URLS"
+            cat "$RUNNER_TEMP/comparison-report.md"
+          } > "$RUNNER_TEMP/comment.md"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: uml-ci-comparison-report
+          path: |
+            ${{ runner.temp }}/comment.md
+            ${{ runner.temp }}/result-snapshot.json
+      - uses: actions/github-script@v9
+        env:
+          COMMENT_BODY_FILE: ${{ runner.temp }}/comment.md
+        with:
+          script: |
+            const fs = require('fs');
+            await github.rest.issues.createComment({
               issue_number: 4,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: process.env.COMMENT_BODY
+              body: fs.readFileSync(process.env.COMMENT_BODY_FILE, 'utf8')
             })
