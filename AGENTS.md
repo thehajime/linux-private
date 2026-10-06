@@ -194,6 +194,10 @@ the focused tests pass:
   and image digest.
 - [ ] Propose the UML `.lbss` linker-script placement fix upstream after
   validating static and dynamic UML builds against the `uml/next` base.
+- [ ] Implement and compare the full benchmark suite in SWMMU and non-SWMMU
+  environments: lmbench, getpid, iperf3, netperf, and LTP.
+- [ ] Publish benchmark results in a durable, reviewable location, such as a
+  comment on the relevant pull request (previously `thehajime/linux#1`).
 
 The former status document had a longer TODO ledger. The entries below retain
 items that were not already captured above. Entries superseded by the current
