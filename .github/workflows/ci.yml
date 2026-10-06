@@ -538,14 +538,6 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
         with:
           detached: true
-      - name: Set env
-        shell: bash
-        if: matrix.testname == 'riscv-nommu'
-        run: |
-          echo "/work-buildroot/buildroot/output/host/bin" >> $GITHUB_PATH
-          echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.bashrc
-          echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.profile
-
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
@@ -554,12 +546,6 @@ jobs:
       - name: extract artifact
         run: |
             tar xfz /ltp-alpine-${{ matrix.name }}.tar.gz -C /
-      - name: tests preparation (riscv)
-        if: matrix.testname == 'riscv-nommu'
-        run: |
-            qemu-img create -f raw /ltp-image.img 2G
-            mkfs.ext2 -d /opt/ /ltp-image.img
-            apt install -y python3 git util-linux e2fsprogs parted
       - name: tests preparation (common)
         run: |
           mkdir -p output/ltp
@@ -570,7 +556,6 @@ jobs:
           cp .github/workflows/faketty /bin
           chmod +x /bin/faketty
       - name: tests preparation (um)
-        if: matrix.testname != 'riscv-nommu'
         run: |
           sh -x ltp/ci/alpine-runtime.sh
           apk del btrfs-progs
@@ -579,7 +564,7 @@ jobs:
           cat .github/workflows/ltp-entrypoint.sh | sed "s/cmd_option/${{ matrix.vmlinux_opt }}/" > /tmp/a
           mv /tmp/a .github/workflows/ltp-entrypoint.sh
       - name: kselftest (mm)
-        if: ${{ matrix.testname != 'riscv-nommu' && matrix.testname != 'native' }}
+        if: matrix.testname != 'native'
         continue-on-error: true
         run: |
           faketty /root/vmlinux vec0:transport=raw,ifname=eth0,depth=128,gro=1 \
@@ -678,9 +663,6 @@ jobs:
           cat output/result-um-nommu-sas-zpoline.json | jq  \
             '.stats |.  + {"name": "nommu-sas-zpoline"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
             | sed "s/\"/\|/g"  >> ltp-result.log
-          cat output/result-riscv-nommu.json | jq  \
-            '.stats |.  + {"name": "riscv-nommu"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
-            | sed "s/\"/\|/g"  >> ltp-result.log
           echo "" >> ltp-result.log
           echo "" >> ltp-result.log
           cat output/native-url.txt >> ltp-result.log
@@ -690,7 +672,6 @@ jobs:
           cat output/um-nommu-seccomp-url.txt >> ltp-result.log
           cat output/um-nommu-sas-seccomp-url.txt >> ltp-result.log
           cat output/um-nommu-sas-zpoline-url.txt >> ltp-result.log
-          cat output/riscv-nommu-url.txt >> ltp-result.log
           export LTP_OUTPUT=$(cat ltp-result.log)
           echo "LTP_OUTPUT<<EOF" >> $GITHUB_ENV
           echo "$LTP_OUTPUT" >> $GITHUB_ENV
