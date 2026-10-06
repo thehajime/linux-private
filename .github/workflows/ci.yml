@@ -677,6 +677,11 @@ jobs:
       actions: read
       contents: read
       issues: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
@@ -721,30 +726,6 @@ jobs:
         with:
           name: test-result-all
           path: output/out/*
-      - name: publish to imgur
-        if: ${{ needs.benchmark.result == 'success' }}
-        continue-on-error: true
-        uses: devicons/public-upload-to-imgur@v2.2.2
-        id: lmbench-imgur
-        with:
-          path: "output/out/lmbench.png"
-          client_id: ${{secrets.IMGUR_CLIENT_ID}}
-      - name: publish to imgur-iperf
-        if: ${{ needs.benchmark.result == 'success' }}
-        continue-on-error: true
-        uses: devicons/public-upload-to-imgur@v2.2.2
-        id: iperf3-imgur
-        with:
-          path: "output/out/iperf3.png"
-          client_id: ${{secrets.IMGUR_CLIENT_ID}}
-      - name: publish to imgur-netperf
-        if: ${{ needs.benchmark.result == 'success' }}
-        continue-on-error: true
-        uses: devicons/public-upload-to-imgur@v2.2.2
-        id: netperf-imgur
-        with:
-          path: "output/out/tcp-stream.png"
-          client_id: ${{secrets.IMGUR_CLIENT_ID}}
       - name: Load previous result snapshot
         uses: actions/github-script@v9
         env:
@@ -788,16 +769,34 @@ jobs:
             --build-status "$BUILD_STATUS" \
             --benchmark-status "$BENCHMARK_STATUS" \
             --ltp-status "$LTP_STATUS"
+      - name: Build GitHub Pages report
+        run: |
+          python3 .github/workflows/result-page.py \
+            --snapshot "$RUNNER_TEMP/result-snapshot.json" \
+            --report "$RUNNER_TEMP/comparison-report.md" \
+            --charts output/out \
+            --output "$RUNNER_TEMP/site"
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+      - name: Deploy report to GitHub Pages
+        id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages
       - name: prepare action post
         env:
-          LMBENCH_URLS: ${{ join(fromJSON(steps.lmbench-imgur.outputs.markdown_urls || '[]')) }}
-          IPERF_URLS: ${{ join(fromJSON(steps.iperf3-imgur.outputs.markdown_urls || '[]')) }}
-          NETPERF_URLS: ${{ join(fromJSON(steps.netperf-imgur.outputs.markdown_urls || '[]')) }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           {
             cat um-nommu.log 2>/dev/null || true
-            printf '\n### Published benchmark charts\n\n%s\n%s\n%s\n\n' \
-              "$LMBENCH_URLS" "$IPERF_URLS" "$NETPERF_URLS"
+            if [ -n "$PAGE_URL" ]; then
+              printf '\n### Benchmark charts and result data\n\n[Open this run\x27s report on GitHub Pages](%s)\n\n' "$PAGE_URL"
+            else
+              printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
+            fi
             cat "$RUNNER_TEMP/comparison-report.md"
           } > "$RUNNER_TEMP/comment.md"
       - uses: actions/upload-artifact@v7
@@ -806,6 +805,7 @@ jobs:
           path: |
             ${{ runner.temp }}/comment.md
             ${{ runner.temp }}/result-snapshot.json
+            ${{ runner.temp }}/site
       - uses: actions/github-script@v9
         env:
           COMMENT_BODY_FILE: ${{ runner.temp }}/comment.md

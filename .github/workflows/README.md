@@ -69,3 +69,11 @@ code will generate stable keys from the record fields automatically. Existing
 are collected from their JSON output, while kselftest TAP output is normalized
 to named case/status records. Snapshot schema version 2 remains able to read
 older version 1 benchmark maps for comparison.
+
+Benchmark charts and the structured snapshot are published to the repository's
+GitHub Pages site by the `bench-result` job. Pages must be enabled in
+**Settings → Pages** with **Build and deployment → Source** set to **GitHub
+Actions**. The job requests `pages: write` and `id-token: write`, so no Imgur
+client ID or other publishing secret is needed. Each successful deployment
+replaces the site's current report; historical comparisons remain in issue #4
+and in the Actions artifacts for their respective runs.
