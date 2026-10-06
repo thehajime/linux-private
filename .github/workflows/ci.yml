@@ -23,7 +23,49 @@ on:
         default: true
 
 jobs:
+  build_nommu_apks:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout CI scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ci/uml-nommu
+      - name: Checkout pinned aports source
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/aports
+          ref: 46ff44735decafda0d5738097398f77adc6cb312
+          path: aports-source
+          sparse-checkout: |
+            main/busybox
+            main/musl
+            scripts/swmmu-profile.sh
+      - name: Cache verified aports source archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/aports-distfiles
+          key: aports-distfiles-${{ hashFiles('aports-source/main/busybox/APKBUILD', 'aports-source/main/musl/APKBUILD') }}
+      - name: Build signed NOMMU APKs from aports
+        run: |
+          mkdir -p "$RUNNER_TEMP/nommu-apks"
+          mkdir -p "$RUNNER_TEMP/aports-distfiles"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE/aports-source:/src:ro" \
+            --volume "$GITHUB_WORKSPACE/.github/workflows/build-nommu-apks.sh:/build.sh:ro" \
+            --volume "$RUNNER_TEMP/nommu-apks:/out" \
+            --volume "$RUNNER_TEMP/aports-distfiles:/var/cache/distfiles" \
+            alpine:3.20.3 sh /build.sh
+      - name: Upload signed NOMMU APKs and public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: aports-nommu-apks
+          path: ${{ runner.temp }}/nommu-apks
+          if-no-files-found: error
+
   build_uml:
+    needs: [build_nommu_apks]
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -96,6 +138,20 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.kernel_ref || github.ref }}
+      - name: Checkout canonical CI support files
+        uses: actions/checkout@v6
+        with:
+          ref: ci/uml-nommu
+          path: ci-config
+      - name: Install canonical CI support files
+        run: |
+          mkdir -p .github/workflows
+          cp -a ci-config/.github/workflows/. .github/workflows/
+      - name: Download signed NOMMU APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: aports-nommu-apks
+          path: .github/workflows/aports-artifacts
       - uses: actions/cache@v5
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -318,6 +374,34 @@ jobs:
           push: true
           tags: ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
 
+  buildroot_riscv:
+    runs-on: ubuntu-22.04
+    name: "buildroot: build riscv64-nommu (local)"
+    timeout-minutes: 100
+    permissions:
+      contents: read
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      USE_CCACHE: 1
+    steps:
+      - name: LTP checkout
+        run: git clone -b fix-nommu https://github.com/thehajime/ltp
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
+      - name: Build RISC-V NOMMU image locally
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ltp/tools/buildroot/
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ghcr.io/thehajime/buildroot-riscv64-nommu:0.1
+
   benchmark:
     runs-on: ${{ matrix.runs_on }}
     needs: [build_uml]
@@ -469,6 +553,7 @@ jobs:
 
   build_ltp:
     uses: ./.github/workflows/ci-docker-build.yml
+    needs: [buildroot_riscv]
     name: "LTP: build"
   test_ltp:
     runs-on: ubuntu-latest
@@ -505,6 +590,15 @@ jobs:
             test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-nommu
             kselftest_opt: "NOMMU=1 TARGETS=mm/nommu"
+          - displayTargetName: qemu-riscv-nommu
+            image_name: ghcr.io/thehajime/buildroot-riscv64-nommu:0.1
+            testname: riscv-nommu
+            vmlinux_opt: ""
+            test_cmdline: "env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk --sut default:com=qemu --com \
+            qemu:image=/work-buildroot/buildroot/output/images/rootfs.ext2:kernel=/work-buildroot/buildroot/output/images/Image:system=riscv64:user=root \
+            -f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json"
+            name: riscv-nommu
+            kselftest_opt: "NOMMU=1 TARGETS=mm/nommu"
           - displayTargetName: native
             image_name: alpine:3.20.3
             testname: native
@@ -538,6 +632,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
         with:
           detached: true
+      - name: Set RISC-V toolchain path
+        if: matrix.testname == 'riscv-nommu'
+        run: |
+          echo "/work-buildroot/buildroot/output/host/bin" >> $GITHUB_PATH
+          echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.bashrc
+          echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.profile
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
@@ -546,6 +646,12 @@ jobs:
       - name: extract artifact
         run: |
             tar xfz /ltp-alpine-${{ matrix.name }}.tar.gz -C /
+      - name: tests preparation (riscv)
+        if: matrix.testname == 'riscv-nommu'
+        run: |
+            qemu-img create -f raw /ltp-image.img 2G
+            mkfs.ext2 -d /opt/ /ltp-image.img
+            apt install -y python3 git util-linux e2fsprogs parted
       - name: tests preparation (common)
         run: |
           mkdir -p output/ltp
@@ -556,6 +662,7 @@ jobs:
           cp .github/workflows/faketty /bin
           chmod +x /bin/faketty
       - name: tests preparation (um)
+        if: matrix.testname != 'riscv-nommu'
         run: |
           sh -x ltp/ci/alpine-runtime.sh
           apk del btrfs-progs
@@ -564,7 +671,7 @@ jobs:
           cat .github/workflows/ltp-entrypoint.sh | sed "s/cmd_option/${{ matrix.vmlinux_opt }}/" > /tmp/a
           mv /tmp/a .github/workflows/ltp-entrypoint.sh
       - name: kselftest (mm)
-        if: matrix.testname != 'native'
+        if: ${{ matrix.testname != 'riscv-nommu' && matrix.testname != 'native' }}
         continue-on-error: true
         run: |
           faketty /root/vmlinux vec0:transport=raw,ifname=eth0,depth=128,gro=1 \
@@ -663,6 +770,9 @@ jobs:
           cat output/result-um-nommu-sas-zpoline.json | jq  \
             '.stats |.  + {"name": "nommu-sas-zpoline"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
             | sed "s/\"/\|/g"  >> ltp-result.log
+          cat output/result-riscv-nommu.json | jq  \
+            '.stats |.  + {"name": "riscv-nommu"} | [.name, .passed, .failed, .broken, .skipped, .warnings] | join(" | ") ' \
+            | sed "s/\"/\|/g"  >> ltp-result.log
           echo "" >> ltp-result.log
           echo "" >> ltp-result.log
           cat output/native-url.txt >> ltp-result.log
@@ -672,6 +782,7 @@ jobs:
           cat output/um-nommu-seccomp-url.txt >> ltp-result.log
           cat output/um-nommu-sas-seccomp-url.txt >> ltp-result.log
           cat output/um-nommu-sas-zpoline-url.txt >> ltp-result.log
+          cat output/riscv-nommu-url.txt >> ltp-result.log
           export LTP_OUTPUT=$(cat ltp-result.log)
           echo "LTP_OUTPUT<<EOF" >> $GITHUB_ENV
           echo "$LTP_OUTPUT" >> $GITHUB_ENV

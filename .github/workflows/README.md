@@ -6,12 +6,17 @@ patches sent upstream to `uml/next`.
 
 ## Running CI
 
-The workflow runs for pushes to branches that contain this workflow and
-builds/tests the pushed kernel revision. To validate a topic branch without
-copying the workflow into it, dispatch the workflow from `ci/uml-nommu` and set
-`kernel_ref` to the topic branch, tag, or commit. It builds the root filesystem
-image locally and uses that image for the UML smoke and test steps. Normal CI
-does not publish the UML images.
+Push-triggered runs only happen on branches that contain the workflow file.
+For example, pushing to `feature-swmmu-nommu` will not start this workflow
+unless that branch has merged or copied `.github/workflows/ci.yml`. To test it
+without changing the topic branch, dispatch the workflow from `ci/uml-nommu`
+and set `kernel_ref` to the branch, tag, or commit. The CI job checks out the
+selected kernel plus the canonical support files from `ci/uml-nommu`.
+
+Every run builds signed `busybox-nommu` and `musl-nommu` APKs from the pinned
+aports revision in GitHub Actions, then installs those verified packages into
+the locally built rootfs image. That image is used by the UML smoke and
+kselftest steps. Normal CI does not publish the UML images.
 
 To publish the tested images, use **Actions → ci.yml → Run workflow** on
 `ci/uml-nommu` and enable `publish_images`. The publish job only starts after
@@ -28,22 +33,21 @@ kernel and rootfs combination.
 
 ## Root filesystem package source
 
-The current `Dockerfile` still downloads `busybox-nommu` and `musl-nommu` from
-a temporary GitLab CI artifact. Such artifacts expire and the pinned URL may
-return 404, so the image build and publication remain blocked until this input
-is replaced. Build these APKs from a pinned `thehajime/aports` revision in
-GitHub Actions, retain normal checksum and package-signature verification, and
-pass the resulting verified APKs and signing key into the Docker build. Do not
-publish an image when either APK is unavailable or unverified.
+The Dockerfile receives the APKs and generated public signing key as a
+workflow artifact. The base image verifies package signatures during
+installation. The temporary GitLab CI artifact is no longer used.
 
 The `thehajime/aports` branch `nommu-uml-3.20-swmmu` now contains the BusyBox
 `cd -` and `OLDPWD` fix in commit
-`46ff44735de`. Exercise the fix in the resulting NOMMU binary. Record the exact
-aports commit, package versions, BusyBox fix revision, and published image
-digest so a published rootfs can be reproduced and audited. The
+`46ff44735decafda0d5738097398f77adc6cb312`. The workflow pins this revision.
+Exercise the fix in the resulting NOMMU binary. Record the exact aports commit,
+package versions, BusyBox fix revision, and published image digest so a
+published rootfs can be reproduced and audited. The
 `busybox-nommu` and `musl-nommu` package changes are intended for eventual
 upstreaming to Alpine; track that work in the root `AGENTS.md` TODO list.
 
-The unfinished Buildroot RISC-V image build and its LTP matrix entry are
-disabled. They must not publish to GHCR until the image is complete and
-validated.
+The Buildroot RISC-V image is built locally and the RISC-V LTP matrix entry is
+enabled. That job does not publish to GHCR. The LTP workflow still uses its
+existing GHCR image as the job container; the locally built candidate is not
+shared across jobs. The RISC-V test therefore remains tied to the previously
+published image until the LTP job is changed to load a local image artifact.
