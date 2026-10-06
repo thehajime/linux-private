@@ -663,6 +663,10 @@ jobs:
     runs-on: ubuntu-22.04
     name: bench-result
     needs: [benchmark,test_ltp]
+    permissions:
+      actions: read
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
