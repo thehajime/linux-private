@@ -29,10 +29,6 @@ ADD lmbench2/ /lmbench2
 ADD lmbench_run.sh /lmbench2/bin/x86_64-linux-gnulibc1/
 ADD netperf /root/.
 ADD lib/ /lib
-ADD kselftest_install/ /root/kselftest_install
-ADD kselftest.sh /root/
-RUN mkdir -p /root/tools/testing/
-ADD kunit/  /root/tools/testing/kunit
 
 RUN apk update && apk add utmps-libs libtirpc curl make iperf3 coreutils python3
 

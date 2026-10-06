@@ -16,7 +16,11 @@ selected kernel plus the canonical support files from `ci/uml-nommu`.
 Every run builds signed `busybox-nommu` and `musl-nommu` APKs from the pinned
 aports revision in GitHub Actions, then installs those verified packages into
 the locally built rootfs image. That image is used by the UML smoke and
-kselftest steps. Normal CI does not publish the UML images.
+KUnit steps. Kselftest is temporarily disabled because the NOMMU kselftest
+suite is not present in the tested kernel tree and the generic UML run takes
+too long. Re-enable focused kselftest coverage after the NOMMU tests are
+upstream and the matching test target is available in this branch. Normal CI
+does not publish the UML images.
 
 To publish the tested images, use **Actions → ci.yml → Run workflow** on
 `ci/uml-nommu` and enable `publish_images`. The publish job only starts after
