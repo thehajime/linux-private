@@ -279,7 +279,7 @@ jobs:
           for config in `find ./ -name .kunitconfig | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
             echo "==" $config "==" ; \
             result_name=$(printf '%s' "$config" | sed 's#[^A-Za-z0-9._-]#_#g'); \
-            ./tools/testing/kunit/kunit.py run --json "output/kunit/kunit-${{ matrix.testname }}-${result_name}.json" --kunitconfig="$config" ${{ matrix.kunit_opts }}
+            ./tools/testing/kunit/kunit.py run --json="output/kunit/kunit-${{ matrix.testname }}-${result_name}.json" --kunitconfig="$config" ${{ matrix.kunit_opts }}
           done
       - name: Upload KUnit result data
         if: ${{ always() && matrix.testname != 'um-mmu-tt' }}
