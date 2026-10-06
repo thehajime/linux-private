@@ -189,8 +189,8 @@ the focused tests pass:
   the BusyBox `cd -` fix in the built NOMMU binary and verify that fix is
   present before publishing the image. Keep ordinary CI image builds local;
   publish the stable `3.20.3-um-nommu` image only after the full validation
-  workflow succeeds and by an explicit dispatch. Record the tested kernel and
-  aports revisions and image digest.
+  UML build and test matrix succeeds and by an explicit dispatch. Record the
+  tested kernel and aports revisions and image digest.
 
 The former status document had a longer TODO ledger. The entries below retain
 items that were not already captured above. Entries superseded by the current
