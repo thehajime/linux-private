@@ -48,7 +48,18 @@ def numbers(path):
 
 
 def collect_benchmarks(root):
-    metrics = {}
+    """Normalize legacy benchmark output files into stable metric records."""
+    records = []
+
+    def add(name, target, value, unit, labels=None):
+        records.append({
+            "name": name,
+            "target": target,
+            "value": float(value),
+            "unit": unit,
+            "labels": labels or {},
+        })
+
     for path in sorted(root.glob("**/*-out.dat")):
         stem = path.stem
         rows = numbers(path)
@@ -61,12 +72,12 @@ def collect_benchmarks(root):
                 rows = [[value] for value in rows[0]]
             for index, row in enumerate(rows):
                 label = LM_BENCHMARKS[index] if index < len(LM_BENCHMARKS) else f"metric-{index + 1}"
-                metrics[f"lmbench/{target}/{label} (usec)"] = row[-1]
+                add("lmbench", target, row[-1], "usec", {"operation": label})
         elif stem.endswith("-getpid-out"):
             target = stem.removesuffix("-getpid-out")
             text = path.read_text(errors="replace")
             value = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text)
-            metrics[f"getpid/{target} (nsec)"] = float(value.group()) if value else rows[-1][-1]
+            add("getpid", target, float(value.group()) if value else rows[-1][-1], "nsec")
         elif stem.endswith("-iperf3-out"):
             target = stem.removesuffix("-iperf3-out")
             labels = ("forward", "reverse")
@@ -74,7 +85,7 @@ def collect_benchmarks(root):
                 rows = [[value] for value in rows[0]]
             for index, row in enumerate(rows):
                 label = labels[index] if index < len(labels) else f"direction-{index + 1}"
-                metrics[f"iperf3/{target}/{label} (Mbps)"] = row[-1]
+                add("iperf3", target, row[-1], "Mbps", {"direction": label})
         elif stem.endswith("-netperf-fwd-out") or stem.endswith("-netperf-rev-out"):
             reverse = stem.endswith("-netperf-rev-out")
             suffix = "-netperf-rev-out" if reverse else "-netperf-fwd-out"
@@ -83,7 +94,22 @@ def collect_benchmarks(root):
             for row in rows:
                 if len(row) >= 2:
                     size = int(row[0])
-                    metrics[f"netperf/{target}/{direction}/{size}B (Mbps)"] = row[1]
+                    add("netperf", target, row[1], "Mbps", {"test": direction, "payload_bytes": size})
+    return records
+
+
+def metric_index(records):
+    """Build stable comparison keys from extensible benchmark metric records."""
+    if isinstance(records, dict):  # Read snapshots produced by schema v1.
+        return records
+    metrics = {}
+    for metric in records:
+        labels = "/".join(f"{key}={value}" for key, value in sorted(metric.get("labels", {}).items()))
+        key = "/".join(part for part in (
+            metric.get("name", "metric"), metric.get("target", "unknown"), labels,
+        ) if part)
+        unit = metric.get("unit", "")
+        metrics[f"{key} ({unit})" if unit else key] = metric["value"]
     return metrics
 
 
@@ -185,7 +211,7 @@ def collect_kselftest(root):
 
 def collect(root, run_url, sha, tested_ref, job_status):
     return {
-        "version": 1,
+        "version": 2,
         "run_url": run_url,
         "workflow_sha": sha,
         "tested_ref": tested_ref,
@@ -315,7 +341,8 @@ def render(snapshot, previous):
     lines.append(f"Compared with [{previous.get('workflow_sha', 'previous run')[:12]}]({previous.get('run_url', '#')}) (tested ref `{previous.get('tested_ref', 'unknown')}`). Benchmark readings can vary with runner load; changes are measurements, not pass/fail thresholds.")
     lines.append("")
     lines.append("#### Benchmarks")
-    metric_diff = compare_metrics(previous.get("benchmark"), snapshot.get("benchmark"))
+    metric_diff = compare_metrics(metric_index(previous.get("benchmark", [])),
+                                  metric_index(snapshot.get("benchmark", [])))
     if metric_diff:
         lines.extend(["| Metric | Previous | Current | Change |", "|---|---:|---:|---:|"])
         lines.extend(f"| {name} | {before} | {after} | {change} |" for name, before, after, change in metric_diff)

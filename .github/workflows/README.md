@@ -55,3 +55,17 @@ enabled. That job does not publish to GHCR. The LTP workflow still uses its
 existing GHCR image as the job container; the locally built candidate is not
 shared across jobs. The RISC-V test therefore remains tied to the previously
 published image until the LTP job is changed to load a local image artifact.
+
+## Test and benchmark result reports
+
+`bench-result` writes a versioned JSON snapshot and posts a comparison to
+`thehajime/linux-private#4`. The snapshot keeps benchmark measurements as
+records with `name`, `target`, `value`, `unit`, and optional `labels`, for
+example an iperf3 record uses `labels.direction` and a netperf record uses
+`labels.test` and `labels.payload_bytes`. To add another benchmark, normalize
+its output into these records in `result-report.py`; the comparison and report
+code will generate stable keys from the record fields automatically. Existing
+`.dat` benchmark output is currently adapted into this schema. LTP and KUnit
+are collected from their JSON output, while kselftest TAP output is normalized
+to named case/status records. Snapshot schema version 2 remains able to read
+older version 1 benchmark maps for comparison.
