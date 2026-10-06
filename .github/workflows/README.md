@@ -6,10 +6,12 @@ patches sent upstream to `uml/next`.
 
 ## Running CI
 
-The workflow runs for pushes to branches and builds/tests the checked-out
-kernel revision. It builds the root filesystem image locally and uses that
-image for the UML smoke and test steps. Normal CI does not publish the UML
-images.
+The workflow runs for pushes to branches that contain this workflow and
+builds/tests the pushed kernel revision. To validate a topic branch without
+copying the workflow into it, dispatch the workflow from `ci/uml-nommu` and set
+`kernel_ref` to the topic branch, tag, or commit. It builds the root filesystem
+image locally and uses that image for the UML smoke and test steps. Normal CI
+does not publish the UML images.
 
 To publish the tested images, use **Actions → ci.yml → Run workflow** on
 `ci/uml-nommu` and enable `publish_images`. The publish job only starts after
@@ -18,9 +20,9 @@ contexts as workflow artifacts, then publishes the stable versioned tags to
 GHCR. Do not enable this option for experimental branches whose images should
 not replace the documented baseline.
 
-For GitHub to run this workflow on pushes to other branches, `ci/uml-nommu`
-must be the repository's default branch. Set that in GitHub repository
-settings; a Git push cannot change the default branch. The image tags used by
+For GitHub to offer this workflow in Actions, `ci/uml-nommu` must be the
+repository's default branch. Set that in GitHub repository settings; a Git
+push cannot change the default branch. The image tags used by
 `Documentation/virt/uml/nommu-uml.rst` should only be updated from a validated
 kernel and rootfs combination.
 

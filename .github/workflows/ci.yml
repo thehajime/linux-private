@@ -7,6 +7,11 @@ on:
   #    - master
   workflow_dispatch:
     inputs:
+      kernel_ref:
+        description: 'Kernel branch, tag, or commit to validate'
+        required: false
+        type: string
+        default: ci/uml-nommu
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
@@ -89,6 +94,8 @@ jobs:
           echo "export PATH=/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin:$PATH" >> $HOME/.bashrc
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.kernel_ref || github.ref }}
       - uses: actions/cache@v5
         with:
           path: ${{ env.CCACHE_DIR }}
