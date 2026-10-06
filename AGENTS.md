@@ -182,15 +182,16 @@ the focused tests pass:
 
 ## Additional deferred work from the former status document
 
-- [ ] **Alpine NOMMU packages and CI images:** upstream `busybox-nommu` and
-  `musl-nommu` APKBUILD changes to Alpine. Replace the expiring GitLab job
-  artifact inputs in `.github/workflows/Dockerfile` with a reproducible build
-  of the pinned `thehajime/aports` source revision in GitHub Actions. Preserve
-  the BusyBox `cd -` fix in the built NOMMU binary and verify that fix is
-  present before publishing the image. Keep ordinary CI image builds local;
-  publish the stable `3.20.3-um-nommu` image only after the full validation
-  UML build and test matrix succeeds and by an explicit dispatch. Record the
-  tested kernel and aports revisions and image digest.
+- [x] Build signed `busybox-nommu` and `musl-nommu` APKs from a pinned aports
+  revision in GitHub CI, verify their package signatures in the UML rootfs
+  image, and remove the expiring GitLab artifact dependency.
+- [ ] Run the updated GitHub workflow; verify the BusyBox `cd -` behavior in
+  the generated NOMMU binary before publishing an image.
+- [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
+- [ ] Keep ordinary CI image builds local; publish the stable
+  `3.20.3-um-nommu` image only after the UML build and test matrix succeeds
+  and by an explicit dispatch. Record the tested kernel and aports revisions
+  and image digest.
 
 The former status document had a longer TODO ledger. The entries below retain
 items that were not already captured above. Entries superseded by the current

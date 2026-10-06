@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM alpine:3.20.3
 
 ARG MODE=
@@ -33,17 +34,15 @@ ADD kselftest.sh /root/
 RUN mkdir -p /root/tools/testing/
 ADD kunit/  /root/tools/testing/kunit
 
-COPY aports-artifacts/packages/ /tmp/aports-packages/
-COPY aports-artifacts/keys/*.rsa.pub /etc/apk/keys/
-
-
 RUN apk update && apk add utmps-libs libtirpc curl make iperf3 coreutils python3
 
-RUN if [[ ${MODE} == "um-nommu" ]]; then \
+RUN --mount=type=bind,source=aports-artifacts,target=/tmp/aports-artifacts,ro \
+    if [[ ${MODE} == "um-nommu" ]]; then \
+       cp /tmp/aports-artifacts/keys/*.rsa.pub /etc/apk/keys/ && \
        apk add --no-cache \
-           /tmp/aports-packages/busybox-nommu-1.36.1-r31.apk \
-           /tmp/aports-packages/musl-nommu-1.2.5-r2.apk; \
-    fi && rm -rf /tmp/aports-packages
+           /tmp/aports-artifacts/packages/busybox-nommu-1.36.1-r31.apk \
+           /tmp/aports-artifacts/packages/musl-nommu-1.2.5-r2.apk; \
+    fi
 
 # for ifupdown
 RUN mkdir -p /etc/network
