@@ -318,43 +318,6 @@ jobs:
           push: true
           tags: ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
 
-  buildroot_riscv:
-    runs-on: ubuntu-22.04
-    name: "buildroot: build riscv64-nommu"
-    timeout-minutes: 100
-    permissions:
-      contents: read
-      packages: write
-    env:
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
-      USE_CCACHE: 1
-
-    steps:
-      - name: LTP checkout
-        run: |
-          git clone -b fix-nommu https://github.com/thehajime/ltp
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: network=host
-      - name: Log in to the ghcr.io
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v7
-        env:
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: ltp/tools/buildroot/
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ghcr.io/thehajime/buildroot-riscv64-nommu:0.1
-
   benchmark:
     runs-on: ${{ matrix.runs_on }}
     needs: [build_uml]
@@ -506,7 +469,6 @@ jobs:
 
   build_ltp:
     uses: ./.github/workflows/ci-docker-build.yml
-    needs: [buildroot_riscv]
     name: "LTP: build"
   test_ltp:
     runs-on: ubuntu-latest
@@ -542,15 +504,6 @@ jobs:
             vmlinux_opt: "seccomp=on"
             test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-nommu
-            kselftest_opt: "NOMMU=1 TARGETS=mm/nommu"
-          - displayTargetName: qemu-riscv-nommu
-            image_name: ghcr.io/thehajime/buildroot-riscv64-nommu:0.1
-            testname: riscv-nommu
-            vmlinux_opt: ""
-            test_cmdline: "env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk --sut default:com=qemu --com \
-            qemu:image=/work-buildroot/buildroot/output/images/rootfs.ext2:kernel=/work-buildroot/buildroot/output/images/Image:system=riscv64:user=root \
-            -f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json"
-            name: riscv-nommu
             kselftest_opt: "NOMMU=1 TARGETS=mm/nommu"
           - displayTargetName: native
             image_name: alpine:3.20.3

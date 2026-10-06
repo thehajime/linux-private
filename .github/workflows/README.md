@@ -36,15 +36,14 @@ GitHub Actions, retain normal checksum and package-signature verification, and
 pass the resulting verified APKs and signing key into the Docker build. Do not
 publish an image when either APK is unavailable or unverified.
 
-The working `thehajime/aports` branch is `nommu-uml-3.20-swmmu` at
-`f5bb4ac9adc9e48b56e9b89a886d595579e92362`. The `cd -` fix is not present in
-that checkout's BusyBox APKBUILD or patches, so identify and carry the fix
-before switching the image build to this source. Exercise the fix in the
-resulting NOMMU binary. Record the exact aports commit, package versions,
-BusyBox fix revision, and published image digest so a published rootfs can be
-reproduced and audited. The
+The `thehajime/aports` branch `nommu-uml-3.20-swmmu` now contains the BusyBox
+`cd -` and `OLDPWD` fix in commit
+`46ff44735de`. Exercise the fix in the resulting NOMMU binary. Record the exact
+aports commit, package versions, BusyBox fix revision, and published image
+digest so a published rootfs can be reproduced and audited. The
 `busybox-nommu` and `musl-nommu` package changes are intended for eventual
 upstreaming to Alpine; track that work in the root `AGENTS.md` TODO list.
 
-The separate `buildroot_riscv` job still publishes its Buildroot image for the
-LTP workflow. It is independent of the UML Alpine image publication gate.
+The unfinished Buildroot RISC-V image build and its LTP matrix entry are
+disabled. They must not publish to GHCR until the image is complete and
+validated.
