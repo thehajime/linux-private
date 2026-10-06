@@ -723,6 +723,7 @@ jobs:
           path: output/out/*
       - name: publish to imgur
         if: ${{ needs.benchmark.result == 'success' }}
+        continue-on-error: true
         uses: devicons/public-upload-to-imgur@v2.2.2
         id: lmbench-imgur
         with:
@@ -730,6 +731,7 @@ jobs:
           client_id: ${{secrets.IMGUR_CLIENT_ID}}
       - name: publish to imgur-iperf
         if: ${{ needs.benchmark.result == 'success' }}
+        continue-on-error: true
         uses: devicons/public-upload-to-imgur@v2.2.2
         id: iperf3-imgur
         with:
@@ -737,6 +739,7 @@ jobs:
           client_id: ${{secrets.IMGUR_CLIENT_ID}}
       - name: publish to imgur-netperf
         if: ${{ needs.benchmark.result == 'success' }}
+        continue-on-error: true
         uses: devicons/public-upload-to-imgur@v2.2.2
         id: netperf-imgur
         with:

@@ -49,22 +49,29 @@ def numbers(path):
 
 def collect_benchmarks(root):
     metrics = {}
-    for path in sorted((root / "out").glob("*.dat")):
+    for path in sorted(root.glob("**/*-out.dat")):
         stem = path.stem
         rows = numbers(path)
         if not rows:
-            continue
+            if not stem.endswith("-getpid-out"):
+                continue
         if stem.endswith("-lmbench-out"):
             target = stem.removesuffix("-lmbench-out")
+            if len(rows) == 1 and len(rows[0]) == len(LM_BENCHMARKS):
+                rows = [[value] for value in rows[0]]
             for index, row in enumerate(rows):
                 label = LM_BENCHMARKS[index] if index < len(LM_BENCHMARKS) else f"metric-{index + 1}"
                 metrics[f"lmbench/{target}/{label} (usec)"] = row[-1]
         elif stem.endswith("-getpid-out"):
             target = stem.removesuffix("-getpid-out")
-            metrics[f"getpid/{target} (nsec)"] = rows[-1][-1]
+            text = path.read_text(errors="replace")
+            value = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text)
+            metrics[f"getpid/{target} (nsec)"] = float(value.group()) if value else rows[-1][-1]
         elif stem.endswith("-iperf3-out"):
             target = stem.removesuffix("-iperf3-out")
             labels = ("forward", "reverse")
+            if len(rows) == 1 and len(rows[0]) == len(labels):
+                rows = [[value] for value in rows[0]]
             for index, row in enumerate(rows):
                 label = labels[index] if index < len(labels) else f"direction-{index + 1}"
                 metrics[f"iperf3/{target}/{label} (Mbps)"] = row[-1]
