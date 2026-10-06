@@ -522,15 +522,10 @@ jobs:
       #  uses: mxschmitt/action-tmate@v3
       #  with:
       #    detached: true
-      - name: checkout trees
+      - name: Fetch UML next for range checks
         run: |
-           #git remote add linus git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
-           #git fetch linus
-           #git format-patch -o p1 linus/master..HEAD~1
            git remote add uml git://git.kernel.org/pub/scm/linux/kernel/git/uml/linux.git
-           git fetch uml
-           git checkout uml/next
-           git checkout zpoline-nommu-v6.10
+           git fetch uml next:refs/remotes/uml/next
       #- name: build (sparse)
       #  run: |
       #     make ARCH=um W=1 C=2 CF='-fdiagnostic-prefix -D__CHECK_ENDIAN__ -fmax-errors=unlimited -fmax-warnings=unlimited' defconfig O=build-sparse
@@ -543,12 +538,12 @@ jobs:
       - name: check coding style
         continue-on-error: true
         run: |
-           git format-patch -o p1 uml/next..HEAD~40
+           git format-patch -o p1 uml/next..HEAD
            ./scripts/checkpatch.pl --summary-file --ignore FILE_PATH_CHANGES \
              --ignore AVOID_EXTERNS p1/*.patch
       - name: check spells on commit message
         run: |
-           git log uml/next..HEAD~40 |grep -v -E "^commit" > /tmp/a
+           git log uml/next..HEAD |grep -v -E "^commit" > /tmp/a
            aspell list /tmp/a
 
   build_ltp:
