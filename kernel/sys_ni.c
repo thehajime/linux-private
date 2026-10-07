@@ -404,4 +404,5 @@ COND_SYSCALL(nommu_swmmu_alloc);
 COND_SYSCALL(nommu_swmmu_free);
 COND_SYSCALL(nommu_swmmu_load);
 COND_SYSCALL(nommu_swmmu_store);
+COND_SYSCALL(nommu_swmmu_cmpxchg);
 #endif
