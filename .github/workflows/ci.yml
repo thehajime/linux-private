@@ -42,6 +42,12 @@ jobs:
             main/busybox
             main/musl
             scripts/swmmu-profile.sh
+            scripts/swmmu-cc
+      - name: Checkout kernel headers and SWMMU plugin source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.kernel_ref || github.ref }}
+          path: kernel-source
       - name: Cache verified aports source archives
         uses: actions/cache@v4
         with:
@@ -53,11 +59,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/aports-distfiles"
           docker run --rm \
             --volume "$GITHUB_WORKSPACE/aports-source:/src:ro" \
+            --volume "$GITHUB_WORKSPACE/kernel-source:/kernel:ro" \
             --volume "$GITHUB_WORKSPACE/.github/workflows/build-nommu-apks.sh:/build.sh:ro" \
             --volume "$RUNNER_TEMP/nommu-apks:/out" \
             --volume "$RUNNER_TEMP/aports-distfiles:/var/cache/distfiles" \
             alpine:3.20.3 sh /build.sh
-      - name: Upload signed NOMMU APKs and public key
+      - name: Upload signed NOMMU APK profiles and public key
         uses: actions/upload-artifact@v4
         with:
           name: aports-nommu-apks
@@ -80,6 +87,7 @@ jobs:
             kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n ### XXX
             testname: um-mmu
             mode: um-mmu
+            userspace_profile: alpine
           - displayTargetName: ubuntu-22.04 (time-travel)
             os: unix
             runs_on: ubuntu-22.04
@@ -89,6 +97,7 @@ jobs:
             kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n ### XXX
             testname: um-mmu-tt
             mode: um-mmu
+            userspace_profile: alpine
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
@@ -98,6 +107,7 @@ jobs:
             kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n
             testname: um-nommu
             mode: um-nommu
+            userspace_profile: nommu-plain
           - displayTargetName: ubuntu-22.04 (nommu-sas)
             os: unix
             runs_on: ubuntu-22.04
@@ -107,6 +117,7 @@ jobs:
             kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_NOMMU_SAS=y
             testname: um-nommu-sas
             mode: um-nommu
+            userspace_profile: nommu-swmmu
     name: "UML: build (${{ matrix.testname }})"
     timeout-minutes: 100
     permissions:
@@ -240,7 +251,9 @@ jobs:
           DOCKER_BUILD_SUMMARY: false
         with:
           context: .github/workflows
-          build-args: "MODE=${{ matrix.mode }}"
+          build-args: |
+            MODE=${{ matrix.mode }}
+            USERSPACE_PROFILE=${{ matrix.userspace_profile }}
           push: false
           load: true
           tags: |
@@ -325,10 +338,13 @@ jobs:
         include:
           - testname: um-mmu
             mode: um-mmu
+            userspace_profile: alpine
           - testname: um-nommu
             mode: um-nommu
+            userspace_profile: nommu-plain
           - testname: um-nommu-sas
             mode: um-nommu
+            userspace_profile: nommu-swmmu
     steps:
       - name: Download tested image context
         uses: actions/download-artifact@v4
@@ -353,7 +369,9 @@ jobs:
           DOCKER_BUILD_SUMMARY: false
         with:
           context: image-context
-          build-args: "MODE=${{ matrix.mode }}"
+          build-args: |
+            MODE=${{ matrix.mode }}
+            USERSPACE_PROFILE=${{ matrix.userspace_profile }}
           push: true
           tags: ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
 

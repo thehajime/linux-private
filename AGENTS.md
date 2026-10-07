@@ -112,6 +112,10 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
+- [ ] Validate the three UML userspace profiles in CI: Alpine standard for
+  MMU, plain `SWMMU=0` NOMMU APKs for non-SAS UML, and instrumented `SWMMU=1`
+  NOMMU APKs for NOMMU-SAS. The SWMMU plugin and UAPI must come from the same
+  kernel ref tested by the workflow.
 - [ ] Run the GitHub Actions UML build/test matrix for the updated
   `feature-swmmu-nommu` revision `a4de425be710`. Run `37551053113` was
   cancelled before the UML matrix started; its NOMMU APK build and artifact

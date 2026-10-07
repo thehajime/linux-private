@@ -13,10 +13,14 @@ without changing the topic branch, dispatch the workflow from `ci/uml-nommu`
 and set `kernel_ref` to the branch, tag, or commit. The CI job checks out the
 selected kernel plus the canonical support files from `ci/uml-nommu`.
 
-Every run builds signed `busybox-nommu` and `musl-nommu` APKs from the pinned
-aports revision in GitHub Actions, then installs those verified packages into
-the locally built rootfs image. That image is used by the UML smoke and
-KUnit steps. Kselftest is temporarily disabled because the NOMMU kselftest
+Every run builds signed NOMMU APK profiles from the pinned aports revision in
+GitHub Actions. MMU UML keeps Alpine's standard userspace; `um-nommu` uses
+`SWMMU=0` APKs, and `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with
+the selected kernel ref's GCC plugin and UAPI. These profile artifacts are
+installed into their matching local rootfs images for the UML smoke and KUnit
+steps. For the SWMMU image, APK install scripts are skipped because the
+instrumented guest BusyBox cannot run on the build host; a static helper from
+the same aports build recreates its applet links. Kselftest is temporarily disabled because the NOMMU kselftest
 suite is not present in the tested kernel tree and the generic UML run takes
 too long. Re-enable focused kselftest coverage after the NOMMU tests are
 upstream and the matching test target is available in this branch. Normal CI
