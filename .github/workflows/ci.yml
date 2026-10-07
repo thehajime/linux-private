@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: thehajime/aports
-          ref: 495b759961ab7cd2bbc32114b8ec19cf1014317d
+          ref: f72f56c2be4f6c07be9f6adadcbe7f1efa76af93
           path: aports-source
           sparse-checkout: |
             main/busybox

@@ -15,13 +15,13 @@ selected kernel plus the canonical support files from `ci/uml-nommu`.
 
 Every run builds signed NOMMU APK profiles from the pinned aports revision in
 GitHub Actions. MMU UML keeps Alpine's standard userspace; `um-nommu` uses
-static, non-PIE `SWMMU=0` APKs with SWMMU default-on disabled, and
+uninstrumented `SWMMU=0` APKs with SWMMU default-on disabled, and
 `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with the selected kernel
 ref's GCC plugin and UAPI. Both profiles are built and installed into their
 matching local rootfs images. Plain x86_64 NOMMU UML does not support the
 standard ELF binary format (`BINFMT_ELF` depends on MMU, and UML does not
-accept x86_64 FDPIC ELF), so its image build and KUnit steps run but guest boot
-smoke tests are skipped. SAS and MMU UML still run guest boot tests. For the
+accept x86_64 FDPIC ELF), so its kernel, APK, image, and KUnit checks run but
+guest boot smoke tests are skipped. SAS and MMU UML still run guest boot tests. For the
 SWMMU image, APK install scripts are skipped because the
 instrumented guest BusyBox cannot run on the build host; a static helper from
 the same aports build recreates its applet links. Kselftest is temporarily disabled because the NOMMU kselftest
@@ -50,8 +50,10 @@ workflow artifact. The base image verifies package signatures during
 installation. The temporary GitLab CI artifact is no longer used.
 
 The `thehajime/aports` branch `nommu-uml-3.20-swmmu` contains the BusyBox
-`cd -` and `OLDPWD` fix and the static, non-PIE plain NOMMU profile in commit
-`495b759961ab7cd2bbc32114b8ec19cf1014317d`. The workflow pins this revision.
+`cd -` and `OLDPWD` fix in commit
+`46ff44735decafda0d5738097398f77adc6cb312`; the workflow pins its later
+revert commit `f72f56c2be4f6c07be9f6adadcbe7f1efa76af93`, which preserves those
+fixes without claiming a conventional static ELF is executable on UML NOMMU.
 Exercise the fix in the resulting NOMMU binary. Record the exact aports commit,
 package versions, BusyBox fix revision, and published image digest so a
 published rootfs can be reproduced and audited. The
