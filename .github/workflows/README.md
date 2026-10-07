@@ -15,8 +15,9 @@ selected kernel plus the canonical support files from `ci/uml-nommu`.
 
 Every run builds signed NOMMU APK profiles from the pinned aports revision in
 GitHub Actions. MMU UML keeps Alpine's standard userspace; `um-nommu` uses
-`SWMMU=0` APKs, and `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with
-the selected kernel ref's GCC plugin and UAPI. These profile artifacts are
+`SWMMU=0` APKs with SWMMU default-on disabled, and `um-nommu-sas` uses
+instrumented `SWMMU=1` APKs built with the selected kernel ref's GCC plugin
+and UAPI. These profile artifacts are
 installed into their matching local rootfs images for the UML smoke and KUnit
 steps. For the SWMMU image, APK install scripts are skipped because the
 instrumented guest BusyBox cannot run on the build host; a static helper from

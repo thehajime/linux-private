@@ -223,6 +223,7 @@ jobs:
         if: matrix.testname == 'um-nommu'
         run: |
           echo "# CONFIG_MMU is not set" >> arch/um/configs/x86_64_defconfig
+          echo "# CONFIG_NOMMU_SWMMU_DEFAULT_ON is not set" >> arch/um/configs/x86_64_defconfig
       - name: (FIXME) defconfig rewrite for nommu-sas
         if: matrix.testname == 'um-nommu-sas'
         run: |
