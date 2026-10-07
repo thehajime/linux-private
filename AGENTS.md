@@ -13,6 +13,10 @@ and `Documentation/mm/swmmu-kselftest-build.rst`.
   are based on the current UML `next` branch fetched from kernel.org; keep
   `.github/workflows` on the separate `ci/uml-nommu` branch, not in upstream
   patch series.
+- Maintain this handoff and its TODO ledger on the default branch,
+  `ci/uml-nommu`; feature branches should not carry independently edited
+  copies. Keep stable build and test instructions here and implementation
+  details in the relevant `Documentation/` files.
 - Use current tracked source and this file as the source of truth. Older chat
   excerpts, historical appendices, and experimental branches can be stale.
 - Leave unrelated untracked files alone. Do not add them or change
@@ -198,6 +202,13 @@ the focused tests pass:
   environments: lmbench, getpid, iperf3, netperf, and LTP.
 - [ ] Publish benchmark results in a durable, reviewable location, such as a
   comment on the relevant pull request (previously `thehajime/linux#1`).
+- [ ] Investigate whether GitHub issue comments can embed the GitHub Pages
+  report or its charts; add the useful report view to the results issue.
+- [ ] Group “Changes from previous report” by benchmark family so the
+  lmbench, getpid, iperf3, and netperf differences are easier to scan.
+- [ ] Investigate benchmark entries reported as missing and distinguish an
+  unavailable sample from an actual regression or a benchmark that did not
+  run.
 
 The former status document had a longer TODO ledger. The entries below retain
 items that were not already captured above. Entries superseded by the current
