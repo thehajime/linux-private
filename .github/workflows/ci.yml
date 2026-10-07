@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: thehajime/aports
-          ref: 46ff44735decafda0d5738097398f77adc6cb312
+          ref: 495b759961ab7cd2bbc32114b8ec19cf1014317d
           path: aports-source
           sparse-checkout: |
             main/busybox
@@ -234,6 +234,11 @@ jobs:
           curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
           cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }} O=build
+          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+            scripts/config --file build/.config --disable NOMMU_SWMMU_DEFAULT_ON
+            make ARCH=um O=build olddefconfig
+            ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' build/.config
+          fi
           cat build/.config | sed "s/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/" > /tmp/a; mv /tmp/a build/.config
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
       - name: prep for docker build

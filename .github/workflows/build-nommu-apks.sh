@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-apk add --no-cache alpine-sdk bash doas git bc bison flex openssl-dev perl python3 elfutils-dev gmp-dev mpfr-dev mpc1-dev isl-dev rsync
+apk add --no-cache alpine-sdk binutils bash doas git bc bison flex openssl-dev perl python3 elfutils-dev gmp-dev mpfr-dev mpc1-dev isl-dev rsync
 
 # Build the plugin with the same Alpine GCC that will compile the guest
 # userspace packages. GCC plugins are tied to the host compiler ABI.
@@ -67,6 +67,18 @@ build_profile() {
 	}
 	tar -xOf "$1" bin/busybox.static >"/out/$profile/tools/busybox-host" 2>/dev/null
 	chmod 755 "/out/$profile/tools/busybox-host"
+	if [ "$profile" = nommu-plain ]; then
+		set -- "$REPODEST/main/x86_64/busybox-nommu"-*.apk
+		tar -xOf "$1" bin/busybox >/tmp/busybox-nommu-plain
+		if ! readelf -h /tmp/busybox-nommu-plain | grep -Eq 'Type:[[:space:]]+EXEC'; then
+			echo "plain NOMMU BusyBox must be ET_EXEC" >&2
+			exit 1
+		fi
+		if readelf -l /tmp/busybox-nommu-plain | grep -q INTERP; then
+			echo "plain NOMMU BusyBox must not need a dynamic interpreter" >&2
+			exit 1
+		fi
+	fi
 }
 
 build_profile nommu-plain
