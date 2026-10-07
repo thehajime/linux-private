@@ -283,8 +283,12 @@ jobs:
           mkdir -p rootfs
           sudo tar -xf alpine.tar -C rootfs
           sudo chown -R ${USER} rootfs
+      - name: Explain skipped plain NOMMU guest boot
+        if: matrix.testname == 'um-nommu'
+        run: |
+          echo 'Skipping guest boot: x86_64 UML NOMMU has no compatible ELF loader; kernel, APK, image, and KUnit checks still run.'
       - name: test-0 (static)
-        if: matrix.testname != 'um-mmu-tt'
+        if: matrix.testname != 'um-mmu-tt' && matrix.testname != 'um-nommu'
         run: |
           sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
           faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt &
@@ -314,7 +318,7 @@ jobs:
           make ARCH=um ${{ matrix.defconfig }}
           make -j8 ARCH=um ${{ matrix.add_configs }}
       - name: test-1
-        if: matrix.testname != 'um-mmu-tt'
+        if: matrix.testname != 'um-mmu-tt' && matrix.testname != 'um-nommu'
         run: |
           faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 init=/sbin/init 2>&1 | tee /tmp/log.txt &
           sleep 10 && pkill vmlinux
