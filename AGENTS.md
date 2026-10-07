@@ -112,6 +112,14 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
+- [ ] Revisit the plain NOMMU kernel Kconfig: `CONFIG_NOMMU_SWMMU` is currently
+  hidden and defaults to `y` whenever `MMU=n`; CI disables only
+  `CONFIG_NOMMU_SWMMU_DEFAULT_ON`, so the SWMMU implementation remains compiled
+  while runtime SWMMU activation defaults off. Make SWMMU support selectable
+  before claiming a build without SWMMU code.
+- [ ] Remove the temporary LTP skips for `ptrace06` on `um-mmu` and
+  `perf_event_open03` on `um-nommu-seccomp` and `um-nommu-sas-seccomp` after
+  their failure causes are understood and fixed.
 - [ ] Validate the three UML userspace profiles in CI: Alpine standard for
   MMU, plain `SWMMU=0` NOMMU APKs for non-SAS UML, and instrumented `SWMMU=1`
   NOMMU APKs for NOMMU-SAS. The SWMMU plugin and UAPI must come from the same

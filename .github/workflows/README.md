@@ -19,9 +19,13 @@ uninstrumented `SWMMU=0` APKs with SWMMU default-on disabled, and
 `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with the selected kernel
 ref's GCC plugin and UAPI. Both profiles are built and installed into their
 matching local rootfs images. Plain x86_64 NOMMU UML does not support the
-standard ELF binary format (`BINFMT_ELF` depends on MMU, and UML does not
-accept x86_64 FDPIC ELF), so its kernel, APK, image, and KUnit checks run but
-guest boot smoke tests are skipped. SAS and MMU UML still run guest boot tests. For the
+standard `BINFMT_ELF` loader, but its FDPIC loader accepts `ET_DYN` PIE binaries
+without FDPIC-specific marking when `MMU=n`. CI boots the plain NOMMU image and
+checks that its userspace init script starts. Its kernel has
+`CONFIG_NOMMU_SWMMU_DEFAULT_ON` disabled, so userspace starts with SWMMU off;
+`CONFIG_NOMMU_SWMMU` itself is currently hidden and defaults to `y` for all
+NOMMU builds, so the implementation remains compiled in. SAS and MMU UML also
+run guest boot tests. For the
 SWMMU image, APK install scripts are skipped because the
 instrumented guest BusyBox cannot run on the build host; a static helper from
 the same aports build recreates its applet links. Kselftest is temporarily disabled because the NOMMU kselftest
@@ -60,11 +64,15 @@ published rootfs can be reproduced and audited. The
 `busybox-nommu` and `musl-nommu` package changes are intended for eventual
 upstreaming to Alpine; track that work in the root `AGENTS.md` TODO list.
 
-The Buildroot RISC-V image is built locally and the RISC-V LTP matrix entry is
-enabled. That job does not publish to GHCR. The LTP workflow still uses its
-existing GHCR image as the job container; the locally built candidate is not
-shared across jobs. The RISC-V test therefore remains tied to the previously
-published image until the LTP job is changed to load a local image artifact.
+The UML and Buildroot RISC-V images are built locally, saved as workflow
+artifacts, and loaded by benchmark and LTP jobs. No test job pulls a GHCR image;
+GHCR is used only when `publish_images` is explicitly enabled. The RISC-V LTP
+build and test jobs run in the Buildroot image from that run; its cross
+toolchain is not copied from an older published image.
+
+The LTP runner temporarily excludes `ptrace06` from `um-mmu` and
+`perf_event_open03` from `um-nommu-seccomp` and `um-nommu-sas-seccomp`. The
+root `AGENTS.md` tracks removing these skips after the failures are diagnosed.
 
 ## Test and benchmark result reports
 

@@ -263,11 +263,21 @@ jobs:
           push: false
           load: true
           tags: |
-            ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
+            uml-ci/alpine:3.20.3-${{ matrix.testname }}
+      - name: Save tested UML image for downstream jobs
+        if: matrix.testname != 'um-mmu-tt'
+        run: docker save uml-ci/alpine:3.20.3-${{ matrix.testname }} -o "$RUNNER_TEMP/uml-image.tar"
+      - name: Upload tested UML image
+        if: matrix.testname != 'um-mmu-tt'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uml-docker-image-${{ matrix.testname }}
+          path: ${{ runner.temp }}/uml-image.tar
+          if-no-files-found: error
       - name: image for test
         if: matrix.testname != 'um-mmu-tt'
         run: |
-          docker create --name alpine-nommu ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
+          docker create --name alpine-nommu uml-ci/alpine:3.20.3-${{ matrix.testname }}
           docker start alpine-nommu
           docker wait alpine-nommu
           docker logs alpine-nommu
@@ -283,16 +293,18 @@ jobs:
           mkdir -p rootfs
           sudo tar -xf alpine.tar -C rootfs
           sudo chown -R ${USER} rootfs
-      - name: Explain skipped plain NOMMU guest boot
-        if: matrix.testname == 'um-nommu'
-        run: |
-          echo 'Skipping guest boot: x86_64 UML NOMMU has no compatible ELF loader; kernel, APK, image, and KUnit checks still run.'
       - name: test-0 (static)
-        if: matrix.testname != 'um-mmu-tt' && matrix.testname != 'um-nommu'
+        if: matrix.testname != 'um-mmu-tt'
         run: |
           sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
-          faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt &
-          sleep 10 && pkill vmlinux
+          set +e
+          timeout --signal=TERM 30s faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
+          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+            grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
+          fi
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
@@ -318,10 +330,16 @@ jobs:
           make ARCH=um ${{ matrix.defconfig }}
           make -j8 ARCH=um ${{ matrix.add_configs }}
       - name: test-1
-        if: matrix.testname != 'um-mmu-tt' && matrix.testname != 'um-nommu'
+        if: matrix.testname != 'um-mmu-tt'
         run: |
-          faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 init=/sbin/init 2>&1 | tee /tmp/log.txt &
-          sleep 10 && pkill vmlinux
+          set +e
+          timeout --signal=TERM 30s faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
+          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+            grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
+          fi
           echo "========="
           cat /tmp/log.txt
       - name: Pack tested image context
@@ -411,7 +429,15 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: ghcr.io/thehajime/buildroot-riscv64-nommu:0.1
+          tags: uml-ci/buildroot-riscv64-nommu:0.1
+      - name: Save local RISC-V image
+        run: docker save uml-ci/buildroot-riscv64-nommu:0.1 -o "$RUNNER_TEMP/buildroot-riscv-image.tar"
+      - name: Upload local RISC-V image
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildroot-riscv64-nommu-image
+          path: ${{ runner.temp }}/buildroot-riscv-image.tar
+          if-no-files-found: error
 
   benchmark:
     runs-on: ${{ matrix.runs_on }}
@@ -453,6 +479,13 @@ jobs:
     name: "UML: bench (${{ matrix.testname }}) "
     timeout-minutes: 100
     steps:
+      - name: Download tested UML image
+        uses: actions/download-artifact@v4
+        with:
+          name: uml-docker-image-${{ matrix.image_name }}
+          path: ${{ runner.temp }}/uml-image
+      - name: Load tested UML image
+        run: docker load -i "$RUNNER_TEMP/uml-image/uml-image.tar"
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
@@ -476,7 +509,7 @@ jobs:
            mkdir -p output
            sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm ghcr.io/thehajime/alpine:3.20.3-${{ matrix.image_name }} \
+              --rm uml-ci/alpine:3.20.3-${{ matrix.image_name }} \
               mem=2G root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 ${{ matrix.vmlinux_opt }} \
               init=/bench.sh \
              | tee output/${{ matrix.testname }}.dat &
@@ -491,7 +524,7 @@ jobs:
            #  loglevel=8 console=tty init=/root/iperf3.sh \
            #  | tee output/${{ matrix.testname }}-seccomp-iperf3.dat
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm ghcr.io/thehajime/alpine:3.20.3-${{ matrix.image_name }} mem=2G \
+              --rm uml-ci/alpine:3.20.3-${{ matrix.image_name }} mem=2G \
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 ${{ matrix.bench1_opt }} \
               init=/root/iperf3.sh \
@@ -559,126 +592,154 @@ jobs:
 
   build_ltp:
     uses: ./.github/workflows/ci-docker-build.yml
-    needs: [buildroot_riscv]
     name: "LTP: build"
+  build_ltp_riscv:
+    runs-on: ubuntu-latest
+    name: "LTP: build (RISC-V, local Buildroot image)"
+    timeout-minutes: 100
+    permissions:
+      contents: read
+    needs: [buildroot_riscv]
+    steps:
+      - name: Download local Buildroot image
+        uses: actions/download-artifact@v4
+        with:
+          name: buildroot-riscv64-nommu-image
+          path: ${{ runner.temp }}/buildroot-image
+      - name: Load local Buildroot image
+        run: docker load -i "$RUNNER_TEMP/buildroot-image/buildroot-riscv-image.tar"
+      - name: Checkout canonical CI support files
+        uses: actions/checkout@v6
+        with:
+          ref: ci/uml-nommu
+          path: ci-config
+      - name: Checkout LTP source
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/ltp
+          ref: fix-nommu
+          path: ltp-source
+          submodules: recursive
+      - name: Build RISC-V LTP in local Buildroot image
+        run: |
+          mkdir -p "$RUNNER_TEMP/ltp-home" "$RUNNER_TEMP/ltp-riscv-artifact"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE/ltp-source:/work-buildroot/ltp" \
+            --volume "$GITHUB_WORKSPACE/ci-config/.github/workflows/build-ltp-riscv.sh:/build-ltp-riscv.sh:ro" \
+            --volume "$RUNNER_TEMP/ltp-home:/github/home" \
+            --volume "$RUNNER_TEMP/ltp-riscv-artifact:/run-artifacts" \
+            --workdir /work-buildroot/ltp \
+            --entrypoint /bin/bash \
+            uml-ci/buildroot-riscv64-nommu:0.1 /build-ltp-riscv.sh
+      - name: Upload RISC-V LTP install artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltp-alpine-riscv-nommu.tar.gz
+          path: ${{ runner.temp }}/ltp-riscv-artifact/ltp-alpine-riscv-nommu.tar.gz
+          if-no-files-found: error
   test_ltp:
     runs-on: ubuntu-latest
-    needs: [build_uml, build_ltp]
+    needs: [build_uml, build_ltp, build_ltp_riscv, buildroot_riscv]
     strategy:
       fail-fast: false
       matrix:
         include:
           - displayTargetName: um-mmu
-            image_name: ghcr.io/thehajime/alpine:3.20.3-um-mmu
+            image_name: uml-ci/alpine:3.20.3-um-mmu
+            image_artifact: uml-docker-image-um-mmu
             testname: um-mmu
             vmlinux_opt: ""
-            test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-mmu
           - displayTargetName: um-mmu-s
-            image_name: ghcr.io/thehajime/alpine:3.20.3-um-mmu
+            image_name: uml-ci/alpine:3.20.3-um-mmu
+            image_artifact: uml-docker-image-um-mmu
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
-            test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-mmu
           - displayTargetName: um-nommu
-            image_name: ghcr.io/thehajime/alpine:3.20.3-um-nommu
+            image_name: uml-ci/alpine:3.20.3-um-nommu
+            image_artifact: uml-docker-image-um-nommu
             testname: um-nommu
             vmlinux_opt: ""
-            test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-nommu
           - displayTargetName: um-nommu-s
-            image_name: ghcr.io/thehajime/alpine:3.20.3-um-nommu
+            image_name: uml-ci/alpine:3.20.3-um-nommu
+            image_artifact: uml-docker-image-um-nommu
             testname: um-nommu-seccomp
             vmlinux_opt: "seccomp=on"
-            test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-nommu
           - displayTargetName: qemu-riscv-nommu
-            image_name: ghcr.io/thehajime/buildroot-riscv64-nommu:0.1
+            image_name: uml-ci/buildroot-riscv64-nommu:0.1
+            image_artifact: buildroot-riscv64-nommu-image
             testname: riscv-nommu
             vmlinux_opt: ""
-            test_cmdline: "env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk --sut default:com=qemu --com \
-            qemu:image=/work-buildroot/buildroot/output/images/rootfs.ext2:kernel=/work-buildroot/buildroot/output/images/Image:system=riscv64:user=root \
-            -f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json"
             name: riscv-nommu
           - displayTargetName: native
             image_name: alpine:3.20.3
+            image_artifact: ''
             testname: native
             vmlinux_opt: ""
-            test_cmdline: "env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
-            -f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json"
             name: um-mmu
             docker_opt: "-v /lib/modules:/lib/modules"
           - displayTargetName: um-nommu-sas-s
-            image_name: ghcr.io/thehajime/alpine:3.20.3-um-nommu-sas
+            image_name: uml-ci/alpine:3.20.3-um-nommu-sas
+            image_artifact: uml-docker-image-um-nommu-sas
             testname: um-nommu-sas-seccomp
             vmlinux_opt: ""
-            test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-nommu
           - displayTargetName: um-nommu-sas-z
-            image_name: ghcr.io/thehajime/alpine:3.20.3-um-nommu-sas
+            image_name: uml-ci/alpine:3.20.3-um-nommu-sas
+            image_artifact: uml-docker-image-um-nommu-sas
             testname: um-nommu-sas-zpoline
             vmlinux_opt: "zpoline=1"
-            test_cmdline: "sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 "
             name: um-nommu
     name: "LTP: test-${{ matrix.testname }}"
-    container:
-      image: ${{ matrix.image_name }}
-      options: --privileged -v/boot:/boot -v/home:/home -v /dev:/dev -t --entrypoint /bin/sh ${{ matrix.docker_opt }}
     steps:
+      - name: Download local test image
+        if: matrix.image_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.image_artifact }}
+          path: ${{ runner.temp }}/local-image
+      - name: Load local test image
+        if: matrix.image_artifact != ''
+        run: docker load -i "$(find "$RUNNER_TEMP/local-image" -maxdepth 1 -name '*.tar' -print -quit)"
+      - name: Pull native Alpine test image
+        if: matrix.testname == 'native'
+        run: docker pull alpine:3.20.3
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: ltp-alpine-${{ matrix.name }}.tar.gz
+          path: ${{ runner.temp }}/ltp-install
+      - name: Create local test container
+        run: |
+          install -d "$RUNNER_TEMP/ltp-home"
+          docker create --name ltp-test --privileged -t \
+            -v /boot:/boot -v /home:/home -v /dev:/dev \
+            ${{ matrix.docker_opt }} \
+            -v "$GITHUB_WORKSPACE:/github/workspace" \
+            -v "$RUNNER_TEMP/ltp-install:/ltp-install-artifacts" \
+            -v "$RUNNER_TEMP/ltp-home:/github/home" \
+            --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
+          docker start ltp-test
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
         with:
           detached: true
-      - name: Set RISC-V toolchain path
-        if: matrix.testname == 'riscv-nommu'
-        run: |
-          echo "/work-buildroot/buildroot/output/host/bin" >> $GITHUB_PATH
-          echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.bashrc
-          echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.profile
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
-        with:
-            path: /
-            pattern: ltp-alpine-${{ matrix.name }}.tar.gz
-      - name: extract artifact
-        run: |
-            tar xfz /ltp-alpine-${{ matrix.name }}.tar.gz -C /
-      - name: tests preparation (riscv)
-        if: matrix.testname == 'riscv-nommu'
-        run: |
-            qemu-img create -f raw /ltp-image.img 2G
-            mkfs.ext2 -d /opt/ /ltp-image.img
-            apt install -y python3 git util-linux e2fsprogs parted
-      - name: tests preparation (common)
-        run: |
-          mkdir -p output/ltp
-          cp .github/workflows/ltp-skip /
-          apk add git util-linux || true
-          git clone -b fix-nommu https://github.com/thehajime/ltp
-          cd ltp; git submodule update --init --recursive; cd ..
-          cp .github/workflows/faketty /bin
-          chmod +x /bin/faketty
-      - name: tests preparation (um)
-        if: matrix.testname != 'riscv-nommu'
-        run: |
-          sh -x ltp/ci/alpine-runtime.sh
-          apk del btrfs-progs
-          cp .github/workflows/ltp-exec.sh /
-
-          cat .github/workflows/ltp-entrypoint.sh | sed "s/cmd_option/${{ matrix.vmlinux_opt }}/" > /tmp/a
-          mv /tmp/a .github/workflows/ltp-entrypoint.sh
-      - name: LTP tests
+      - name: Extract test programs and run LTP
         env:
+          LTP_TESTNAME: ${{ matrix.testname }}
+          LTP_ARTIFACT_NAME: ${{ matrix.name }}
+          UML_OPTIONS: ${{ matrix.vmlinux_opt }}
           LTP_TIMEOUT_MUL: 10
         run: |
-          faketty ${{ matrix.test_cmdline }} \
-               | tee output/ltp/${{ matrix.testname }}-ltp.dat
-          ./ltp/tools/kirk/kirk-src/utils/json2html.py -r /result.json \
-               > output/ltp/ltp-result-${{ matrix.testname }}.html
-          cp /result.json output/ltp/result-${{ matrix.testname }}.json || true
-          cp -rpf /github/home/kirk.root/ output/ltp/ || true
-          cp -rpf /tmp/kirk.root/ output/ltp/ || true
+          docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
+            /bin/sh -x /github/workspace/.github/workflows/run-ltp-job.sh
+      - name: Stop local test container
+        if: always()
+        run: docker rm -f ltp-test || true
 
       - uses: actions/upload-artifact@v7
         id: upload_html

@@ -78,21 +78,6 @@ jobs:
               branch: 'fix-nommu'
               NOMMU: 1
 
-          # riscv-nommu (cross)
-          - container: "ghcr.io/thehajime/buildroot-riscv64-nommu:0.1"
-            env:
-              ARCH: riscv
-              CC: riscv64-buildroot-linux-uclibc-gcc
-              MAKE_INSTALL: 1
-              TREE: out
-              VARIANT: cross-compile
-              NAME: riscv-nommu
-              OPT: "CFLAGS='-fPIC -Wl,-elf2flt=-r' LDFLAGS='-Wl,-elf2flt=-r'"
-              branch: 'fix-nommu'
-              HOST_CFLAGS: '-fPIC'
-              UCLIBC: 1
-              NOMMU: 1
-
 ##          # build with minimal dependencies
 ##          - container: "debian:stable"
 ##            env:
@@ -217,14 +202,6 @@ jobs:
       run: |
         case "$VARIANT" in cross-compile*) BUILD="cross";; i386) BUILD="32";; *) BUILD="native";; esac
         ${{ matrix.env.OPT }} ./build.sh -r configure -o ${TREE:-in} -t $BUILD -c $CC
-
-    - name: patch (riscv)
-      if: matrix.env.NAME == 'riscv-nommu'
-      run: |
-        cat ../ltp-build/include/config.h  | sed "s/\(.*HAVE_GETAUXVAL.*\)/\/\* \1\*\//" > /tmp/a
-        mv /tmp/a ../ltp-build/include/config.h
-        cat ../ltp-build/include/config.h
-        patch -p1 < ./ltx-fork.patch
 
     - name: patch kirk
       run: |
