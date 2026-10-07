@@ -209,6 +209,15 @@ the focused tests pass:
 - [ ] Investigate benchmark entries reported as missing and distinguish an
   unavailable sample from an actual regression or a benchmark that did not
   run.
+- [ ] Run the GitHub Actions UML build/test matrix for the updated
+  `feature-swmmu-nommu` branch (`a4de425be710`) when practical. Run
+  `37551053113` was cancelled before the UML matrix started; its NOMMU APK
+  build and artifact upload completed, while the local RISC-V image build was
+  interrupted. Record the final matrix outcomes and address any new failures.
+- [ ] After deciding the updated feature branch no longer needs its staging
+  ref, rename `codex/feature-swmmu-nommu-followup` to a clearly marked
+  `to-be-deleted-*` branch before deleting it. Keep the pre-update backup ref
+  until it is no longer needed for rollback.
 
 The former status document had a longer TODO ledger. The entries below retain
 items that were not already captured above. Entries superseded by the current
