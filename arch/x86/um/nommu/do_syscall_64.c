@@ -2,6 +2,7 @@
 
 #include <linux/kernel.h>
 #include <linux/ptrace.h>
+#include <linux/seccomp.h>
 #include <kern_util.h>
 #include <asm/syscall.h>
 #include <asm/prctl.h>
@@ -23,7 +24,7 @@ __visible void do_syscall_64(struct pt_regs *regs)
 	/* save fp registers */
 	asm volatile("fxsaveq %0" : "=m"(*(struct _xstate *)regs->regs.fp));
 
-	if (secure_computing() == -1)
+	if (!seccomp_permit_syscall())
 		return;
 	if (likely(syscall < NR_syscalls)) {
 		unsigned long ret;
