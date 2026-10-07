@@ -1,275 +1,183 @@
-# SWMMU Project Handoff
+# SWMMU project handoff
 
-This file is the current working status and guidance for SWMMU/NOMMU changes
-in this repository. Keep it concise and update it when a milestone changes.
-It replaces the former `Documentation/mm/swmmu-status.md`; testing commands
-and user-facing SWMMU documentation remain in `Documentation/mm/swmmu.rst`
-and `Documentation/mm/swmmu-kselftest-build.rst`.
+This file is the concise, current handoff for SWMMU/NOMMU development. Keep
+release-facing feature descriptions in `Documentation/mm/swmmu.rst`, and keep
+reproducible kselftest build instructions in
+`Documentation/mm/swmmu-kselftest-build.rst`.
 
-## Repository and source of truth
+## Project status
 
-- This checkout is the `thehajime/linux-private` GitHub mirror. Perform
-  repository operations from this directory. The experimental kernel branches
-  are based on the current UML `next` branch fetched from kernel.org; keep
-  `.github/workflows` on the separate `ci/uml-nommu` branch, not in upstream
-  patch series.
-- Maintain this handoff and its TODO ledger on the default branch,
-  `ci/uml-nommu`; feature branches should not carry independently edited
-  copies. Keep stable build and test instructions here and implementation
-  details in the relevant `Documentation/` files.
-- Use current tracked source and this file as the source of truth. Older chat
-  excerpts, historical appendices, and experimental branches can be stale.
-- Leave unrelated untracked files alone. Do not add them or change
-  `.gitignore` unless specifically asked.
-- Keep changes upstreamable: prefer small NOMMU/SWMMU-specific changes and
-  reuse common MM infrastructure where it fits. Avoid broad MMU behavior
-  changes solely to simplify SWMMU.
+- **Current phase:** cleanup and validation before feature development.
+- **Handoff and CI branch:** `ci/uml-nommu` (the default branch and the only
+  branch on which this ledger is maintained).
+- **Implementation branch:** `feature-swmmu-nommu`; do not maintain a second,
+  independently edited AGENTS.md there.
+- **Current profile:** experimental paged SWMMU on UML with `CONFIG_MMU=n`,
+  `CONFIG_NOMMU_SWMMU=y`, and `CONFIG_UML_NOMMU_SAS=y`.
+- **Correctness baseline:** SVM-style all-access instrumentation with raw
+  pointers and runtime address translation.
+- **Userspace checkpoint:** instrumented Bash and a short lmbench smoke have
+  completed. Coreutils is the next package-profile target; nginx, OpenSSL, and
+  broader application validation have not started.
+- **Next validation task:** build a fresh kselftest tree using the documented
+  workflow, run both `zpoline=0` and `zpoline=1`, and record exact KUnit and
+  kselftest TAP totals.
 
-## Current design and implementation
+## Whole milestones
 
-The correctness baseline is SVM-style all-access instrumentation:
+- [x] Establish the all-access compiler/runtime model.
+- [x] Bring up paged SWMMU startup and instrumented userspace.
+- [x] Implement and validate SAS aliases for the active `mm_struct`.
+- [x] Exercise the reported KUnit, compiler-plugin, UML kselftest, Bash, and
+  lmbench smoke-test profiles.
+- [x] Complete the first source-cleanup pass: VMA clone preparation,
+  transaction state, resize locking, alias teardown, and plugin organization.
+- [x] Document a reproducible fresh kselftest build.
+- [x] Move the authoritative handoff and CI workflows to `ci/uml-nommu`.
+- [ ] Reproduce the fresh kselftest build and record exact results for both
+  zpoline modes. **This is the next task.**
+- [ ] Close the remaining correctness gaps for signals, mappings, user-copy,
+  nonlocal control flow, and supported compiler-generated accesses.
+- [ ] Extend the instrumented Alpine profile through coreutils, then validate
+  nginx, OpenSSL, and broader applications. **Nginx is not started.**
+- [ ] Define the final mode ABI and expand beyond the current x86_64 SAS scope.
+- [ ] Address concurrency and performance after functional validation is
+  stable.
 
-- Pointers retain their normal raw representation.
-- The compiler instruments supported source-level accesses; runtime helpers
-  translate addresses dynamically.
-- Pointer provenance, allocator-specific propagation, native-access
-  selection, and selective pointer-state analysis are not correctness
-  requirements. Treat older selective-provenance and mallocng-specialization
-  work as archived experiments unless deliberately revisited as optimization.
-- The implementation is an experimental paged SWMMU profile for UML with
-  `CONFIG_MMU=n`, `CONFIG_NOMMU_SWMMU=y`, and currently SAS enabled.
+## Active TODOs
 
-The recorded bring-up baseline has passed KUnit SWMMU suites, compiler-plugin
-tests, and repeated UML NOMMU kselftest runs, plus Bash smoke tests and a short
-lmbench smoke. Those results apply to the reported configurations and should
-not be generalized to all binaries, modes, or multi-threaded programs. The
-current branch has also had cleanup work for VMA clone preparation, transaction
-state, resize locking, alias teardown, and plugin source organization.
+### Immediate
 
-SAS host aliases represent only the currently active SWMMU `mm_struct` in the
-shared UML host address space. Switching tasks/mm instances must switch aliases;
-updates to inactive mms must defer fixed alias operations. SWMMU virtual ranges
-are represented in `mm->mm_mt`, with page backing held by SWMMU page tables.
-The SAS physical-memory mapping and aliases must share backing storage. Do not
-confuse these guest ranges with UML kernel physical memory or
-`uml_to_phys()`/`uml_to_virt()`.
+- [ ] Build the disposable kselftest tree described in
+  `Documentation/mm/swmmu-kselftest-build.rst`.
+- [ ] Run the installed suite with `zpoline=0` and `zpoline=1`; record the
+  configuration, exact TAP totals, skips, and any intermittent failure.
+- [ ] If the fresh-build parser panic recurs, save the full boot log and retry
+  under GDB. Record the failing task, `mm`, fault address, instruction pointer,
+  and zpoline/seccomp mode; do not present the uninstrumented-Python theory as
+  established fact.
+- [ ] Continue cleanup as small, reviewable changes before adding features.
 
-## Active cleanup direction
+### Correctness and coverage
 
-The current work is source cleanup before adding features. The VMA clone
-transaction cleanup is complete, and the transaction callback prepare/commit/
-abort families have no clear common abstraction worth introducing now. Keep
-SWMMU-specific pagetable and rollback behavior isolated. For future duplicate
-VMA operations, look for narrowly reusable setup in common MM code before
-changing generic MMU paths.
+- [ ] Finish the user-copy architecture and remaining aggregate/bitfield
+  read-modify-write coverage.
+- [ ] Define exception and interrupt behavior and complete signal-frame,
+  `sigreturn()`, restart, pipeline, and `/sbin/init` lifecycle validation.
+- [ ] Complete `setjmp()`/`longjmp()` and
+  `sigsetjmp()`/`siglongjmp()` integration.
+- [ ] Cover the remaining mapping cases: general file-backed and `MAP_SHARED`
+  mappings, device mappings, partial `mprotect()`, complete executable
+  permission propagation, and raw copy-from-user.
+- [ ] Cover compiler/runtime gaps including spills/reloads, stack behavior,
+  TLS/context switching, atomics, volatile, vector/floating-point accesses,
+  inline assembly, and uninstrumented libraries.
+- [ ] Add remap expansion rollback tests using existing fault-injection
+  facilities; do not add production-only test hooks.
+- [ ] Implement occupied-target `MREMAP_FIXED` transactionally for MMU and
+  SWMMU in a separate patchset, then enable its currently skipped test.
+- [ ] Revisit `MREMAP_DONTUNMAP` and validate `CONFIG_MMU=y` separately so
+  pre-existing MMU failures are not attributed to SWMMU.
 
-The GCC plugin source was reorganized by declarations, definitions, helpers,
-rewriters, and init/exit code. Further plugin cleanup should preserve behavior
-and reduce patch surface; avoid a wholesale rewrite.
+### ABI, platform, and userspace
 
-## Cleanup milestone ledger
+- [ ] Audit whether provisional `nommu_swmmu_alloc()` and
+  `nommu_swmmu_free()` interfaces remain. If they do, remove their syscall
+  plumbing in favor of standard `mmap()`, `munmap()`, and `mremap()` while
+  keeping compiler allocator contracts separate.
+- [ ] Define explicit legacy, flat, and paged mode values and their transition
+  from the provisional `PR_SET_SWMMU`/`PR_GET_SWMMU` interface; reassess
+  `MAP_NOMMU_SWMMU_FLAT` after that design is settled.
+- [ ] Synchronize aliases through the UML runner mapping path before claiming
+  non-SAS support.
+- [ ] Audit NOMMU SAS signal object selection, `is_user` propagation, and the
+  relay paths; validate SIGABRT, SIGSEGV, and SIGBUS delivery and termination.
+- [ ] Determine whether the current musl profile needs `brk()`; implement
+  paged-mode support or keep the affected allocator configuration disabled.
+- [ ] Extend the reproducible Alpine SWMMU package/rootfs profile through
+  coreutils, the next intended package target.
+- [ ] After the required package closure exists, begin nginx and OpenSSL
+  validation. Neither is currently validated or in progress.
+- [ ] Evaluate ARM and ARM64 only after the x86_64 profile is stable.
 
-- [x] Factor common VMA setup from SWMMU VMA cloning while keeping pagetable
-  preparation and rollback SWMMU-specific.
-- [x] Review split, replace, expand, and move transaction callbacks; no clear
-  shared abstraction was found, so keep the callback families separate.
-- [x] Trim unused SWMMU transaction state and fix resize-range release locking.
-- [x] Invalidate SWMMU aliases when an mm is released.
-- [x] Reorganize the SWMMU GCC plugin source without intending behavior changes.
-- [x] Document a reproducible local build for a fresh SWMMU kselftest tree.
-- [ ] Build and run a fresh kselftest tree from this workflow and record exact
-  TAP totals for the tested mode.
-- [ ] Continue cleanup in small, reviewable changes before adding features.
+### Optimization and performance (postponed)
 
-## Completed development history
+- [ ] Treat pointer-state analysis, native-access selection, explicit opaque
+  API contracts, interprocedural summaries, and LTO as optional optimization,
+  not correctness requirements.
+- [ ] Make lazy zpoline patching safe for concurrent execution/instruction
+  fetch, or define a safe fallback policy.
+- [ ] Revisit the high `lat_proc shell` result and SAS-seccomp slowdown only
+  after functional validation is stable.
 
-The former `Documentation/mm/swmmu-status.md` recorded the following
-completed milestones. This condensed history keeps the checked-item record
-without carrying forward its superseded plans and experimental claims.
+### CI, packaging, and delivery
 
-- [x] Establish the SVM-style all-access compiler/runtime model as the
-  correctness baseline, with raw pointers and runtime address translation.
-- [x] Cover scalar, aggregate, array, alias, cast, PHI, cross-function, and
-  unknown-return accesses in the compiler plugin, including memory builtins
-  and the tested dynamic bitfield and atomic cases.
-- [x] Bring up default-on paged SWMMU startup, including the initial exec
-  stack, argument/environment setup, and FDPIC stack relocation.
-- [x] Implement SAS host aliases for active SWMMU mappings and switch them
-  across active mm changes and fork; preserve private-page behavior.
-- [x] Add SWMMU-aware copy-to-user and `clear_user()` paths for supported
-  destinations, and full-VMA `mprotect()` alias permission updates.
-- [x] Route supported private-copy FDPIC executable mappings through SWMMU
-  and support instruction fetch from SAS executable aliases.
-- [x] Validate instrumented musl and loader startup, BusyBox startup through
-  `rcS`, focused TLS/signal-return and vfork/exec/waitpid probes, and default-on
-  KUnit SWMMU suites in their reported configurations.
-- [x] Restore the normal x86 syscall rewind for the tested restart path;
-  `test_signal_restart` passed after reverting the NOMMU SAS no-op override.
-- [x] Complete repeated kselftest runs for the reported single-threaded lazy
-  SIGSYS zpoline profile and record the intermittent fresh-build parser panic
-  as postponed investigation (not as a resolved defect).
-- [x] Run Bash smoke tests and a short lmbench smoke; retain their profile and
-  coverage limits as stated in this handoff.
-- [x] Consolidate the former status document into this `AGENTS.md` handoff and
-  document the fresh local kselftest build workflow.
-
-## SAS alias teardown validation (2026-10-05)
-
-- Guard host alias unmapping when a different mm is active. After exit/exec
-  invalidates the active-mm cache, delayed teardown of an inactive child may
-  otherwise remove the parent's aliases at the same addresses. Clear the
-  inactive range's mapping state; retain physical cleanup when active mm is
-  NULL or owns the range.
-- The old minimal rootfs reproduces this stack fault in SAS-seccomp mode under
-  GDB even when mremap tests are excluded. Normal execution is timing-sensitive;
-  Alpine and minimal rootfs use identical instrumented musl and SWMMU binaries.
-- After the guard, both rootfs profiles complete guest mmap (6 pass/1 skip)
-  and SWMMU (37 pass/7 skip) with zpoline=0 and zpoline=1. Dedicated SWMMU
-  KUnit: 27 pass/1 skip; UML register suite: 1 pass. These are focused results,
-  not complete official-runner or broad application coverage.
-- Exclude nommu_mremap_test from this validation: its implementation is still
-  under separate draft work. This does not remove tests from the repository.
-- Cloud zpoline=1 runs in a scoped Docker workload with CAP_SYS_RAWIO for
-  address-zero mapping; host mmap_min_addr remains4096. zpoline=0 does not
-  require that capability. Keep the existing is_user audit TODO deferred.
-
-## Current limitations and postponed work
-
-These remain known boundaries; do not imply they are supported just because
-the focused tests pass:
-
-- **Intermittent fresh-kselftest parser panic:** a panic was observed while
-  running the host-side `kunit_parse.py` path in a fresh test build. It was not
-  consistently reproducible and was postponed. If it recurs, capture the full
-  boot log and retry under GDB; record the failing task, `mm`, fault address,
-  instruction pointer, and zpoline/seccomp mode. The suspicion that an
-  uninstrumented host-side Python executable is involved is unconfirmed.
-- **Lazy zpoline patching:** the eager executable scan is disabled. The
-  current prototype patches a syscall instruction on first SIGSYS using the
-  host-reported continuation address minus two bytes. This has been tested in
-  the reported single-threaded scope only. The two-byte rewrite is not safe
-  against concurrent execution or instruction fetch by another thread; safe
-  multi-thread patching or a fallback policy is postponed.
-- **Signals and process startup:** focused TLS/signal and vfork/exec/waitpid
-  probes pass in their tested profiles, and the syscall restart regression
-  was fixed by restoring the normal x86 two-byte rewind. Full signal-frame,
-  `sigreturn()`, restart, pipeline, and `/sbin/init` lifecycle behavior is not
-  established by those probes.
-- **Userspace scope:** paged mode requires the dynamic loader, libc, programs,
-  and relevant libraries to be built with the SWMMU profile. An uninstrumented
-  `id` success was incidental, not a compatibility guarantee. The planned
-  broader instrumented Alpine package profile lives in the `aports`
-  `nommu-uml` branch; coreutils is next, nginx later.
-- **Mapping/runtime coverage:** direct executable file mappings, general
-  file-backed and `MAP_SHARED` mappings, device mappings, partial-range
-  `mprotect()`, complete executable permission propagation, raw copy-from-user,
-  stack/spill/reload behavior, TLS/context switching, atomics, volatile,
-  vector/floating-point, inline assembly, and uninstrumented-library behavior
-  remain incomplete or profile-specific. Check implementation and tests before
-  changing any item from postponed to supported.
-- **Modes/architectures:** non-SAS UML runner alias synchronization, a final
-  explicit legacy/flat/paged mode ABI, flat mode, mixed native/SWMMU VMA fork,
-  ARM/ARM64, and broad application validation are deferred. The provisional
-  `PR_SET_SWMMU`/`PR_GET_SWMMU` interface is not the final mode ABI.
-- **Remap coverage:** occupied-target `MREMAP_FIXED` transactional behavior
-  remains skipped/deferred. Expansion rollback coverage using existing
-  fault-injection facilities is also a follow-up; do not add production-only
-  fault hooks.
-- **Performance:** defer analysis of the previously high `lat_proc shell`
-  number and the SAS-seccomp slowdown until functional validation is stable.
-  The reported seccomp/zpoline timing difference under GDB is not a reliable
-  outside-GDB performance result.
-- **SAS documentation:** continue documenting UML physical memory,
-  `physmem_fd`, `page_address()`, SWMMU page backing, active aliases, and the
-  distinction between SAS and the separate non-SAS runner when implementation
-  work clarifies those details.
-
-## Additional deferred work from the former status document
-
-- [x] Build signed `busybox-nommu` and `musl-nommu` APKs from a pinned aports
-  revision in GitHub CI, verify their package signatures in the UML rootfs
-  image, and remove the expiring GitLab artifact dependency.
-- [ ] Run the updated GitHub workflow; verify the BusyBox `cd -` behavior in
-  the generated NOMMU binary before publishing an image.
+- [ ] Run the GitHub Actions UML build/test matrix for the updated
+  `feature-swmmu-nommu` revision `a4de425be710`. Run `37551053113` was
+  cancelled before the UML matrix started; its NOMMU APK build and artifact
+  upload completed, while the local RISC-V image build was interrupted.
+  Record final outcomes and address new failures.
+- [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
+  image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
-- [ ] Keep ordinary CI image builds local; publish the stable
-  `3.20.3-um-nommu` image only after the UML build and test matrix succeeds
-  and by an explicit dispatch. Record the tested kernel and aports revisions
-  and image digest.
+- [ ] Keep ordinary CI image builds local. Publish the stable
+  `3.20.3-um-nommu` image only after the UML matrix succeeds and by explicit
+  dispatch; record kernel/aports revisions and the image digest.
 - [ ] Propose the UML `.lbss` linker-script placement fix upstream after
   validating static and dynamic UML builds against the `uml/next` base.
-- [ ] Implement and compare the full benchmark suite in SWMMU and non-SWMMU
-  environments: lmbench, getpid, iperf3, netperf, and LTP.
-- [ ] Publish benchmark results in a durable, reviewable location, such as a
-  comment on the relevant pull request (previously `thehajime/linux#1`).
-- [ ] Investigate whether GitHub issue comments can embed the GitHub Pages
-  report or its charts; add the useful report view to the results issue.
-- [ ] Group “Changes from previous report” by benchmark family so the
-  lmbench, getpid, iperf3, and netperf differences are easier to scan.
-- [ ] Investigate benchmark entries reported as missing and distinguish an
-  unavailable sample from an actual regression or a benchmark that did not
-  run.
-- [ ] Run the GitHub Actions UML build/test matrix for the updated
-  `feature-swmmu-nommu` branch (`a4de425be710`) when practical. Run
-  `37551053113` was cancelled before the UML matrix started; its NOMMU APK
-  build and artifact upload completed, while the local RISC-V image build was
-  interrupted. Record the final matrix outcomes and address any new failures.
-- [ ] After deciding the updated feature branch no longer needs its staging
-  ref, rename `codex/feature-swmmu-nommu-followup` to a clearly marked
-  `to-be-deleted-*` branch before deleting it. Keep the pre-update backup ref
-  until it is no longer needed for rollback.
+- [ ] Implement and compare the full SWMMU/non-SWMMU benchmark suite: lmbench,
+  getpid, iperf3, netperf, and LTP.
+- [ ] Publish benchmark results in a durable, reviewable location. Investigate
+  embedding the GitHub Pages report or its charts in the results issue.
+- [ ] Group “Changes from previous report” by benchmark family and distinguish
+  missing samples from regressions or benchmarks that did not run.
+- [ ] After the updated feature branch no longer needs its staging ref, rename
+  `codex/feature-swmmu-nommu-followup` to a clearly marked
+  `to-be-deleted-*` branch before deletion. Keep the pre-update backup ref
+  until rollback is no longer needed.
 
-The former status document had a longer TODO ledger. The entries below retain
-items that were not already captured above. Entries superseded by the current
-all-access design are identified as optimization work; do not treat them as
-requirements for the correctness baseline.
+## Project policy
 
-- [ ] **Compiler and runtime optimizations:** preserve pointer-state analysis
-  as an optional optimization; consider explicit contracts only at opaque
-  library boundaries, interprocedural summaries where they improve coverage or
-  performance, and optional LTO support. Measure native-access and generic
-  translation tradeoffs before implementing optimization layers.
-- [ ] **Access boundaries:** define exception and interrupt interaction;
-  finish the kernel user-copy architecture; cover remaining aggregate and
-  bitfield read-modify-write patterns. These complement the access types
-  already listed above.
-- [ ] **Nonlocal control flow:** complete `setjmp()`/`longjmp()` integration
-  and `sigsetjmp()`/`siglongjmp()` integration for SWMMU-instrumented userspace.
-- [ ] **Allocator and userspace profile:** maintain a reproducible Alpine
-  SWMMU package/rootfs profile and rebuild musl, relevant libraries, Bash,
-  coreutils, nginx, OpenSSL, and application dependencies with the plugin as
-  needed. Validate the custom musl package and these applications; do not
-  revive mallocng-specific propagation heuristics as correctness machinery.
-- [ ] **Allocation ABI audit:** determine whether provisional
-  `nommu_swmmu_alloc()` / `nommu_swmmu_free()` interfaces remain in the current
-  source. If present and still provisional, remove their syscall numbers,
-  declarations, wrappers, and plumbing in favor of standard
-  `mmap()`/`munmap()`/`mremap()`; keep compiler allocator contracts separate
-  from allocation syscalls.
-- [ ] **Mode and flat-memory ABI:** design explicit legacy, flat, and paged
-  mode values and their compatibility relationship to the provisional
-  `PR_SET_SWMMU`/`PR_GET_SWMMU` interface. Reassess `MAP_NOMMU_SWMMU_FLAT`
-  after the mode design and allocator profile are settled; retain or remove
-  it based on demonstrated need. Runtime OFF/ON switching remains postponed.
-- [ ] **UML signal audit:** verify NOMMU SAS object selection and user-context
-  detection/propagation; audit signal relay paths and validate SIGABRT,
-  SIGSEGV, and SIGBUS delivery and default termination with focused regression
-  coverage. Keep UML signal/context work separate from the SWMMU fault ABI.
-- [ ] **VMA/remap follow-ups:** add expansion rollback coverage using existing
-  FAILSLAB or `fail_function` facilities where applicable; do not add a
-  production-only test hook. Revisit `MREMAP_DONTUNMAP`, and validate the
-  `CONFIG_MMU=y` path so pre-existing MMU failures can be distinguished from
-  SWMMU regressions. Occupied-target `MREMAP_FIXED` remains covered above.
-- [ ] **Platform and compatibility scope:** evaluate ARM and ARM64 only after
-  x86_64 validation; vanilla binaries remain a legacy/ordinary NOMMU concern,
-  not a paged SWMMU compatibility promise. Avoid requiring manually maintained
-  per-application `-swmmu` packages if a complete profile can be built.
+### Sources of truth
 
-## Validation workflow
+Use sources in this order:
 
-Do not add or run tests unless requested. When the user asks for implementation
-verification, build with the already-configured output tree when possible. The
-full configuration used for a fresh kernel output is:
+1. Current tracked implementation and tests.
+2. This file for active status, policy, and task ownership.
+3. `Documentation/mm/swmmu.rst` on `feature-swmmu-nommu` for release-facing
+   feature behavior and user-visible constraints, not development progress or
+   test diaries.
+4. `Documentation/mm/swmmu-kselftest-build.rst` on
+   `feature-swmmu-nommu` for the fresh test-build procedure.
+
+Older chats, the removed `Documentation/mm/swmmu-status.md`, historical
+appendices, and experimental branches may be stale. When they disagree with
+tracked code, verify the implementation before updating this handoff.
+
+### Development policy
+
+- Keep `.github/workflows` and this handoff on `ci/uml-nommu`; keep upstream
+  implementation patches and release-facing SWMMU documentation on the
+  feature branch. Update this ledger when feature-branch milestones change.
+- Keep changes upstreamable and reviewable. Prefer small NOMMU/SWMMU-specific
+  changes and reuse common MM infrastructure where it naturally fits.
+- Do not change broad MMU behavior solely to simplify SWMMU.
+- Keep SWMMU pagetable preparation and rollback isolated unless an abstraction
+  is demonstrably shared with generic MM code.
+- Preserve raw pointer representation and dynamic translation as the
+  correctness fallback. Do not revive pointer-provenance or mallocng-specific
+  propagation as correctness machinery.
+- Do not add application-owned SWMMU annotations as a substitute for the
+  all-access correctness baseline.
+- Leave unrelated tracked or untracked changes alone. Do not change
+  `.gitignore` unless explicitly requested.
+- Do not make support claims from a boot or smoke test. State the exact mode,
+  configuration, suite, pass count, and skip count.
+
+### Validation workflow
+
+Do not add or run tests unless the task requests validation. Prefer an existing
+configured output tree for implementation checks. For a fresh kernel output:
 
 ```sh
 make ARCH=um O=build defconfig
@@ -284,158 +192,160 @@ scripts/config --file build/.config --disable MMU \
 make ARCH=um O=build -j32
 ```
 
-For a disposable, fresh kselftest build, use a separate output directory and
-plugin as documented in `Documentation/mm/swmmu-kselftest-build.rst`. The
-reported UML invocation is:
+Use a separate output directory for fresh kselftests as documented in
+`Documentation/mm/swmmu-kselftest-build.rst` on `feature-swmmu-nommu`. The
+reported UML command is:
 
 ```sh
 ./build/vmlinux root=/dev/root rootflags="$PWD/rootfs" \
         rootfstype=hostfs rw mem=2g loglevel=8 zpoline=1 init=/sbin/init
 ```
 
-Use `zpoline=0` to exercise SAS-seccomp mode. Keep exact KUnit and kselftest
-TAP totals and the tested mode/configuration when reporting results. A boot or
-smoke test is not equivalent to the full kselftest suite.
+Use `zpoline=0` for SAS-seccomp mode. Record exact KUnit and kselftest TAP
+totals and the tested configuration. A boot or smoke test is not equivalent to
+the full kselftest suite.
 
-## Updating this handoff
+For broader validation, preserve this order: KUnit and compiler regression
+suites; SAS default-on kselftests; instrumented musl/loader/BusyBox startup;
+focused alias, mapping, signal, and TLS probes; Bash and lmbench smoke;
+coreutils package and command validation; `/sbin/init` lifecycle; then nginx
+and broader applications. Do not skip package dependencies merely to reach a
+later application milestone.
 
-- Mark work done only when source and relevant validation support the claim.
-- Keep active next steps separate from intentionally postponed items.
-- Record intermittent failures as intermittent, with reproduction evidence;
-  do not turn hypotheses into facts.
-- Preserve upstream reviewability: small changes, kernel style, tests for
-  behavior changes, and no speculative scaffolding.
+### Handoff maintenance
 
+- Mark a task complete only when source and relevant validation support it.
+- Move completed work out of active TODOs into **Completed TODOs**.
+- Keep active next steps separate from deliberately postponed work.
+- Put lasting technical conclusions in `Documentation/mm/swmmu.rst`; leave
+  only a concise operational summary here.
+- Record intermittent failures as intermittent and separate evidence from
+  hypotheses.
+- Report the checkout, branch, starting and ending HEAD, preserved local
+  changes, validation performed, unperformed work, push target, and pushed SHA.
+- Keep this Markdown ledger as the task source of truth while work is centered
+  on one branch. Consider GitHub Projects only when cross-repository work,
+  multiple owners, or scheduling/views justify the extra synchronization; if
+  adopted, link issues here rather than duplicating technical status.
 
----
+## Completed TODOs
 
-## Historical postponed TODO inventory (pre-consolidation snapshot)
+- [x] Cover scalar, aggregate, array, alias, cast, PHI, cross-function, and
+  unknown-return accesses in the compiler plugin, including memory builtins
+  and the tested dynamic bitfield and atomic cases.
+- [x] Bring up default-on paged SWMMU startup, including initial exec stack,
+  argument/environment setup, and FDPIC stack relocation.
+- [x] Implement SAS host aliases and active-`mm_struct` switching; preserve
+  private-page behavior and prevent inactive teardown from removing active
+  aliases.
+- [x] Add supported SWMMU-aware copy-to-user and `clear_user()` paths plus
+  full-VMA `mprotect()` alias-permission updates.
+- [x] Route supported private-copy FDPIC executable mappings through SWMMU and
+  execute through SAS aliases.
+- [x] Validate instrumented musl/loader startup, BusyBox through `rcS`, focused
+  TLS/signal-return and vfork/exec/waitpid probes, and the reported KUnit and
+  kselftest profiles.
+- [x] Restore the normal x86 syscall rewind for the tested restart path.
+- [x] Run the reported Bash and short lmbench smoke tests.
+- [x] Factor common VMA clone setup while leaving SWMMU pagetable preparation
+  and rollback specific to SWMMU.
+- [x] Review transaction callbacks; retain separate prepare/commit/abort
+  families because no useful common abstraction was found.
+- [x] Remove unused transaction state and fix resize-range release locking.
+- [x] Reorganize the GCC plugin source without intended behavior changes.
+- [x] Replace the former status document with this handoff and a reproducible
+  fresh-kselftest build document.
+- [x] Build signed `busybox-nommu` and `musl-nommu` APKs from a pinned aports
+  revision in GitHub CI, verify their signatures in the UML rootfs image, and
+  remove the expiring GitLab artifact dependency.
 
-### Compiler/runtime access model
+## Technical memorandum
 
-- [ ] Define the generic SVM translation runtime.
-- [ ] Use generic translation as the correctness fallback for unknown pointers.
-- [ ] Preserve pointer-state analysis as an optimization layer.
-- [ ] Use explicit API contracts only for opaque or special library boundaries.
-- [ ] Add interprocedural summaries where they improve optimization or coverage.
-- [ ] Evaluate optional LTO support.
-- [ ] Support compiler-generated spills and reloads.
-- [ ] Support stack accesses.
-- [ ] Decide between ordinary stacks and split-stack support.
-- [ ] Support atomics.
-- [ ] Support volatile accesses.
-- [ ] Support vector and floating-point accesses.
-- [ ] Define inline-assembly requirements.
-- [ ] Support structure copies.
-- [ ] Support pointers stored inside SWMMU memory.
-- [ ] Support TLS.
-- [ ] Support signal frames.
-- [ ] Define `setjmp()`/`longjmp()` interaction.
-- [ ] Define exception and interrupt handling.
-- [ ] Define uninstrumented-library behavior.
-- [ ] Define libc and dependency-library contracts.
+### Current design invariants
 
-### Native-access optimization
+- Pointers keep their normal raw representation. Supported source-level
+  accesses are instrumented and runtime helpers translate addresses.
+- SWMMU virtual ranges live in `mm->mm_mt`; backing pages are held by SWMMU
+  page tables.
+- SAS host aliases represent only the active SWMMU `mm_struct` in UML's shared
+  host address space. Task/mm switches must replace aliases; updates to an
+  inactive mm must defer fixed host-alias operations.
+- The SAS physical-memory mapping and aliases must share backing storage. Do
+  not confuse SWMMU guest ranges with UML kernel physical memory or
+  `uml_to_phys()`/`uml_to_virt()`.
+- The separate non-SAS UML runner is not supported by the current alias
+  implementation.
 
-- [ ] Use native accesses only as an optimization after the SVM baseline works.
-- [ ] Skip translation for accesses proven to target ordinary memory.
-- [ ] Use specialized direct helpers for statically known SWMMU accesses.
-- [ ] Retain generic dynamic translation for unknown or escaped pointers.
-- [ ] Measure the performance tradeoff between full translation and selective native access.
+### Known limitations
 
-### Alpine/musl mallocng
+- Lazy SIGSYS zpoline patching rewrites the two-byte syscall instruction from
+  the host-reported continuation address. It is tested only in the recorded
+  single-threaded scope and is unsafe against concurrent execution/fetch.
+- Paged mode requires the loader, libc, programs, and relevant libraries to be
+  built for SWMMU. This applies to static and dynamic binaries; rebuilding only
+  musl is insufficient. Incidental success of an uninstrumented binary is not
+  a compatibility guarantee.
+- Direct executable file mappings, shared/device mappings, partial protection
+  changes, and the compiler/runtime cases listed in active TODOs remain
+  incomplete or profile-specific.
+- Occupied-target `MREMAP_FIXED` is unsupported because the destination cannot
+  yet be restored transactionally after a failed move. Empty-target behavior
+  remains supported.
+- The current mode ABI is provisional. Flat mode, mixed native/SWMMU VMA fork,
+  non-SAS UML, ARM/ARM64, and broad application coverage are deferred.
+- `vfork()` is supported only for its narrow `vfork()`-then-`execve()` use; it
+  is not a general compatibility mechanism.
 
-- [ ] Revisit mallocng after the SVM baseline is available.
-- [ ] Remove temporary mallocng-specific annotations where generic analysis replaces them.
-- [ ] Define allocator metadata and payload access domains.
-- [ ] Make mallocng metadata accesses safe.
-- [ ] Make `malloc()` behavior stable with SWMMU enabled.
-- [ ] Make `calloc()` behavior stable with SWMMU enabled.
-- [ ] Make `realloc(NULL, size)` stable.
-- [ ] Support realloc growth.
-- [ ] Support realloc shrink.
-- [ ] Support realloc movement.
-- [ ] Preserve the original allocation after realloc failure.
-- [ ] Make `free()` safe for ordinary and SWMMU-backed allocations.
-- [ ] Cover `aligned_alloc()`.
-- [ ] Cover `posix_memalign()`.
-- [ ] Cover `strdup()` and related allocation-returning APIs.
-- [ ] Rebuild and validate the custom Alpine musl package.
-- [ ] Validate `bash`.
-- [ ] Validate `nginx`.
-- [ ] Validate OpenSSL and other relevant dependencies.
+### Recorded validation baseline
 
-### Allocation-management ABI
+The branch has recorded successful SWMMU KUnit, compiler-plugin, repeated UML
+NOMMU kselftest, Bash smoke, and short lmbench smoke runs for their stated
+configurations. After the inactive-mm alias teardown guard, focused runs for
+both zpoline modes reported guest mmap **6 pass / 1 skip**, SWMMU **37 pass / 7
+skip**, dedicated SWMMU KUnit **27 pass / 1 skip**, and UML register suite **1
+pass**. `nommu_mremap_test` was excluded because it was separate draft work.
+These figures are not broad application or complete official-runner coverage.
 
-- [ ] Remove provisional `nommu_swmmu_alloc()` syscall.
-- [ ] Remove provisional `nommu_swmmu_free()` syscall.
-- [ ] Remove their syscall numbers, declarations, wrappers, and plumbing.
-- [ ] Use standard `mmap()`, `munmap()`, and `mremap()` for allocation management.
-- [ ] Keep compiler allocator contracts independent from allocation syscalls.
+The instrumented `/bin/bash.instrumented` passed `/bin/sh` POSIX-mode and
+`--noprofile --norc` smoke tests covering loops, functions, command
+substitution, and a pipeline. The short lmbench smoke completed `lat_select`,
+syscall/file-operation tests, `lat_proc shell`, and `lat_proc exec`. These are
+smoke results, not full Bash or performance validation. The high
+`lat_proc shell` result predates this SWMMU work and remains deferred.
 
-### NOMMU mode ABI
+An observed uninstrumented coreutils `id` success is incidental and does not
+establish compatibility for uninstrumented paged-SWMMU applications. The
+planned package sequence is coreutils first and nginx later; nginx and OpenSSL
+have not been started.
 
-- [ ] Define explicit `PR_NOMMU_LEGACY`.
-- [ ] Define explicit `PR_NOMMU_FLAT`.
-- [ ] Define explicit `PR_NOMMU_PAGED`.
-- [ ] Initially preserve:
-  ```text
-  PR_NOMMU_LEGACY == existing flat NOMMU behavior
-  PR_NOMMU_FLAT   == equivalent behavior initially
-  PR_NOMMU_PAGED  == current software-paged SWMMU behavior
-  ```
-- [ ] Preserve `PR_SWMMU_OFF` and `PR_SWMMU_ON` as compatibility aliases while the new ABI is developed.
-- [ ] Define the difference between legacy native access and flat checked access.
-- [ ] Reuse common VMA/range/lifetime management for the future flat backend.
-- [ ] Remove or deprecate the boolean ON/OFF model after the explicit mode ABI is stable.
+### SAS alias teardown development record (2026-10-05)
 
-### `MAP_NOMMU_SWMMU_FLAT`
+- Teardown of an inactive mm must clear that mm's range-mapping state without
+  unmapping host aliases at the same addresses when another mm is active.
+  Physical cleanup may proceed when the active mm is `NULL` or owns the range.
+- Without the guard, delayed child teardown after exit or exec could remove
+  the parent's active aliases. The old minimal rootfs reproduced the resulting
+  stack fault under GDB in SAS-seccomp mode with mremap tests excluded. Normal
+  execution was timing-sensitive; Alpine and minimal rootfs used identical
+  instrumented musl and SWMMU binaries.
+- After the guard, focused `zpoline=0` and `zpoline=1` runs reported guest mmap
+  **6 pass / 1 skip**, SWMMU **37 pass / 7 skip**, dedicated SWMMU KUnit
+  **27 pass / 1 skip**, and UML register suite **1 pass**.
+- `nommu_mremap_test` was excluded because it remained separate draft work;
+  the test was not removed. These were focused results, not complete
+  official-runner or broad application coverage.
+- The cloud `zpoline=1` run used a scoped Docker workload with
+  `CAP_SYS_RAWIO` for address-zero mapping while host `mmap_min_addr` remained
+  4096. `zpoline=0` did not need that capability. The `is_user` audit remains
+  deferred.
 
-- [ ] Keep `MAP_NOMMU_SWMMU_FLAT` temporarily as a compatibility and diagnostic feature.
-- [ ] Keep its kernel implementation and kselftest coverage while allocator integration is incomplete.
-- [ ] Do not use it as the final mallocng design.
-- [ ] Reevaluate whether it is still needed after the SVM baseline works.
-- [ ] Remove it later if fully instrumented userspace makes it unnecessary.
+## Appendix: references
 
-### UML/NOMMU signal handling
-
-- [ ] Audit UML NOMMU builds with `CONFIG_UML_NOMMU_SAS=y`.
-- [ ] Verify object selection for `trap.o`, `trap-nommu.o`, and NOMMU signal handlers.
-- [ ] Fix or validate `is_user` detection and propagation.
-- [ ] Investigate SIGABRT delivery and default termination.
-- [ ] Investigate endless host-signal relay loops.
-- [ ] Audit `relay_signal()`.
-- [ ] Audit `nommu_relay_signal()`.
-- [ ] Audit `set_mc_relay_signal()`.
-- [ ] Validate SIGABRT, SIGSEGV, and SIGBUS.
-- [ ] Validate signal-frame construction and restoration.
-- [ ] Validate `sigreturn()`.
-- [ ] Add minimal UML regression tests.
-- [ ] Keep this separate from the SWMMU fault ABI.
-
-### VMA/remap
-
-- [ ] Add post-backend-prepare expansion rollback coverage using existing fault-injection facilities.
-- [ ] Use `FAILSLAB` or `fail_function` where applicable.
-- [ ] Do not add a custom production-only KUnit fault hook.
-- [ ] Implement occupied-target `MREMAP_FIXED` transactionally for MMU and SWMMU in a separate patchset.
-- [ ] Preserve the destination until source preparation and execution succeed.
-- [ ] Share rollback behavior between MMU and SWMMU.
-- [ ] Add failure coverage for source preparation, pagetable allocation, page copying, and destination insertion.
-- [ ] Revisit `MREMAP_DONTUNMAP`.
-- [ ] Restore and continuously validate `CONFIG_MMU`.
-- [ ] Separate pre-existing MMU failures from SWMMU regressions.
-
-### Application deployment
-
-- [ ] Define an Alpine SWMMU build profile or repository.
-- [ ] Rebuild musl/libc with the SWMMU plugin.
-- [ ] Rebuild relevant libraries with the SWMMU plugin.
-- [ ] Rebuild `bash` with the SWMMU plugin.
-- [ ] Rebuild `nginx` with the SWMMU plugin.
-- [ ] Rebuild OpenSSL and other libraries that access application buffers.
-- [ ] Validate x86_64 first.
-- [ ] Evaluate ARM support.
-- [ ] Evaluate ARM64 support.
-- [ ] Do not require manually maintained `-swmmu` packages for every application if a complete SWMMU rootfs/profile can be built consistently.
-- [ ] Vanilla binaries remain supported only in legacy/ordinary NOMMU mode, not generally in paged SWMMU mode.
+- `feature-swmmu-nommu:Documentation/mm/swmmu.rst` — release-facing SWMMU
+  feature behavior and user-visible constraints; do not put development status
+  or test diaries here.
+- `feature-swmmu-nommu:Documentation/mm/swmmu-kselftest-build.rst` —
+  reproducible disposable kselftest build and install flow.
+- `feature-swmmu-nommu:tools/testing/selftests/mm/nommu` — SWMMU/NOMMU
+  selftests.
+- `aports`, branch `nommu-uml` — planned broader instrumented Alpine profile.
