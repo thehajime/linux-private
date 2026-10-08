@@ -8,7 +8,9 @@
 #include <linux/mm.h>
 #include <linux/pfn.h>
 #include <linux/mman.h>
+#ifdef CONFIG_NOMMU_SWMMU
 #include <linux/nommu_swmmu.h>
+#endif
 #include <asm/page.h>
 #include <asm/sections.h>
 #include <as-layout.h>
@@ -137,6 +139,7 @@ __uml_setup("mem=", uml_mem_setup,
 "	Example: mem=64M\n\n"
 );
 
+#ifdef CONFIG_NOMMU_SWMMU
 static int uml_nommu_swmmu_host_map_page(unsigned long address,
 				struct page *page, unsigned int prot)
 {
@@ -185,3 +188,4 @@ const struct nommu_swmmu_host_ops *nommu_swmmu_arch_host_ops(void)
 {
 	return &uml_nommu_swmmu_host_ops;
 }
+#endif /* CONFIG_NOMMU_SWMMU */
