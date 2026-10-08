@@ -1529,17 +1529,22 @@ erase_whole_vma:
 }
 
 #ifndef CONFIG_NOMMU_SWMMU
-unsigned long do_mmap(struct file *file, unsigned long addr,
-		unsigned long len, unsigned long prot, unsigned long flags,
-		vma_flags_t vma_flags, unsigned long pgoff,
-		unsigned long *populate, struct list_head *uf)
+unsigned long do_mmap(struct file *file,
+		      unsigned long addr,
+		      unsigned long len,
+		      unsigned long prot,
+		      unsigned long flags,
+		      vma_flags_t vma_flags,
+		      unsigned long pgoff,
+		      unsigned long *populate,
+		      struct list_head *uf)
 {
 	return do_mmap_nommu(file, addr, len, prot, flags, vma_flags, pgoff,
 			     populate, uf);
 }
 
 int do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
-	      struct list_head *uf)
+		      struct list_head *uf)
 {
 	if (len > ULONG_MAX - start)
 		return -EINVAL;
