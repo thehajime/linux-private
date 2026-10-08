@@ -119,7 +119,8 @@ reproducible kselftest build instructions in
   test-1 also regenerated its config without reapplying
   `CONFIG_NOMMU_SWMMU=n`, then panicked with init `-EFAULT`. The workflow now
   reapplies the profile config in build-1; the NOMMU image omits standard
-  coreutils and its login profile, and rcS stops on failed setup commands.
+  coreutils and both login profile files, and rcS stops on failed setup
+  commands.
   Rerun and confirm both test steps have no loader errors and reach readiness.
   The earlier plain NOMMU kernel fixups are feature commits
   `d746ed04614e` and `02036e380729`.

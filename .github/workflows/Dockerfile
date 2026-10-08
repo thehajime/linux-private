@@ -11,7 +11,8 @@ RUN if [ "${USERSPACE_PROFILE}" = alpine ]; then \
       sed "s/\'/\"/g" /etc/profile > /.profile; \
     else \
       printf '%s\n' 'export PATH=/home:/sbin:/usr/sbin:/bin:/usr/bin' \
-        'export TERM=linux' > /.profile; \
+        'export TERM=linux' > /etc/profile && \
+      cp /etc/profile /.profile; \
     fi
 
 
