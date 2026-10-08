@@ -178,6 +178,20 @@ reproducible kselftest build instructions in
   stock Alpine job installs its runtime packages before testing. The MMU panic
   in `vma_move_commit()` from run `37741458984` was fixed separately by
   explicit no-op move commit/abort callbacks on `feature-swmmu-nommu`.
+- [ ] Complete run `37782774650` and follow-up `37794627130`. In `37782774650`,
+  APK creation, checkpatch, all four UML build/KUnit jobs, RISC-V Buildroot/LTP
+  image builds, both Alpine LTP build jobs, and all six benchmarks succeeded.
+  The plain NOMMU LTP job stopped when the guest Python runner segfaulted at
+  `faccessat202` before writing result JSON. Both NOMMU-SAS LTP jobs exited 137
+  while extracting the LTP archive inside the test container. NOMMU-seccomp and
+  RISC-V LTP jobs completed, although their JSON reports include LTP test
+  failures (69/4 and 136/52 failed/broken respectively); preserve those reports
+  as test outcomes rather than conflating them with job status. The remaining
+  MMU, MMU-seccomp, and native LTP jobs were cancelled after the corrected run
+  started. Commit
+  `c2a22d3a8d97` moves LTP archive extraction to the runner and bind-mounts
+  `/opt/ltp`; NOMMU test containers now keep alive with static `busybox-host`.
+  Run `37794627130` validates this correction and remains in progress.
 - [x] Verify UML ccache restore and save. Run `37761713019` restored exact
   immutable keys such as `Linux-um-nommu-ccache-build`, so the cache action
   skipped its post-job save. Run `37767571411` then missed its old
