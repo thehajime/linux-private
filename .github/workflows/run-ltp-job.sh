@@ -26,11 +26,21 @@ fi
 
 cp .github/workflows/ltp-skip /ltp-skip
 case "$LTP_TESTNAME" in
+	um-nommu)
+		echo epoll_wait01 >> /ltp-skip
+		echo "Skipping known epoll_wait01 kernel panic for um-nommu"
+		;;
 	um-mmu)
 		echo ptrace06 >> /ltp-skip
 		echo "Skipping known ptrace06 failure for um-mmu"
 		;;
-	um-nommu-seccomp|um-nommu-sas-seccomp)
+	um-nommu-seccomp)
+		echo perf_event_open03 >> /ltp-skip
+		echo "Skipping known perf_event_open03 failure for $LTP_TESTNAME"
+		echo waitpid01 >> /ltp-skip
+		echo "Skipping waitpid01 associated with NOMMU seccomp exit panic"
+		;;
+	um-nommu-sas-seccomp)
 		echo perf_event_open03 >> /ltp-skip
 		echo "Skipping known perf_event_open03 failure for $LTP_TESTNAME"
 		;;
@@ -45,7 +55,10 @@ run_faketty()
 {
 	case "$LTP_TESTNAME" in
 		um-nommu*)
-			/tmp/busybox-host sh /github/workspace/.github/workflows/faketty "$@"
+			# docker exec allocates the required pseudo-terminal for NOMMU jobs.
+			# The image's util-linux script binary is not runnable by the host
+			# process when the image uses the NOMMU musl profile.
+			"$@"
 			;;
 		*)
 			faketty "$@"
@@ -70,8 +83,15 @@ else
 	sed "s/cmd_option/${UML_OPTIONS}/" .github/workflows/ltp-entrypoint.sh \
 		> /tmp/ltp-entrypoint.sh
 	mv /tmp/ltp-entrypoint.sh .github/workflows/ltp-entrypoint.sh
-	run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
-		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
+	case "$LTP_TESTNAME" in
+		um-nommu*)
+			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4
+			;;
+		*)
+			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
+				| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
+			;;
+	esac
 fi
 
 "$ltp_source/tools/kirk/kirk-src/utils/json2html.py" -r /result.json \

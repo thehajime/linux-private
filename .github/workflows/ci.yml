@@ -774,7 +774,7 @@ jobs:
           if [[ "$LTP_TESTNAME" == um-nommu* ]]; then
             docker create "${docker_args[@]}" \
               --entrypoint /tmp/busybox-host "${{ matrix.image_name }}" \
-              sh -c 'sleep infinity'
+              sh -c 'exec /tmp/busybox-host sleep infinity'
           else
             docker create "${docker_args[@]}" \
               --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
@@ -795,11 +795,13 @@ jobs:
         run: |
           case "$LTP_TESTNAME" in
             um-nommu*)
-              docker exec \
+              mkdir -p output/ltp
+              docker exec -t \
                 -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
                 -e LTP_INSTALL_PREEXTRACTED ltp-test \
-                /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh
+                /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
+                | tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
               ;;
             *)
               docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
