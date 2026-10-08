@@ -840,6 +840,22 @@ static int vma_mmu_move_prepare(struct vma_remap_struct *vrm,
 	return 0;
 }
 
+static void vma_mmu_move_commit(struct vma_remap_struct *vrm,
+				struct vm_area_struct *src,
+				struct vm_area_struct *dst,
+				void *state)
+{
+	/* The MMU backend has no additional move state to commit. */
+}
+
+static void vma_mmu_move_abort(struct vma_remap_struct *vrm,
+			       struct vm_area_struct *src,
+			       struct vm_area_struct *dst,
+			       void *state)
+{
+	/* The MMU backend has no additional move state to abort. */
+}
+
 static unsigned long vma_mmu_get_unmapped_area(struct vma_remap_struct *vrm)
 {
 	struct vm_area_struct *vma;
@@ -867,6 +883,8 @@ static unsigned long vma_mmu_get_unmapped_area(struct vma_remap_struct *vrm)
 
 const struct vma_mapping_ops vma_mmu_mapping_ops = {
 	.move_prepare = vma_mmu_move_prepare,
+	.move_commit = vma_mmu_move_commit,
+	.move_abort = vma_mmu_move_abort,
 	.move_mapping = vma_mmu_move_mapping,
 	.move_rollback = vma_mmu_move_rollback,
 	.get_unmapped_area = vma_mmu_get_unmapped_area,
