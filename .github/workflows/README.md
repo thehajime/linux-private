@@ -10,8 +10,9 @@ Push-triggered runs only happen on branches that contain the workflow file.
 For example, pushing to `feature-swmmu-nommu` will not start this workflow
 unless that branch has merged or copied `.github/workflows/ci.yml`. To test it
 without changing the topic branch, dispatch the workflow from `ci/uml-nommu`
-and set `kernel_ref` to the branch, tag, or commit. The CI job checks out the
-selected kernel plus the canonical support files from `ci/uml-nommu`.
+and set `kernel_ref` to the branch, tag, or full commit SHA. Short SHA prefixes
+are not accepted by the checkout action. The CI job checks out the selected
+kernel plus the canonical support files from `ci/uml-nommu`.
 
 Every run builds signed NOMMU APK profiles from the pinned aports revision in
 GitHub Actions. MMU UML keeps Alpine's standard userspace; `um-nommu` uses
