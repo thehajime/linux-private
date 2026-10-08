@@ -112,12 +112,17 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
-- [ ] Validate plain NOMMU after making `CONFIG_NOMMU_SWMMU` selectable and
-  disabling it in the CI plain profile. Run `37701275797` first failed when
-  `/sbin/init` returned `-EFAULT`; run `37707094706` then exposed missing
-  native `do_mmap()` / `do_munmap()` wrappers when SWMMU was compiled out.
-  The wrappers are now in feature commit `d746ed04614e`; rerun and confirm the
-  guest reaches userspace. NOMMU-SAS and MMU passed the earlier runs.
+- [ ] Complete plain NOMMU CI validation. Runs `37711748667` and
+  `37713808402` showed that test-0's `NOMMU_USERSPACE_READY` marker could print
+  after `/bin/mkdir` failed to load MMU-only libraries and `/dev/shm` and
+  `/dev/pts` mounts failed; the prior readiness check was a false positive.
+  test-1 also regenerated its config without reapplying
+  `CONFIG_NOMMU_SWMMU=n`, then panicked with init `-EFAULT`. The workflow now
+  reapplies the profile config in build-1; the NOMMU image omits standard
+  coreutils and its login profile, and rcS stops on failed setup commands.
+  Rerun and confirm both test steps have no loader errors and reach readiness.
+  The earlier plain NOMMU kernel fixups are feature commits
+  `d746ed04614e` and `02036e380729`.
 - [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
   `37701275797` built and installed LTP successfully, then failed because the
   helper archived `/github/home/ltp-install` while the Buildroot container

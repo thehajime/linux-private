@@ -338,6 +338,18 @@ jobs:
           curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
           cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }}
+          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+            scripts/config --disable NOMMU_SWMMU_DEFAULT_ON --disable NOMMU_SWMMU
+            make ARCH=um olddefconfig
+            ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' .config
+            ! grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
+            ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' .config
+          elif [[ "${{ matrix.testname }}" == "um-nommu-sas" ]]; then
+            scripts/config --enable NOMMU_SWMMU --enable NOMMU_SWMMU_DEFAULT_ON --enable UML_NOMMU_SAS
+            make ARCH=um olddefconfig
+            grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
+            grep -q '^CONFIG_UML_NOMMU_SAS=y$' .config
+          fi
           make -j8 ARCH=um ${{ matrix.add_configs }}
       - name: test-1
         if: matrix.testname != 'um-mmu-tt'

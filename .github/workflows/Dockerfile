@@ -7,7 +7,12 @@ ADD vmlinux /root/.
 ADD inittab /etc/inittab
 RUN mkdir /etc/init.d
 ADD rcS /etc/init.d/.
-RUN sed "s/\'/\"/g" /etc/profile > /.profile
+RUN if [ "${USERSPACE_PROFILE}" = alpine ]; then \
+      sed "s/\'/\"/g" /etc/profile > /.profile; \
+    else \
+      printf '%s\n' 'export PATH=/home:/sbin:/usr/sbin:/bin:/usr/bin' \
+        'export TERM=linux' > /.profile; \
+    fi
 
 
 ADD bench.sh /
@@ -31,7 +36,8 @@ ADD lmbench_run.sh /lmbench2/bin/x86_64-linux-gnulibc1/
 ADD netperf /root/.
 ADD lib/ /lib
 
-RUN apk update && apk add utmps-libs libtirpc curl make iperf3 coreutils python3
+RUN apk update && apk add utmps-libs libtirpc curl make iperf3 python3
+RUN if [ "${USERSPACE_PROFILE}" = alpine ]; then apk add coreutils; fi
 
 # for ifupdown
 RUN mkdir -p /etc/network
