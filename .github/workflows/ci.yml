@@ -751,17 +751,34 @@ jobs:
         with:
           name: ltp-alpine-${{ matrix.name }}.tar.gz
           path: ${{ runner.temp }}/ltp-install
+      - name: Extract LTP install tree on the runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/ltp-root"
+          tar -xzf "$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz" \
+            -C "$RUNNER_TEMP/ltp-root"
+          test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
       - name: Create local test container
+        env:
+          LTP_TESTNAME: ${{ matrix.testname }}
         run: |
           install -d "$RUNNER_TEMP/ltp-home"
-          docker create --name ltp-test --privileged -t \
-            -v /boot:/boot -v /home:/home -v /dev:/dev \
-            ${{ matrix.docker_opt }} \
-            -v "$GITHUB_WORKSPACE:/github/workspace" \
-            -v "$RUNNER_TEMP/ltp-install:/ltp-install-artifacts" \
-            -v "$RUNNER_TEMP/ltp-home:/github/home" \
-            -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro" \
-            --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
+          docker_args=(
+            --name ltp-test --privileged -t
+            -v /boot:/boot -v /home:/home -v /dev:/dev
+            ${{ matrix.docker_opt }}
+            -v "$GITHUB_WORKSPACE:/github/workspace"
+            -v "$RUNNER_TEMP/ltp-root/opt/ltp:/opt/ltp"
+            -v "$RUNNER_TEMP/ltp-home:/github/home"
+            -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro"
+          )
+          if [[ "$LTP_TESTNAME" == um-nommu* ]]; then
+            docker create "${docker_args[@]}" \
+              --entrypoint /tmp/busybox-host "${{ matrix.image_name }}" \
+              sh -c 'sleep infinity'
+          else
+            docker create "${docker_args[@]}" \
+              --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
+          fi
           docker start ltp-test
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
@@ -774,16 +791,19 @@ jobs:
           LTP_ARTIFACT_NAME: ${{ matrix.name }}
           UML_OPTIONS: ${{ matrix.vmlinux_opt }}
           LTP_TIMEOUT_MUL: 10
+          LTP_INSTALL_PREEXTRACTED: 1
         run: |
           case "$LTP_TESTNAME" in
             um-nommu*)
               docker exec \
                 -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
+                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
+                -e LTP_INSTALL_PREEXTRACTED ltp-test \
                 /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh
               ;;
             *)
-              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
+              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
+                -e LTP_INSTALL_PREEXTRACTED ltp-test \
                 /bin/sh -c 'if command -v bash >/dev/null 2>&1; then \
                   exec bash -x /github/workspace/.github/workflows/run-ltp-job.sh; \
                 else \

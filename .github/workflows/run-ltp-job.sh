@@ -17,8 +17,12 @@ case "$LTP_ARTIFACT_NAME" in
 	""|*/*) echo "invalid LTP artifact name: $LTP_ARTIFACT_NAME" >&2; exit 1 ;;
 esac
 ltp_archive="/ltp-install-artifacts/ltp-alpine-${LTP_ARTIFACT_NAME}.tar.gz"
-test -r "$ltp_archive"
-tar xfz "$ltp_archive" -C /
+if [ "${LTP_INSTALL_PREEXTRACTED:-0}" = 1 ]; then
+	test -x /opt/ltp/kirk
+else
+	test -r "$ltp_archive"
+	tar xfz "$ltp_archive" -C /
+fi
 
 cp .github/workflows/ltp-skip /ltp-skip
 case "$LTP_TESTNAME" in
