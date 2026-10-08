@@ -773,14 +773,20 @@ jobs:
           UML_OPTIONS: ${{ matrix.vmlinux_opt }}
           LTP_TIMEOUT_MUL: 10
         run: |
-          docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
-            /bin/sh -c 'if [ -x /tmp/busybox-host ]; then \
-              exec /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh; \
-            elif command -v bash >/dev/null 2>&1; then \
-              exec bash -x /github/workspace/.github/workflows/run-ltp-job.sh; \
-            else \
-              exec /bin/sh -x /github/workspace/.github/workflows/run-ltp-job.sh; \
-            fi'
+          case "$LTP_TESTNAME" in
+            um-nommu*)
+              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
+                /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh
+              ;;
+            *)
+              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
+                /bin/sh -c 'if command -v bash >/dev/null 2>&1; then \
+                  exec bash -x /github/workspace/.github/workflows/run-ltp-job.sh; \
+                else \
+                  exec /bin/sh -x /github/workspace/.github/workflows/run-ltp-job.sh; \
+                fi'
+              ;;
+          esac
       - name: Stop local test container
         if: always()
         run: docker rm -f ltp-test || true

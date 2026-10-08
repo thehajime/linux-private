@@ -150,18 +150,20 @@ reproducible kselftest build instructions in
   cancelled before the UML matrix started; its NOMMU APK build and artifact
   upload completed, while the local RISC-V image build was interrupted.
   Record final outcomes and address new failures.
-- [ ] Re-run the LTP matrix after Actions run `37747988970`. The UML/APK/
-  Buildroot setup and builds passed, but LTP found three runner/runtime issues:
-  native and MMU jobs selected `/tmp/busybox-host`, which is absent from their
-  images; NOMMU-SAS LTP tried to run `apk add` after replacing musl and
-  segfaulted; and the LTP checkout happened inside the guest container. The
-  workflow now selects the static host BusyBox only for NOMMU images, uses
-  Bash where available, checks out LTP support files on the runner, and
-  installs runtime packages and the `ltp` user while building the UML image.
-  The native stock Alpine job installs its runtime packages before testing.
-  These changes are pending a full Actions rerun. The MMU panic in
-  `vma_move_commit()` from run `37741458984` was fixed separately by explicit
-  no-op move commit/abort callbacks on `feature-swmmu-nommu`.
+- [ ] Continue the LTP matrix after run `37754867924`. Checkpatch, APK builds,
+  both LTP build jobs, RISC-V image/LTP builds, and all four UML build/KUnit
+  jobs passed. Two NOMMU-SAS LTP jobs failed immediately with exit 137 because
+  the workflow launched the instrumented NOMMU `/bin/sh` to select the static
+  host helper. The workflow now branches on `LTP_TESTNAME` in the GitHub
+  runner and invokes `/tmp/busybox-host` directly for all `um-nommu*` tests;
+  verify this with a full rerun. The previous run `37747988970` also exposed
+  that native/MMU images lack `/tmp/busybox-host`, that runtime `apk add`
+  segfaults after replacing musl, and that LTP support files should be checked
+  out on the runner. Those issues were addressed by runner-side shell selection,
+  build-time runtime dependencies, and a runner-side LTP checkout. The native
+  stock Alpine job installs its runtime packages before testing. The MMU panic
+  in `vma_move_commit()` from run `37741458984` was fixed separately by
+  explicit no-op move commit/abort callbacks on `feature-swmmu-nommu`.
 - [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
   image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
