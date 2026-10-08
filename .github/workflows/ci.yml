@@ -775,7 +775,9 @@ jobs:
         run: |
           case "$LTP_TESTNAME" in
             um-nommu*)
-              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
+              docker exec \
+                -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
                 /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh
               ;;
             *)

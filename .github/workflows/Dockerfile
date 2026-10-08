@@ -64,6 +64,8 @@ RUN --mount=type=bind,source=aports-artifacts,target=/tmp/aports-artifacts,ro \
         cp /tmp/aports-artifacts/keys/*.rsa.pub /etc/apk/keys/ && \
         cp /tmp/aports-artifacts/${USERSPACE_PROFILE}/tools/busybox-host /tmp/busybox-host && \
         chmod 755 /tmp/busybox-host && \
+        mkdir -p /tmp/busybox-host-bin && \
+        /tmp/busybox-host --install -s /tmp/busybox-host-bin && \
         apk add --no-cache --no-scripts \
           /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/busybox-nommu-*.apk \
           /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/musl-nommu-*.apk && \

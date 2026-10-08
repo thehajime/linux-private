@@ -150,13 +150,14 @@ reproducible kselftest build instructions in
   cancelled before the UML matrix started; its NOMMU APK build and artifact
   upload completed, while the local RISC-V image build was interrupted.
   Record final outcomes and address new failures.
-- [ ] Continue the LTP matrix after run `37754867924`. Checkpatch, APK builds,
+- [ ] Continue the LTP matrix after run `37761713019`. Checkpatch, APK builds,
   both LTP build jobs, RISC-V image/LTP builds, and all four UML build/KUnit
-  jobs passed. Two NOMMU-SAS LTP jobs failed immediately with exit 137 because
-  the workflow launched the instrumented NOMMU `/bin/sh` to select the static
-  host helper. The workflow now branches on `LTP_TESTNAME` in the GitHub
-  runner and invokes `/tmp/busybox-host` directly for all `um-nommu*` tests;
-  verify this with a full rerun. The previous run `37747988970` also exposed
+  jobs passed. The direct `/tmp/busybox-host` invocation fixed the shell-wrapper
+  exit 137, but both NOMMU-SAS LTP jobs then exited 137 at the first `mkdir`:
+  host-side preparation commands still resolved to NOMMU BusyBox applets in the
+  container. The Docker image now installs host BusyBox applets under
+  `/tmp/busybox-host-bin`, and NOMMU LTP runs prepend that directory to `PATH`;
+  verify this with the next full run. The previous run `37747988970` also exposed
   that native/MMU images lack `/tmp/busybox-host`, that runtime `apk add`
   segfaults after replacing musl, and that LTP support files should be checked
   out on the runner. Those issues were addressed by runner-side shell selection,
