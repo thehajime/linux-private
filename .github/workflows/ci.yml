@@ -967,6 +967,11 @@ jobs:
             cat um-nommu.log 2>/dev/null || true
             if [ -n "$PAGE_URL" ]; then
               printf '\n### Benchmark charts and result data\n\n[Open this run\x27s report on GitHub Pages](%s)\n\n' "$PAGE_URL"
+              for chart in lmbench.png iperf3.png tcp-stream.png; do
+                if [ -f "$RUNNER_TEMP/site/$chart" ]; then
+                  printf '![%s](%s%s)\n\n' "${chart%.png}" "${PAGE_URL%/}/" "$chart"
+                fi
+              done
             else
               printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
             fi
