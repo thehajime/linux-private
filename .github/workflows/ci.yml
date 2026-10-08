@@ -604,7 +604,15 @@ jobs:
       - name: check coding style
         continue-on-error: true
         run: |
-           git format-patch -o p1 uml/next..HEAD
+           # The CI branch carries workflow and handoff commits without
+           # Signed-off-by trailers. Check only commits that change kernel
+           # sources; CI metadata is not an upstream kernel patch.
+           git rev-list --reverse uml/next..HEAD | while read -r commit; do
+             if git diff-tree --no-commit-id --name-only -r "$commit" |
+               grep -qEv '^(\.github/workflows/|AGENTS\.md$)'; then
+               git format-patch -1 -o p1 "$commit"
+             fi
+           done
            ./scripts/checkpatch.pl --summary-file --ignore FILE_PATH_CHANGES \
              --ignore AVOID_EXTERNS p1/*.patch
       - name: check spells on commit message
