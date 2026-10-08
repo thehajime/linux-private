@@ -1514,7 +1514,7 @@ config LAZY_MMU_MODE_KUNIT_TEST
 source "mm/damon/Kconfig"
 
 config NOMMU_SWMMU
-	bool
+	bool "Software MMU support for NOMMU"
 	depends on !MMU
 	default y
 
