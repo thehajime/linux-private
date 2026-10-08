@@ -38,7 +38,10 @@ ADD netperf /root/.
 ADD lib/ /lib
 
 RUN apk update && apk add utmps-libs libtirpc curl make iperf3 python3
-RUN if [ "${USERSPACE_PROFILE}" = alpine ]; then apk add coreutils; fi
+RUN if [ "${USERSPACE_PROFILE}" = alpine ] || \
+      [ "${USERSPACE_PROFILE}" = nommu-plain ]; then \
+      apk add coreutils; \
+    fi
 
 # for ifupdown
 RUN mkdir -p /etc/network

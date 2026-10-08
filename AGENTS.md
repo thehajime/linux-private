@@ -114,14 +114,15 @@ reproducible kselftest build instructions in
 
 - [ ] Complete plain NOMMU CI validation. Runs `37711748667` and
   `37713808402` showed that test-0's `NOMMU_USERSPACE_READY` marker could print
-  after `/bin/mkdir` failed to load MMU-only libraries and `/dev/shm` and
+  after `/bin/mkdir` failed to load shared libraries and `/dev/shm` and
   `/dev/pts` mounts failed; the prior readiness check was a false positive.
   test-1 also regenerated its config without reapplying
   `CONFIG_NOMMU_SWMMU=n`, then panicked with init `-EFAULT`. The workflow now
-  reapplies the profile config in build-1; the NOMMU image omits standard
-  coreutils and both login profile files, and rcS stops on failed setup
-  commands.
-  Rerun and confirm both test steps have no loader errors and reach readiness.
+  reapplies the profile config in build-1, and rcS stops on failed setup
+  commands. Run `37725137250` passed both UML tests with coreutils omitted,
+  but benchmark-1 still logged `lat_select` failing to load `libtirpc.so.3`.
+  Restore standard coreutils in the plain profile and resolve the shared
+  library mapping failures; a pass marker alone is insufficient.
   The earlier plain NOMMU kernel fixups are feature commits
   `d746ed04614e` and `02036e380729`.
 - [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
