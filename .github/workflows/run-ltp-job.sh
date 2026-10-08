@@ -37,16 +37,28 @@ test -d "$ltp_source/tools/kirk/kirk-src"
 cp .github/workflows/faketty /bin/faketty
 chmod +x /bin/faketty
 
+run_faketty()
+{
+	case "$LTP_TESTNAME" in
+		um-nommu*)
+			/tmp/busybox-host sh /github/workspace/.github/workflows/faketty "$@"
+			;;
+		*)
+			faketty "$@"
+			;;
+	esac
+}
+
 if [ "$LTP_TESTNAME" = riscv-nommu ]; then
 	qemu-img create -f raw /ltp-image.img 2G
 	mkfs.ext2 -d /opt /ltp-image.img
-	faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
+	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
 		--sut default:com=qemu --com \
 		qemu:image=/work-buildroot/buildroot/output/images/rootfs.ext2:kernel=/work-buildroot/buildroot/output/images/Image:system=riscv64:user=root \
 		-f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 elif [ "$LTP_TESTNAME" = native ]; then
-	faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
+	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
 		-f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 else
@@ -54,7 +66,7 @@ else
 	sed "s/cmd_option/${UML_OPTIONS}/" .github/workflows/ltp-entrypoint.sh \
 		> /tmp/ltp-entrypoint.sh
 	mv /tmp/ltp-entrypoint.sh .github/workflows/ltp-entrypoint.sh
-	faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
+	run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 fi
 

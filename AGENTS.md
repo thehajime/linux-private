@@ -151,13 +151,18 @@ reproducible kselftest build instructions in
   upload completed, while the local RISC-V image build was interrupted.
   Record final outcomes and address new failures.
 - [ ] Continue the LTP matrix after run `37761713019`. Checkpatch, APK builds,
-  both LTP build jobs, RISC-V image/LTP builds, and all four UML build/KUnit
-  jobs passed. The direct `/tmp/busybox-host` invocation fixed the shell-wrapper
-  exit 137, but both NOMMU-SAS LTP jobs then exited 137 at the first `mkdir`:
-  host-side preparation commands still resolved to NOMMU BusyBox applets in the
-  container. The Docker image now installs host BusyBox applets under
-  `/tmp/busybox-host-bin`, and NOMMU LTP runs prepend that directory to `PATH`;
-  verify this with the next full run. The previous run `37747988970` also exposed
+  both LTP build jobs, RISC-V image/LTP builds, all four UML build/KUnit jobs,
+  and all six benchmark jobs passed. NOMMU-SAS LTP jobs exited 137 at the first
+  `mkdir`: host-side preparation commands still resolved to NOMMU BusyBox
+  applets. The direct host shell now uses a separate BusyBox applet path, and
+  `faketty` runs through the host shell so its `/bin/sh` shebang cannot select
+  the NOMMU shell. Verify both with the next full run. Plain NOMMU completed its
+  tests but artifact collection failed on guest-owned files; a runner-side
+  `chown` now restores access. RISC-V LTP failed because
+  `qemu-system-riscv64` was missing; the local image build now installs
+  `qemu-system-misc`. NOMMU-seccomp hit a kernel panic in `epoll_wait01` through
+  `rb_erase_linked()` / `__remove_hrtimer()`; investigate this separately and
+  keep the failure visible. The previous run `37747988970` also exposed
   that native/MMU images lack `/tmp/busybox-host`, that runtime `apk add`
   segfaults after replacing musl, and that LTP support files should be checked
   out on the runner. Those issues were addressed by runner-side shell selection,
