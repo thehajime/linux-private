@@ -11,7 +11,7 @@ on:
         description: 'Kernel branch, tag, or commit to validate'
         required: false
         type: string
-        default: ci/uml-nommu
+        default: feature-swmmu-nommu
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
@@ -46,7 +46,7 @@ jobs:
       - name: Checkout kernel headers and SWMMU plugin source
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_ref || github.ref }}
+          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
           path: kernel-source
       - name: Cache verified aports source archives
         uses: actions/cache@v4
@@ -144,7 +144,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_ref || github.ref }}
+          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
       - name: Checkout canonical CI support files
         uses: actions/checkout@v6
         with:
@@ -864,7 +864,7 @@ jobs:
         env:
           REPORT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPORT_SHA: ${{ github.sha }}
-          TESTED_REF: ${{ inputs.kernel_ref || github.ref_name }}
+          TESTED_REF: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref_name }}
           BUILD_STATUS: ${{ needs.build_uml.result }}
           BENCHMARK_STATUS: ${{ needs.benchmark.result }}
           LTP_STATUS: ${{ needs.test_ltp.result }}

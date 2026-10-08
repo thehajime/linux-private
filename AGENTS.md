@@ -127,8 +127,10 @@ reproducible kselftest build instructions in
   `f9ec9629f50634534a0ee89339ca5ed5633aa503` and the CI APK source pin is
   updated. A local APK build and UML smoke with coreutils installed completed:
   `/bin/mkdir` and lmbench `lat_select file 10` ran without loader errors.
-  Publish the aports commit, then run CI against the updated pin before closing
-  plain NOMMU validation.
+  The first push run `37739792071` stopped in APK setup because push-triggered
+  builds checked out `ci/uml-nommu` as the kernel source, which lacks the SWMMU
+  plugin and UAPI. The workflow now defaults push-triggered validation to
+  `feature-swmmu-nommu`; rerun before closing plain NOMMU validation.
   The earlier plain NOMMU kernel fixups are feature commits
   `d746ed04614e` and `02036e380729`.
 - [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
