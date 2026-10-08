@@ -121,8 +121,14 @@ reproducible kselftest build instructions in
   reapplies the profile config in build-1, and rcS stops on failed setup
   commands. Run `37725137250` passed both UML tests with coreutils omitted,
   but benchmark-1 still logged `lat_select` failing to load `libtirpc.so.3`.
-  Restore standard coreutils in the plain profile and resolve the shared
-  library mapping failures; a pass marker alone is insufficient.
+  Plain NOMMU's `musl-nommu` split rebuild lacked `DL_NOMMU_SUPPORT=1`, so
+  musl's loader treated NOMMU `MAP_FIXED` behavior as a fatal shared-library
+  mapping error. The aports fix is committed locally as
+  `f9ec9629f50634534a0ee89339ca5ed5633aa503` and the CI APK source pin is
+  updated. A local APK build and UML smoke with coreutils installed completed:
+  `/bin/mkdir` and lmbench `lat_select file 10` ran without loader errors.
+  Publish the aports commit, then run CI against the updated pin before closing
+  plain NOMMU validation.
   The earlier plain NOMMU kernel fixups are feature commits
   `d746ed04614e` and `02036e380729`.
 - [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
