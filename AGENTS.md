@@ -164,6 +164,12 @@ reproducible kselftest build instructions in
   stock Alpine job installs its runtime packages before testing. The MMU panic
   in `vma_move_commit()` from run `37741458984` was fixed separately by
   explicit no-op move commit/abort callbacks on `feature-swmmu-nommu`.
+- [ ] Verify ccache saves after changing the UML cache key. Run `37761713019`
+  restored exact immutable keys such as `Linux-um-nommu-ccache-build`, so the
+  cache action skipped its post-job save. The key now includes `github.run_id`
+  and `github.run_attempt`, while the restore prefix remains profile-specific;
+  confirm a following run restores the prior entry and saves a new one. The
+  existing four profile caches occupy about 1.4 GB total.
 - [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
   image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
