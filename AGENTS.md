@@ -112,11 +112,15 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
-- [ ] Revisit the plain NOMMU kernel Kconfig: `CONFIG_NOMMU_SWMMU` is currently
-  hidden and defaults to `y` whenever `MMU=n`; CI disables only
-  `CONFIG_NOMMU_SWMMU_DEFAULT_ON`, so the SWMMU implementation remains compiled
-  while runtime SWMMU activation defaults off. Make SWMMU support selectable
-  before claiming a build without SWMMU code.
+- [ ] Validate plain NOMMU after making `CONFIG_NOMMU_SWMMU` selectable and
+  disabling it in the CI plain profile. Run `37701275797` failed when
+  `/sbin/init` returned `-EFAULT` before the readiness marker; rerun after the
+  Kconfig change and confirm the guest reaches userspace. NOMMU-SAS and MMU
+  passed this run.
+- [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
+  `37701275797` built and installed LTP successfully, then failed because the
+  helper archived `/github/home/ltp-install` while the Buildroot container
+  installed under `/root/ltp-install`.
 - [ ] Remove the temporary LTP skips for `ptrace06` on `um-mmu` and
   `perf_event_open03` on `um-nommu-seccomp` and `um-nommu-sas-seccomp` after
   their failure causes are understood and fixed.

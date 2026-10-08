@@ -32,5 +32,6 @@ patch -p1 < ./kirk-block.patch
 ./build.sh -r install -o out -i
 
 mkdir -p /run-artifacts
+test -d /root/ltp-install/opt
 tar cfz /run-artifacts/ltp-alpine-riscv-nommu.tar.gz \
-	-C /github/home/ltp-install ./opt
+	-C /root/ltp-install ./opt

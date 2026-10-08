@@ -15,17 +15,16 @@ selected kernel plus the canonical support files from `ci/uml-nommu`.
 
 Every run builds signed NOMMU APK profiles from the pinned aports revision in
 GitHub Actions. MMU UML keeps Alpine's standard userspace; `um-nommu` uses
-uninstrumented `SWMMU=0` APKs with SWMMU default-on disabled, and
+uninstrumented `SWMMU=0` APKs with `CONFIG_NOMMU_SWMMU` disabled, and
 `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with the selected kernel
 ref's GCC plugin and UAPI. Both profiles are built and installed into their
 matching local rootfs images. Plain x86_64 NOMMU UML does not support the
 standard `BINFMT_ELF` loader, but its FDPIC loader accepts `ET_DYN` PIE binaries
 without FDPIC-specific marking when `MMU=n`. CI boots the plain NOMMU image and
-checks that its userspace init script starts. Its kernel has
-`CONFIG_NOMMU_SWMMU_DEFAULT_ON` disabled, so userspace starts with SWMMU off;
-`CONFIG_NOMMU_SWMMU` itself is currently hidden and defaults to `y` for all
-NOMMU builds, so the implementation remains compiled in. SAS and MMU UML also
-run guest boot tests. For the
+checks that its userspace init script starts. Its kernel is built without the
+SWMMU implementation. SAS requires `CONFIG_NOMMU_SWMMU=y`; the workflow asserts
+that setting for the SAS profile. SAS and MMU UML also run guest boot tests. For
+the
 SWMMU image, APK install scripts are skipped because the
 instrumented guest BusyBox cannot run on the build host; a static helper from
 the same aports build recreates its applet links. Kselftest is temporarily disabled because the NOMMU kselftest

@@ -236,8 +236,18 @@ jobs:
           make ARCH=um ${{ matrix.defconfig }} O=build
           if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
             scripts/config --file build/.config --disable NOMMU_SWMMU_DEFAULT_ON
+            scripts/config --file build/.config --disable NOMMU_SWMMU
             make ARCH=um O=build olddefconfig
             ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' build/.config
+            ! grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
+            ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' build/.config
+          elif [[ "${{ matrix.testname }}" == "um-nommu-sas" ]]; then
+            scripts/config --file build/.config --enable NOMMU_SWMMU
+            scripts/config --file build/.config --enable NOMMU_SWMMU_DEFAULT_ON
+            scripts/config --file build/.config --enable UML_NOMMU_SAS
+            make ARCH=um O=build olddefconfig
+            grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
+            grep -q '^CONFIG_UML_NOMMU_SAS=y$' build/.config
           fi
           cat build/.config | sed "s/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/" > /tmp/a; mv /tmp/a build/.config
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
