@@ -37,7 +37,12 @@ ADD lmbench_run.sh /lmbench2/bin/x86_64-linux-gnulibc1/
 ADD netperf /root/.
 ADD lib/ /lib
 
-RUN apk update && apk add utmps-libs libtirpc curl make iperf3 python3
+RUN apk update && apk add \
+	acl curl jq keyutils libaio libacl libcap libselinux libsepol libtirpc utmps-libs \
+	numactl openssl py3-msgpack btrfs-progs e2fsprogs xfsprogs \
+	dosfstools parted util-linux make iperf3 python3 bash git && \
+	adduser -D -g "Unprivileged LTP user" ltp && \
+	apk del btrfs-progs
 RUN if [ "${USERSPACE_PROFILE}" = alpine ] || \
       [ "${USERSPACE_PROFILE}" = nommu-plain ]; then \
       apk add coreutils; \

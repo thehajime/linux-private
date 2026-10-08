@@ -738,6 +738,13 @@ jobs:
         if: matrix.testname == 'native'
         run: docker pull alpine:3.20.3
       - uses: actions/checkout@v6
+      - name: Checkout LTP test support files
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/ltp
+          ref: fix-nommu
+          path: ltp-source
+          submodules: recursive
       - uses: actions/download-artifact@v7
         with:
           name: ltp-alpine-${{ matrix.name }}.tar.gz
@@ -751,6 +758,7 @@ jobs:
             -v "$GITHUB_WORKSPACE:/github/workspace" \
             -v "$RUNNER_TEMP/ltp-install:/ltp-install-artifacts" \
             -v "$RUNNER_TEMP/ltp-home:/github/home" \
+            -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro" \
             --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
           docker start ltp-test
       - name: Setup tmate session
@@ -766,7 +774,13 @@ jobs:
           LTP_TIMEOUT_MUL: 10
         run: |
           docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
-            /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh
+            /bin/sh -c 'if [ -x /tmp/busybox-host ]; then \
+              exec /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh; \
+            elif command -v bash >/dev/null 2>&1; then \
+              exec bash -x /github/workspace/.github/workflows/run-ltp-job.sh; \
+            else \
+              exec /bin/sh -x /github/workspace/.github/workflows/run-ltp-job.sh; \
+            fi'
       - name: Stop local test container
         if: always()
         run: docker rm -f ltp-test || true
