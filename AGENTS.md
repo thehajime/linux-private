@@ -197,7 +197,12 @@ reproducible kselftest build instructions in
   NOMMU-seccomp pending kernel fixes. Retest the SAS runner change and assess
   whether the NOMMU-seccomp exit panic is resolved; do not count successful
   benchmark runs as proof that LTP passed. Commit `c2a22d3a8d97` had already
-  moved LTP archive extraction to the runner and bind-mounted `/opt/ltp`.
+  moved LTP archive extraction to the runner and bind-mounted `/opt/ltp`. Run
+  `37843548583` exposed false-positive LTP job conclusions: SAS-zpoline panicked
+  before producing results, while NOMMU-seccomp's guest Python segfaulted;
+  both jobs showed success because the host step piped `docker exec` through
+  `tee` without `pipefail`. Require a nonempty HTML result after NOMMU runs and
+  propagate the Docker exit status before treating these jobs as successful.
 - [x] Verify UML ccache restore and save. Run `37761713019` restored exact
   immutable keys such as `Linux-um-nommu-ccache-build`, so the cache action
   skipped its post-job save. Run `37767571411` then missed its old

@@ -793,6 +793,7 @@ jobs:
           LTP_TIMEOUT_MUL: 10
           LTP_INSTALL_PREEXTRACTED: 1
         run: |
+          set -euo pipefail
           case "$LTP_TESTNAME" in
             um-nommu*)
               mkdir -p output/ltp
@@ -802,6 +803,7 @@ jobs:
                 -e LTP_INSTALL_PREEXTRACTED ltp-test \
                 /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
                 | tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
+              test -s "output/ltp/ltp-result-${LTP_TESTNAME}.html"
               ;;
             *)
               docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
