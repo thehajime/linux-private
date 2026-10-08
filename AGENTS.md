@@ -198,11 +198,38 @@ reproducible kselftest build instructions in
   whether the NOMMU-seccomp exit panic is resolved; do not count successful
   benchmark runs as proof that LTP passed. Commit `c2a22d3a8d97` had already
   moved LTP archive extraction to the runner and bind-mounted `/opt/ltp`. Run
-  `37843548583` exposed false-positive LTP job conclusions: SAS-zpoline panicked
-  before producing results, while NOMMU-seccomp's guest Python segfaulted;
-  both jobs showed success because the host step piped `docker exec` through
-  `tee` without `pipefail`. Require a nonempty HTML result after NOMMU runs and
-  propagate the Docker exit status before treating these jobs as successful.
+  `37843548583` exposed false-positive LTP conclusions: the SAS profiles
+  panicked while running guest Python, plain NOMMU panicked during Python exit,
+  and NOMMU-seccomp's guest Python segfaulted. The host step hid failures from
+  `docker exec | tee` without `pipefail` and did not require a valid report.
+  Commit `7ba857697899` adds `pipefail` and a nonempty HTML report check; verify
+  this guard in the next run.
+- [ ] Investigate NOMMU-SAS LTP startup under both seccomp and zpoline. Run
+  `37843548583` confirms that Kirk's guest Python 3.12 starts, then both modes
+  panic while Python is running, before the first LTP result is written.
+  Determine whether Python and any native dependencies must be built with the
+  SWMMU plugin; verify that hypothesis with a SWMMU-built Python package and
+  record the exact failing component before treating either SAS LTP run as
+  valid.
+- [ ] Investigate abnormal completion in both non-SAS NOMMU LTP profiles from
+  run `37843548583`. Plain NOMMU ran 1,433 tests (6,755 passed, 73 failed,
+  4 broken, 1,039 skipped), then panicked while Kirk's Python exited through
+  `exit_mmap()` / `vm_area_free()` (`Segfault with no mm`). NOMMU-seccomp ran
+  tests through `fcntl30_64`, then guest Python segfaulted at address zero and
+  produced no JSON/HTML report. Establish whether these failures share a kernel
+  cause or need separate fixes; keep the `epoll_wait01` and `waitpid01` skips
+  provisional until their underlying failures are understood.
+- [ ] Validate the LTP false-success guard in a new run. Run `37843548583` has
+  overall conclusion `success`, but it used workflow SHA `47ddab30b50b`, before
+  `7ba857697899` added `pipefail` and the nonempty HTML report requirement.
+  Therefore its success conclusion does not mean the four NOMMU LTP jobs
+  passed: SAS jobs produced no report, and NOMMU-seccomp uploaded a zero-byte
+  HTML file. Confirm the new guard makes these conditions fail visibly.
+- [ ] Verify that benchmark plots are embedded in issue #4 after a run using
+  commit `6758daaedbeb` or later. The previous run predates that change, which
+  adds Markdown image embeds for chart files actually deployed to GitHub Pages.
+  Keep the Pages report link and compare the displayed chart URLs with the
+  deployed files.
 - [x] Verify UML ccache restore and save. Run `37761713019` restored exact
   immutable keys such as `Linux-um-nommu-ccache-build`, so the cache action
   skipped its post-job save. Run `37767571411` then missed its old
