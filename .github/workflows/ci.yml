@@ -442,7 +442,7 @@ jobs:
         with:
           driver-opts: network=host
       - name: Install QEMU system emulator in the local LTP image
-        run: sed -i 's/apt install -y qemu-utils$/apt install -y qemu-utils qemu-system-misc/' ltp/tools/buildroot/Dockerfile
+        run: sed -i '/^RUN apt install -y qemu-utils$/c\RUN apt-get update && apt-get install -y qemu-utils qemu-system-misc' ltp/tools/buildroot/Dockerfile
       - name: Build RISC-V NOMMU image locally
         uses: docker/build-push-action@v7
         env:

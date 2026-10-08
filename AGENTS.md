@@ -159,10 +159,12 @@ reproducible kselftest build instructions in
   the NOMMU shell. Verify both with the next full run. Plain NOMMU completed its
   tests but artifact collection failed on guest-owned files; a runner-side
   `chown` now restores access. RISC-V LTP failed because
-  `qemu-system-riscv64` was missing; the local image build now installs
-  `qemu-system-misc`. NOMMU-seccomp hit a kernel panic in `epoll_wait01` through
-  `rb_erase_linked()` / `__remove_hrtimer()`; investigate this separately and
-  keep the failure visible. The previous run `37747988970` also exposed
+  `qemu-system-riscv64` was missing; the local image now installs
+  `qemu-system-misc`, with `apt-get update` in the same layer to avoid stale
+  package-index 404 errors seen in run `37769854083`. NOMMU-seccomp hit a kernel
+  panic in `epoll_wait01` through `rb_erase_linked()` / `__remove_hrtimer()`;
+  investigate this separately and keep the failure visible. The previous run
+  `37747988970` also exposed
   that native/MMU images lack `/tmp/busybox-host`, that runtime `apk add`
   segfaults after replacing musl, and that LTP support files should be checked
   out on the runner. Those issues were addressed by runner-side shell selection,
