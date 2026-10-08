@@ -766,7 +766,7 @@ jobs:
           LTP_TIMEOUT_MUL: 10
         run: |
           docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL ltp-test \
-            /bin/sh -x /github/workspace/.github/workflows/run-ltp-job.sh
+            /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh
       - name: Stop local test container
         if: always()
         run: docker rm -f ltp-test || true

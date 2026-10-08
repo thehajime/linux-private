@@ -150,6 +150,15 @@ reproducible kselftest build instructions in
   cancelled before the UML matrix started; its NOMMU APK build and artifact
   upload completed, while the local RISC-V image build was interrupted.
   Record final outcomes and address new failures.
+- [ ] Re-run the LTP matrix after Actions run `37741458984`: UML build, APK
+  build, RISC-V image build, and all benchmark jobs passed, but the LTP jobs
+  exposed two issues. NOMMU LTP startup invoked the package's NOMMU `/bin/sh`
+  on the host runner, where `set -eu` failed; launch the host-side script with
+  the static `/tmp/busybox-host` helper instead. MMU LTP panicked in
+  `vma_move_commit()` because `vma_mmu_mapping_ops` had a move prepare callback
+  but no commit/abort callbacks; explicit no-op MMU callbacks are now on
+  `feature-swmmu-nommu` and the host-side shell invocation now uses the static
+  helper. Validate both fixes with a full rerun.
 - [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
   image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
