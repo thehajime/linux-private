@@ -150,9 +150,15 @@ reproducible kselftest build instructions in
   cancelled before the UML matrix started; its NOMMU APK build and artifact
   upload completed, while the local RISC-V image build was interrupted.
   Record final outcomes and address new failures.
-- [ ] Continue the LTP matrix after run `37761713019`. Checkpatch, APK builds,
-  both LTP build jobs, RISC-V image/LTP builds, all four UML build/KUnit jobs,
-  and all six benchmark jobs passed. NOMMU-SAS LTP jobs exited 137 at the first
+- [ ] Continue the LTP matrix after run `37770276697`. Checkpatch, APK builds,
+  both standard LTP build jobs, all four UML build/KUnit jobs, and all six
+  benchmark jobs passed. The RISC-V Buildroot image build (including the
+  `qemu-system-misc` install) succeeded, and its 4.1 GB artifact uploaded, but
+  the Buildroot job was cancelled after exceeding its 100-minute timeout during
+  post-build cleanup. This caused the RISC-V LTP build and all LTP test jobs to
+  be skipped. The job timeout is now 150 minutes; rerun and verify the cached
+  Buildroot image and the LTP matrix. NOMMU-SAS LTP jobs in run `37767571411`
+  exited 137 at the first
   `mkdir`: host-side preparation commands still resolved to NOMMU BusyBox
   applets. The direct host shell now uses a separate BusyBox applet path, and
   `faketty` runs through the host shell so its `/bin/sh` shebang cannot select
@@ -172,15 +178,17 @@ reproducible kselftest build instructions in
   stock Alpine job installs its runtime packages before testing. The MMU panic
   in `vma_move_commit()` from run `37741458984` was fixed separately by
   explicit no-op move commit/abort callbacks on `feature-swmmu-nommu`.
-- [ ] Verify UML ccache restore and save. Run `37761713019` restored exact
+- [x] Verify UML ccache restore and save. Run `37761713019` restored exact
   immutable keys such as `Linux-um-nommu-ccache-build`, so the cache action
   skipped its post-job save. Run `37767571411` then missed its old
   `Linux-um-mmu-tt-ccache-build` cache because the restore prefix had an extra
   trailing hyphen, but successfully saved
   `Linux-um-mmu-tt-ccache-build-37767571411-1`. The key includes `github.run_id`
   and `github.run_attempt`; the restore prefix now also matches the legacy key.
-  Confirm a following run restores this new cache and saves another fresh key.
-  The four existing profile caches occupy about 1.4 GB total.
+  Run `37770276697` restored the previous cache and saved a new run-specific key
+  for each of the four UML profiles. The ccache entries currently occupy about
+  6.7 GB total; monitor GitHub cache eviction and storage as future runs add
+  immutable per-run entries.
 - [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
   image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
