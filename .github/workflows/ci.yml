@@ -602,7 +602,7 @@ jobs:
           out="output/w${WORKERS}-c${CONNECTIONS}"
           if [[ ! -s "$out/measurement.json" ]]; then
             mkdir -p "$out"
-            for file in kernel.log nginx.log client-setup.log smoke-http.log smoke-tls.log wrk-warmup.log wrk.log nginx-swmmu.conf; do
+            for file in capability.log host-sysctl.log tap.log kernel.log nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk.log nginx-swmmu.conf; do
               touch "$out/$file"
             done
             printf 'FAIL\n' >"$out/harness.status"

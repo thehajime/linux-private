@@ -96,9 +96,13 @@ def main() -> int:
         "smoke_http": read_text(args.output / "smoke-http.status") == "PASS",
         "smoke_tls": read_text(args.output / "smoke-tls.status") == "PASS",
         "raw_logs": [
+            "capability.log",
+            "host-sysctl.log",
+            "tap.log",
             "kernel.log",
             "nginx.log",
             "client-setup.log",
+            "client-container.log",
             "smoke-http.log",
             "smoke-tls.log",
             "wrk-warmup.log",
