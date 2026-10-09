@@ -682,7 +682,7 @@ jobs:
             vmlinux_opt: "seccomp=on"
             name: um-nommu
           - displayTargetName: qemu-riscv-nommu
-            image_name: ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-3a01c5ac8771122fd40ddf41024bf865769279be
+            image_name: ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-dfebc378bc04da60d0bb9ec86989b56f7f1e3909
             image_artifact: ''
             testname: riscv-nommu
             vmlinux_opt: ""

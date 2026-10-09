@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       kernel_ref:
-        description: Linux commit or branch to embed in the Buildroot image
+        description: Linux ref used by the RISC-V Buildroot test image
         required: true
         type: string
-        default: feature-swmmu-nommu
+        default: zpoline-nommu-v6.10
 
 permissions:
   contents: read

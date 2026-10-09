@@ -133,6 +133,13 @@ reproducible kselftest build instructions in
   `feature-swmmu-nommu`; rerun before closing plain NOMMU validation.
   The earlier plain NOMMU kernel fixups are feature commits
   `d746ed04614e` and `02036e380729`.
+- [ ] Keep the RISC-V Buildroot image on the previously proven
+  `thehajime/linux:zpoline-nommu-v6.10` ref until the refreshed image and CI
+  test pass. Then evaluate and pin a newer RISC-V NOMMU kernel independently
+  from the UML `feature-swmmu-nommu` ref.
+- [ ] Replace the UML-specific `cpu_tasks[0]->pid` diagnostic in
+  `mm/nommu_swmmu.c` with an architecture-independent current-task PID lookup
+  and verify the generic code compiles for RISC-V.
 - [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
   `37701275797` built and installed LTP successfully, then failed because the
   helper archived `/github/home/ltp-install` while the Buildroot container

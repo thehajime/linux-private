@@ -69,13 +69,16 @@ upstreaming to Alpine; track that work in the root `AGENTS.md` TODO list.
 
 The UML images are built in each CI run and passed to benchmark and LTP jobs as
 workflow artifacts. The RISC-V Buildroot image is maintained separately by
-`build-riscv-image.yml`, which is a manual workflow. It checks out the selected
-kernel ref, updates the LTP fork's Buildroot Dockerfile to that exact commit and
-kernel version, then publishes an immutable GHCR tag. The `riscv-nommu` matrix
-entry pins that image tag and builds its LTP test programs in the same job that
-runs QEMU, avoiding a large image artifact transfer between jobs. Update the
-image tag in `ci.yml` only after publishing and validating a replacement. The
-RISC-V comparison image can be refreshed less often than the main kernel CI.
+`build-riscv-image.yml`, which is a manual workflow with its own kernel ref,
+independent of the UML SWMMU kernel ref. For now it uses the previously proven
+`zpoline-nommu-v6.10` branch; updating to a newer RISC-V NOMMU kernel is tracked
+in `AGENTS.md`. The workflow updates the LTP fork's Buildroot Dockerfile to the
+selected exact commit and kernel version, then publishes an immutable GHCR tag.
+The `riscv-nommu` matrix entry pins that image tag and builds its LTP test
+programs in the same job that runs QEMU, avoiding a large image artifact
+transfer between jobs. Update the image tag in `ci.yml` only after publishing
+and validating a replacement. The RISC-V comparison image can be refreshed
+less often than the main kernel CI.
 
 The native lmbench, getpid, iperf3, and netperf measurements run in the
 independent `checkpatch` job and are uploaded as `test-result-native`.
