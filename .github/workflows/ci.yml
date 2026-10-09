@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: feature-swmmu-nommu
+      lmbench_ref:
+        description: 'Branch or tag in thehajime/lmbench-NoMMU'
+        required: false
+        type: string
+        default: codex/lmbench-process-method
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
@@ -21,6 +26,9 @@ on:
         description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
         required: false
         default: true
+
+env:
+  LMBENCH_REF: ${{ inputs.lmbench_ref || 'codex/lmbench-process-method' }}
 
 jobs:
   build_nommu_apks:
@@ -195,13 +203,23 @@ jobs:
       - name: build bench tools
         if: matrix.testname != 'um-mmu-tt'
         run: |
-          git clone https://github.com/ricarkol/lmbench2.git
+          git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
           git clone https://github.com/HewlettPackard/netperf
-          cd lmbench2
-          touch src/Makefile
-          touch Makefile
-          make
-          cd ..
+          cat > "$RUNNER_TEMP/lmbench-gcc" <<'EOF'
+          #!/bin/sh
+          exec gcc "$@" -ltirpc
+          EOF
+          chmod +x "$RUNNER_TEMP/lmbench-gcc"
+          lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
+          mkdir -p "$lmbench_bin"
+          lmbench_cflags="-O2 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc"
+          if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
+            gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
+            lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
+          fi
+          make -C lmbench/src OS=Linux CC="$RUNNER_TEMP/lmbench-gcc" \
+            O="$lmbench_bin" BINDIR="$lmbench_bin" \
+            CFLAGS="$lmbench_cflags"
           cd netperf
           sh autogen.sh
           ./configure; make CFLAGS="-fcommon" || true
@@ -256,7 +274,7 @@ jobs:
         run: |
            make -j8 ARCH=um O=build modules_install INSTALL_MOD_PATH=`pwd`/.github/workflows
            cp build/vmlinux .github/workflows/
-           cp -rpf lmbench2 .github/workflows/
+           cp -rpf lmbench .github/workflows/
            cp netperf/src/netperf .github/workflows/
            ls .github/workflows/
            ls .github/workflows/lib/modules
@@ -874,7 +892,26 @@ jobs:
         if: ${{ needs.benchmark.result == 'success' }}
         run: |
           sudo apt update -y
-          sudo apt install -y gnuplot lmbench iperf3 netperf jq
+          sudo apt install -y gnuplot libtirpc-dev iperf3 netperf jq
+      - name: Build lmbench-NoMMU for host benchmarks
+        if: ${{ needs.benchmark.result == 'success' }}
+        run: |
+          git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
+          cat > "$RUNNER_TEMP/lmbench-gcc" <<'EOF'
+          #!/bin/sh
+          exec gcc "$@" -ltirpc
+          EOF
+          chmod +x "$RUNNER_TEMP/lmbench-gcc"
+          lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
+          mkdir -p "$lmbench_bin"
+          lmbench_cflags="-O2 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc"
+          if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
+            gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
+            lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
+          fi
+          make -C lmbench/src OS=Linux CC="$RUNNER_TEMP/lmbench-gcc" \
+            O="$lmbench_bin" BINDIR="$lmbench_bin" \
+            CFLAGS="$lmbench_cflags"
       - name: benchmark-host
         if: ${{ needs.benchmark.result == 'success' }}
         run: |
@@ -882,7 +919,9 @@ jobs:
            sudo ln -s /usr/include/x86_64-linux-gnu/sys /usr/include/sys
            sudo mkdir -p /var/tmp/lmbench/
            sudo chown ${USER} /var/tmp/lmbench/
-           sh .github/workflows/lmbench_run.sh |& tee output/native.dat
+           LMBENCH_BIN_DIR="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1" \
+             LMBENCH_PROCESS_METHOD=both \
+             sh .github/workflows/lmbench_run.sh |& tee output/native.dat
            gcc -o do_getpid .github/workflows/do_getpid.c
            ./do_getpid -c 100 | tee -a output/native.dat
            iperf3 -s &

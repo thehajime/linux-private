@@ -3,6 +3,7 @@ FROM alpine:3.20.3
 
 ARG MODE=
 ARG USERSPACE_PROFILE=alpine
+ENV LMBENCH_PROCESS_METHOD=auto
 ADD vmlinux /root/.
 ADD inittab /etc/inittab
 RUN mkdir /etc/init.d
@@ -32,8 +33,8 @@ ADD locale /root/.
 ADD vdso_test /root/.
 ADD pthread /root/.
 ADD Makefile /root/.
-ADD lmbench2/ /lmbench2
-ADD lmbench_run.sh /lmbench2/bin/x86_64-linux-gnulibc1/
+ADD lmbench/ /lmbench
+ADD lmbench_run.sh /lmbench/bin/x86_64-linux-gnulibc1/
 ADD netperf /root/.
 ADD lib/ /lib
 
@@ -43,6 +44,7 @@ RUN apk update && apk add \
 	dosfstools parted util-linux make iperf3 python3 bash git && \
 	adduser -D -g "Unprivileged LTP user" ltp && \
 	apk del btrfs-progs
+RUN if [ "${USERSPACE_PROFILE}" = nommu-plain ]; then touch /.lmbench-nommu; fi
 RUN if [ "${USERSPACE_PROFILE}" = alpine ] || \
       [ "${USERSPACE_PROFILE}" = nommu-plain ]; then \
       apk add coreutils; \
