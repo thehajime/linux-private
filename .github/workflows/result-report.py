@@ -21,6 +21,11 @@ LTP_TARGETS = (
     "native", "um-mmu", "um-mmu-seccomp", "um-nommu", "um-nommu-seccomp",
     "um-nommu-sas-seccomp", "um-nommu-sas-zpoline", "riscv-nommu",
 )
+LTP_CRASH_SIGNATURES = (
+    ("kernel panic", re.compile(r"Kernel panic(?:\s+-\s+not syncing)?", re.IGNORECASE)),
+    ("SIGSEGV", re.compile(r"\bsegfault at\b|^\s*Segmentation fault\b", re.IGNORECASE | re.MULTILINE)),
+    ("SIGABRT", re.compile(r"\bAborted \(core dumped\)|\bSIGABRT\b", re.IGNORECASE)),
+)
 
 
 def load_json(path):
@@ -168,15 +173,20 @@ def collect_ltp(root):
             "cases": cases,
         }
     # Every LTP artifact is uploaded with if: always(), including partial logs
-    # from a panic. Record those targets explicitly even when no JSON was made.
+    # from a panic. Preserve crash signatures even if Kirk could not write JSON.
     for path in root.rglob("*-ltp.dat"):
         target = path.stem.removesuffix("-ltp")
-        results.setdefault(target, {
+        result = results.setdefault(target, {
             "state": "incomplete (no result JSON)",
             "url": report_urls.get(target, ""),
             "counts": {key: 0 for key in LTP_COUNTS},
             "cases": {},
         })
+        log = path.read_text(errors="replace")
+        result["alerts"] = [
+            label for label, pattern in LTP_CRASH_SIGNATURES
+            if pattern.search(log)
+        ]
     for target in LTP_TARGETS:
         results.setdefault(target, {
             "state": "no result artifact",
@@ -326,11 +336,27 @@ def render(snapshot, previous):
     else:
         kselftest_status = kselftest["state"]
     lines.extend(["", "### kselftest results", f"Current status: {kselftest_status}.", ""])
-    lines.extend(["### LTP results", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |", "|---|---|---:|---:|---:|---:|---:|"])
+    lines.extend([
+        "### LTP results",
+        "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
+        "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ])
     for target, result in sorted(snapshot["ltp"]["targets"].items()):
         counts = result["counts"]
         target_name = f"[{target}]({result['url']})" if result.get("url") else target
-        lines.append(f"| {target_name} | {result['state']} | {counts['passed']} | {counts['failed']} | {counts['broken']} | {counts['skipped']} | {counts['warnings']} |")
+        alerts = result.get("alerts", [])
+        if alerts:
+            state = "🔴 " + ", ".join(alerts)
+        elif result["state"] != "complete":
+            state = f"🟠 {result['state']}"
+        elif counts["failed"]:
+            state = "🔴 complete with test failures"
+        elif counts["broken"]:
+            state = "🟠 complete with broken tests"
+        else:
+            state = "🟢 complete"
+        lines.append(f"| {target_name} | {state} | {counts['passed']} | {counts['failed']} | {counts['broken']} | {counts['skipped']} | {counts['warnings']} |")
     if not snapshot["ltp"]["targets"]:
         lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
     lines.append("")

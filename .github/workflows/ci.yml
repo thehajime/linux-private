@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - '**'
+      - '!uml-ci-report-assets'
   #pull_request:
   #  branches:
   #    - master
@@ -859,7 +860,7 @@ jobs:
     needs: [build_uml,benchmark,test_ltp,checkpatch]
     permissions:
       actions: read
-      contents: read
+      contents: write
       issues: write
       pages: write
       id-token: write
@@ -889,6 +890,15 @@ jobs:
         run: |
           bash .github/workflows/um-nommu-plot.sh output |& tee um-nommu.log
           bash .github/workflows/netperf-plot.sh output |& tee -a um-nommu.log
+      - name: Publish immutable benchmark chart assets
+        id: publish_chart_assets
+        if: ${{ needs.benchmark.result == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_BRANCH: uml-ci-report-assets
+          CHART_DIR: output/out
+        run: bash .github/workflows/publish-chart-assets.sh
       - uses: actions/upload-artifact@v7
         if: ${{ needs.benchmark.result == 'success' }}
         with:
@@ -957,19 +967,25 @@ jobs:
       - name: prepare action post
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          ASSET_BASE_URL: ${{ steps.publish_chart_assets.outputs.asset_base_url }}
         run: |
           {
             cat um-nommu.log 2>/dev/null || true
             if [ -n "$PAGE_URL" ]; then
               printf '\n### Benchmark charts and result data\n\n[Open this run\x27s report on GitHub Pages](%s)\n\n' "$PAGE_URL"
-              for chart in lmbench.png iperf3.png tcp-stream.png; do
-                if [ -f "$RUNNER_TEMP/site/$chart" ]; then
-                  printf '![%s](%s%s)\n\n' "${chart%.png}" "${PAGE_URL%/}/" "$chart"
-                fi
-              done
             else
               printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
             fi
+            for chart in lmbench.png iperf3.png tcp-stream.png; do
+              if [ -f "$RUNNER_TEMP/site/$chart" ]; then
+                if [ -n "$ASSET_BASE_URL" ]; then
+                  printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"
+                elif [ -n "$PAGE_URL" ]; then
+                  printf '> ⚠️ Permanent chart storage failed; this image link may change on a later Pages deployment.\n\n'
+                  printf '![%s](%s%s)\n\n' "${chart%.png}" "${PAGE_URL%/}/" "$chart"
+                fi
+              fi
+            done
             cat "$RUNNER_TEMP/comparison-report.md"
           } > "$RUNNER_TEMP/comment.md"
       - uses: actions/upload-artifact@v7
