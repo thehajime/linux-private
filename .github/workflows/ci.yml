@@ -859,6 +859,7 @@ jobs:
            aspell list /tmp/a
 
   build_ltp:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     uses: ./.github/workflows/ci-docker-build.yml
     name: "LTP: build"
   test_ltp:
