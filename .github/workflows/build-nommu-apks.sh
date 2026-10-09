@@ -40,11 +40,16 @@ path = Path(sys.argv[1])
 text = path.read_text()
 old = '\tmakedepends="bash python3-dev openssl-dev"'
 new = '\tmakedepends="$makedepends bash python3-dev openssl-dev"'
+old_subpackages = '\tarch="x86_64"\n\tsubpackages="$pkgname-nommu::x86_64"'
+new_subpackages = old_subpackages + '\n\toptions="$options !tracedeps"'
 old_configure = '\t\tac_cv_file__dev_ptmx=yes \\\n'
 new_configure = '\t\tPKG_CONFIG=false \\\n\t\tac_cv_file__dev_ptmx=yes \\\n'
-if text.count(old) != 1 or text.count(old_configure) != 1:
+if (text.count(old) != 1 or text.count(old_subpackages) != 1
+        or text.count(old_configure) != 1):
     raise SystemExit(f"expected one SWMMU_ONLY dependency/configure block in {path}")
-text = text.replace(old, new).replace(old_configure, new_configure)
+text = (text.replace(old, new)
+        .replace(old_subpackages, new_subpackages)
+        .replace(old_configure, new_configure))
 path.write_text(text)
 PYAPK
 	fi
