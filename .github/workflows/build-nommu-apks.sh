@@ -45,6 +45,8 @@ build_profile() {
 	export REPODEST="/out/$profile"
 	if [ "$profile" = nommu-swmmu ]; then
 		export SWMMU=1
+		export SWMMU_KERNEL_SRC=/kernel
+		export SWMMU_KERNEL_BUILD=/tmp/kernel-build
 		export SWMMU_PLUGIN=/tmp/kernel-build/scripts/gcc-plugins/swmmu_plugin.so
 		export SWMMU_UAPI=/tmp/kernel-uapi/include
 		export SWMMU_SYSROOT="$HOME/swmmu-sysroot"
