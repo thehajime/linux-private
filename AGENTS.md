@@ -60,7 +60,8 @@ reproducible kselftest build instructions in
 
 ### Deferred investigations: compiler stack probes and plain NOMMU SMP
 
-- [ ] Investigate SWMMU coverage of GCC-generated stack-clash probes. A local
+- [x] Handed off to a separate task; investigation remains pending there.
+  Investigate SWMMU coverage of GCC-generated stack-clash probes. A local
   reproduction with Alpine edge GCC 15.2.0 and the SWMMU plugin from kernel
   `86ee6de52c4a2cfe46f613cecda7a8888808cadd` showed that dynamic `alloca`
   probes first appear as `UNSPEC_PROBE_STACK` in RTL `expand`, while fixed
@@ -76,7 +77,8 @@ reproducible kselftest build instructions in
   `-fno-stack-clash-protection` workaround until guest validation passes.
   Track the coreutils 4 KiB buffer change separately as a NOMMU stack-capacity
   workaround.
-- [ ] Investigate SMP support for **plain NOMMU UML only**. The feature branch
+- [x] Handed off to a separate task; investigation remains pending there.
+  Investigate SMP support for **plain NOMMU UML only**. The feature branch
   currently selects `UML_SUBARCH_SUPPORTS_SMP` under `X86_CX8 && MMU`, while
   upstream UML `next` commit `aa3e6faf620b1091ae85b07c0106918d48fcce05`
   selects it under `X86_CX8`. The feature branch already contains the queued
@@ -170,7 +172,8 @@ reproducible kselftest build instructions in
   `thehajime/linux:zpoline-nommu-v6.10` ref until the refreshed image and CI
   test pass. Then evaluate and pin a newer RISC-V NOMMU kernel independently
   from the UML `feature-swmmu-nommu` ref.
-- [ ] Replace the UML-specific `cpu_tasks[0]->pid` diagnostic in
+- [x] Handed off to a separate task; implementation and verification remain
+  pending there. Replace the UML-specific `cpu_tasks[0]->pid` diagnostic in
   `mm/nommu_swmmu.c` with an architecture-independent current-task PID lookup
   and verify the generic code compiles for RISC-V.
 - [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
