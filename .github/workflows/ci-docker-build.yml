@@ -59,7 +59,7 @@ jobs:
 ##              VARIANT: cross-compile
 ##
           # musl (native)
-          - container: "alpine:3.20.3"
+          - container: "alpine:edge"
             env:
               CC: gcc
               MAKE_INSTALL: 1

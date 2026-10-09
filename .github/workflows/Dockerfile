@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG BASE_IMAGE=alpine:3.20.3
+ARG BASE_IMAGE=alpine:edge
 FROM ${BASE_IMAGE}
 
 ARG MODE=

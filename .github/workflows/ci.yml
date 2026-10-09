@@ -100,7 +100,7 @@ jobs:
             testname: um-mmu
             mode: um-mmu
             userspace_profile: alpine
-            base_image: alpine:3.20.3
+            base_image: alpine:edge
           - displayTargetName: ubuntu-22.04 (time-travel)
             os: unix
             runs_on: ubuntu-22.04
@@ -111,7 +111,7 @@ jobs:
             testname: um-mmu-tt
             mode: um-mmu
             userspace_profile: alpine
-            base_image: alpine:3.20.3
+            base_image: alpine:edge
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
@@ -199,7 +199,7 @@ jobs:
       - name: Setup latest Alpine Linux
         uses: jirutka/setup-alpine@v1
         with:
-           branch: v3.20
+           branch: edge
            packages: >
              alpine-sdk
              doas
@@ -315,10 +315,10 @@ jobs:
           push: false
           load: true
           tags: |
-            uml-ci/alpine:${{ matrix.base_image == 'alpine:edge' && 'edge' || '3.20.3' }}-${{ matrix.testname }}
+            uml-ci/alpine:edge-${{ matrix.testname }}
       - name: Save tested UML image for downstream jobs
         if: matrix.testname != 'um-mmu-tt'
-        run: docker save uml-ci/alpine:${{ matrix.base_image == 'alpine:edge' && 'edge' || '3.20.3' }}-${{ matrix.testname }} -o "$RUNNER_TEMP/uml-image.tar"
+        run: docker save uml-ci/alpine:edge-${{ matrix.testname }} -o "$RUNNER_TEMP/uml-image.tar"
       - name: Upload tested UML image
         if: matrix.testname != 'um-mmu-tt'
         uses: actions/upload-artifact@v4
@@ -329,7 +329,7 @@ jobs:
       - name: image for test
         if: matrix.testname != 'um-mmu-tt'
         run: |
-          docker create --name alpine-nommu uml-ci/alpine:${{ matrix.base_image == 'alpine:edge' && 'edge' || '3.20.3' }}-${{ matrix.testname }}
+          docker create --name alpine-nommu uml-ci/alpine:edge-${{ matrix.testname }}
           docker start alpine-nommu
           docker wait alpine-nommu
           docker logs alpine-nommu
@@ -431,7 +431,7 @@ jobs:
           - testname: um-mmu
             mode: um-mmu
             userspace_profile: alpine
-            base_tag: 3.20.3
+            base_tag: edge
           - testname: um-nommu
             mode: um-nommu
             userspace_profile: nommu-plain
@@ -729,7 +729,7 @@ jobs:
            mkdir -p output
            sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm uml-ci/alpine:${{ startsWith(matrix.testname, 'um-nommu') && 'edge' || '3.20.3' }}-${{ matrix.image_name }} \
+              --rm uml-ci/alpine:edge-${{ matrix.image_name }} \
               mem=2G root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 ${{ matrix.vmlinux_opt }} \
               init=/bench.sh \
              | tee output/${{ matrix.testname }}.dat &
@@ -744,7 +744,7 @@ jobs:
            #  loglevel=8 console=tty init=/root/iperf3.sh \
            #  | tee output/${{ matrix.testname }}-seccomp-iperf3.dat
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm uml-ci/alpine:${{ startsWith(matrix.testname, 'um-nommu') && 'edge' || '3.20.3' }}-${{ matrix.image_name }} mem=2G \
+              --rm uml-ci/alpine:edge-${{ matrix.image_name }} mem=2G \
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
               init=/root/iperf3.sh \
@@ -889,13 +889,13 @@ jobs:
       matrix:
         include:
           - displayTargetName: um-mmu
-            image_name: uml-ci/alpine:3.20.3-um-mmu
+            image_name: uml-ci/alpine:edge-um-mmu
             image_artifact: uml-docker-image-um-mmu
             testname: um-mmu
             vmlinux_opt: ""
             name: um-mmu
           - displayTargetName: um-mmu-s
-            image_name: uml-ci/alpine:3.20.3-um-mmu
+            image_name: uml-ci/alpine:edge-um-mmu
             image_artifact: uml-docker-image-um-mmu
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
@@ -919,7 +919,7 @@ jobs:
             vmlinux_opt: ""
             name: riscv-nommu
           - displayTargetName: native
-            image_name: alpine:3.20.3
+            image_name: alpine:edge
             image_artifact: ''
             testname: native
             vmlinux_opt: ""
@@ -960,7 +960,7 @@ jobs:
         run: docker pull "${{ matrix.image_name }}"
       - name: Pull native Alpine test image
         if: matrix.testname == 'native'
-        run: docker pull alpine:3.20.3
+        run: docker pull alpine:edge
       - uses: actions/checkout@v6
       - name: Checkout LTP test support files
         uses: actions/checkout@v6
