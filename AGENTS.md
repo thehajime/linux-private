@@ -281,6 +281,15 @@ reproducible kselftest build instructions in
   for each of the four UML profiles. The ccache entries currently occupy about
   6.7 GB total; monitor GitHub cache eviction and storage as future runs add
   immutable per-run entries.
+- [ ] Verify the corrected UML cache restore prefix on the next CI run. In
+  run `37998928481`, `um-nommu` build-0 took 45 seconds with 99.70% ccache
+  hits, while `um-mmu` took 4m09s with 12.22% hits and `um-mmu-tt` took
+  5m53s with 12.76% hits. Those two restored the literal legacy keys
+  `Linux-um-mmu-ccache-build` and `Linux-um-mmu-tt-ccache-build`, created
+  on Oct 6, even though newer per-run caches existed. The restore prefix
+  now ends in `-` so it selects run-specific keys and avoids those stale
+  exact-match entries. Require build-0 under one minute for every profile;
+  retrieve the SAS hit rate after its job finishes.
 - [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
   image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.

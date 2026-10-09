@@ -182,7 +182,7 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ${{ runner.os }}-${{ matrix.testname }}-ccache-build-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: ${{ runner.os }}-${{ matrix.testname }}-ccache-build
+          restore-keys: ${{ runner.os }}-${{ matrix.testname }}-ccache-build-
       - name: Install packages
         run: |
           sudo apt update -y
