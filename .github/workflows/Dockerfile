@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG BASE_IMAGE=alpine:edge
+ARG BASE_IMAGE=mirror.gcr.io/library/alpine:edge
 FROM ${BASE_IMAGE}
 
 ARG MODE=
