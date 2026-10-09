@@ -73,6 +73,8 @@ su -s /bin/sh builder -c '
 set -eu
 work=$1
 kernel_src=$2
+export HOME=/home/builder
+export XDG_CONFIG_HOME="$HOME/.config"
 export PACKAGER="UML CI <uml-ci@example.invalid>"
 export REPODEST="$work/repo"
 export SWMMU=1
