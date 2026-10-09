@@ -59,13 +59,6 @@ replot
 
 EndGNUPLOT
 
-echo -e "### lmbench (usec)\n"
-echo -e "|select-10\n|select-100\n|select-1000\n|syscall\n|read\n|write\n|stat\n|open/close\n|fork+sh\n|fork+execve" > /tmp/a
-
-echo -e "||native|um|um-mmu(s)|um-nommu|um-nommu(sas-s)|um-nommu(sas-z)|um-nommu(s)|\n|--|--|--|--|--|--|--|--|"; paste -d "|" `ls ${OUTPUT}/out/*-lmbench-out.dat` | sed "s/\(.*\)/\|\1\|/" | paste /tmp/a - | column -t
-
-rm -f /tmp/a
-
 echo ""
 echo -e "### do_getpid bench (nsec)\n"
 for f in `ls $OUTPUT/*.dat |grep -v iperf3`

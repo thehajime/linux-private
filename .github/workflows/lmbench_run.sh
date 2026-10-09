@@ -30,23 +30,35 @@ case "$process_method" in
 	both) process_methods="fork vfork" ;;
 	*) echo "Unknown LMBENCH_PROCESS_METHOD: $process_method" >&2; exit 2 ;;
 esac
+echo "lmbench process methods: $process_methods"
 
-ENOUGH=10000 lat_select -n 10 file
-ENOUGH=10000 lat_select -n 100 file
-ENOUGH=10000 lat_select -n 1000 file
+run_measurement() {
+	measurement=$1
+	shift
+	if "$@"; then
+		echo "lmbench measurement status: $measurement PASS"
+	else
+		status=$?
+		echo "lmbench measurement status: $measurement FAIL (exit $status)"
+	fi
+}
 
-ENOUGH=100000 lat_syscall null
-ENOUGH=100000 lat_syscall read
-ENOUGH=100000 lat_syscall write
-ENOUGH=100000 lat_syscall stat
-ENOUGH=100000 lat_syscall open
+run_measurement select-10 env ENOUGH=10000 lat_select -n 10 file
+run_measurement select-100 env ENOUGH=10000 lat_select -n 100 file
+run_measurement select-1000 env ENOUGH=10000 lat_select -n 1000 file
+
+run_measurement syscall env ENOUGH=100000 lat_syscall null
+run_measurement read env ENOUGH=100000 lat_syscall read
+run_measurement write env ENOUGH=100000 lat_syscall write
+run_measurement stat env ENOUGH=100000 lat_syscall stat
+run_measurement open-close env ENOUGH=100000 lat_syscall open
 
 for method in $process_methods; do
 	echo "lmbench process method: $method"
-	ENOUGH=10000 lat_proc "--$method" fork
-	ENOUGH=10000 lat_proc "--$method" exec
-	ENOUGH=10000 lat_proc "--$method" shell
+	run_measurement "$method-exit" env ENOUGH=10000 lat_proc "--$method" fork
+	run_measurement "$method-execve" env ENOUGH=10000 lat_proc "--$method" exec
+	run_measurement "$method-shell" env ENOUGH=10000 lat_proc "--$method" shell
 done
 
-ENOUGH=10000 bw_pipe -m 64k -M 64k
-ENOUGH=10000 bw_mem 512k rdwr
+run_measurement bw_pipe_64k env ENOUGH=10000 bw_pipe -m 64k -M 64k
+run_measurement bw_mem_512k_rdwr env ENOUGH=10000 bw_mem 512k rdwr

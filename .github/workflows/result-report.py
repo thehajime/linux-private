@@ -26,6 +26,33 @@ LTP_CRASH_SIGNATURES = (
     ("SIGSEGV", re.compile(r"\bsegfault at\b|^\s*Segmentation fault\b", re.IGNORECASE | re.MULTILINE)),
     ("SIGABRT", re.compile(r"\bAborted \(core dumped\)|\bSIGABRT\b", re.IGNORECASE)),
 )
+LMBENCH_COLUMNS = (
+    ("native", "native"),
+    ("um-mmu", "um"),
+    ("um-mmu-seccomp", "um-mmu(s)"),
+    ("um-nommu", "um-nommu"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)"),
+    ("um-nommu-seccomp", "um-nommu(s)"),
+)
+LMBENCH_TABLE_ROWS = (
+    ("select-10", "select-10"),
+    ("select-100", "select-100"),
+    ("select-1000", "select-1000"),
+    ("syscall", "syscall"),
+    ("read", "read"),
+    ("write", "write"),
+    ("stat", "stat"),
+    ("open-close", "open/close"),
+    ("fork-exit", "fork+exit"),
+    ("fork-execve", "fork+execve"),
+    ("fork-shell", "fork+sh"),
+    ("vfork-exit", "vfork+exit"),
+    ("vfork-execve", "vfork+execve"),
+    ("vfork-shell", "vfork+sh"),
+    ("bw_pipe_64k", "bw_pipe_64k (MB/sec)"),
+    ("bw_mem_512k_rdwr", "bw_mem_512k_rdwr (MB/sec)"),
+)
 
 
 def load_json(path):
@@ -55,6 +82,54 @@ def numbers(path):
 def collect_benchmarks(root):
     """Normalize legacy benchmark output files into stable metric records."""
     records = []
+    raw_lmbench = {}
+
+    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+    simple_operations = {
+        "syscall": "syscall",
+        "read": "read",
+        "write": "write",
+        "stat": "stat",
+        "open/close": "open-close",
+    }
+    select_re = re.compile(rf"Select on (\d+) fd's: ({number}) microseconds")
+    simple_re = re.compile(rf"Simple (syscall|read|write|stat|open/close): ({number}) microseconds")
+    process_re = re.compile(rf"Process fork\+([^:]+): ({number}) microseconds")
+    pipe_re = re.compile(rf"Pipe bandwidth: ({number}) MB/sec")
+    memory_re = re.compile(rf"^\s*0\.524288\s+({number})\s*$")
+    for path in sorted(root.glob("*.dat")):
+        target = path.stem
+        method = None
+        parsed = []
+        for line in path.read_text(errors="replace").splitlines():
+            method_match = re.search(r"lmbench process method: (fork|vfork)", line)
+            if method_match:
+                method = method_match.group(1)
+                continue
+            match = select_re.search(line)
+            if match:
+                parsed.append(("lmbench", float(match.group(2)), "usec", {"operation": f"select-{match.group(1)}"}))
+                continue
+            match = simple_re.search(line)
+            if match:
+                parsed.append(("lmbench", float(match.group(2)), "usec", {"operation": simple_operations[match.group(1)]}))
+                continue
+            match = process_re.search(line)
+            if match:
+                operation = match.group(1)
+                operation = "shell" if operation == "/bin/sh -c" else operation
+                process_method = method or "fork"
+                parsed.append(("lmbench", float(match.group(2)), "usec", {"operation": f"{process_method}-{operation}"}))
+                continue
+            match = pipe_re.search(line)
+            if match:
+                parsed.append(("lmbench", float(match.group(1)), "MB/sec", {"operation": "bw_pipe_64k"}))
+                continue
+            match = memory_re.match(line)
+            if match:
+                parsed.append(("lmbench", float(match.group(1)), "MB/sec", {"operation": "bw_mem_512k_rdwr"}))
+        if parsed:
+            raw_lmbench[target] = parsed
 
     def add(name, target, value, unit, labels=None):
         records.append({
@@ -73,6 +148,8 @@ def collect_benchmarks(root):
                 continue
         if stem.endswith("-lmbench-out"):
             target = stem.removesuffix("-lmbench-out")
+            if target in raw_lmbench:
+                continue
             if len(rows) == 1 and len(rows[0]) == len(LM_BENCHMARKS):
                 rows = [[value] for value in rows[0]]
             for index, row in enumerate(rows):
@@ -100,7 +177,61 @@ def collect_benchmarks(root):
                 if len(row) >= 2:
                     size = int(row[0])
                     add("netperf", target, row[1], "Mbps", {"test": direction, "payload_bytes": size})
+    for target, metrics in raw_lmbench.items():
+        for name, value, unit, labels in metrics:
+            add(name, target, value, unit, labels)
     return records
+
+
+def collect_lmbench_table(root, benchmark_records):
+    """Build the fixed comparison table, preserving unavailable and failed states."""
+    values = {}
+    for item in benchmark_records:
+        if item.get("name") != "lmbench":
+            continue
+        operation = item.get("labels", {}).get("operation")
+        if operation:
+            values.setdefault(item["target"], {})[operation] = item["value"]
+
+    methods_by_target = {}
+    statuses_by_target = {}
+    for path in root.glob("*.dat"):
+        target = path.stem
+        methods = set()
+        statuses = {}
+        text = path.read_text(errors="replace")
+        for line in text.splitlines():
+            match = re.search(r"lmbench process methods: (fork|vfork)(?:\s+(fork|vfork))?", line)
+            if match:
+                methods.update(value for value in match.groups() if value)
+            match = re.search(r"lmbench process method: (fork|vfork)", line)
+            if match:
+                methods.add(match.group(1))
+            match = re.search(r"lmbench measurement status: ([a-z0-9_-]+) (PASS|FAIL)", line)
+            if match:
+                statuses[match.group(1)] = match.group(2)
+        methods_by_target[target] = methods or {"fork", "vfork"}
+        statuses_by_target[target] = statuses
+
+    table = {}
+    for target, _header in LMBENCH_COLUMNS:
+        target_values = values.get(target, {})
+        methods = methods_by_target.get(target, {"fork", "vfork"})
+        statuses = statuses_by_target.get(target, {})
+        cells = {}
+        for operation, _label in LMBENCH_TABLE_ROWS:
+            method = "fork" if operation.startswith("fork-") else "vfork" if operation.startswith("vfork-") else None
+            if method and method not in methods:
+                cells[operation] = "N/A"
+                continue
+            status_key = operation
+            status = statuses.get(status_key)
+            if status == "FAIL" or operation not in target_values:
+                cells[operation] = "FAIL"
+            else:
+                cells[operation] = target_values[operation]
+        table[target] = cells
+    return table
 
 
 def metric_index(records):
@@ -220,13 +351,15 @@ def collect_kselftest(root):
 
 
 def collect(root, run_url, sha, tested_ref, job_status):
+    benchmarks = collect_benchmarks(root)
     return {
         "version": 2,
         "run_url": run_url,
         "workflow_sha": sha,
         "tested_ref": tested_ref,
         "job_status": job_status,
-        "benchmark": collect_benchmarks(root),
+        "benchmark": benchmarks,
+        "lmbench_table": collect_lmbench_table(root, benchmarks),
         "kunit": collect_kunit(root),
         "kselftest": collect_kselftest(root),
         "ltp": collect_ltp(root),
@@ -359,6 +492,18 @@ def render(snapshot, previous):
         lines.append(f"| {target_name} | {state} | {counts['passed']} | {counts['failed']} | {counts['broken']} | {counts['skipped']} | {counts['warnings']} |")
     if not snapshot["ltp"]["targets"]:
         lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
+    lines.append("")
+    lines.append("### lmbench (usec; bandwidth rows in MB/sec)")
+    headers = [header for _target, header in LMBENCH_COLUMNS]
+    lines.append("||" + "|".join(headers) + "|")
+    lines.append("|--|" + "|".join("--" for _ in headers) + "|")
+    lmbench_table = snapshot.get("lmbench_table", {})
+    for operation, label in LMBENCH_TABLE_ROWS:
+        cells = []
+        for target, _header in LMBENCH_COLUMNS:
+            value = lmbench_table.get(target, {}).get(operation, "FAIL")
+            cells.append(f"{value:.6g}" if isinstance(value, (int, float)) else value)
+        lines.append("|" + label + "|" + "|".join(cells) + "|")
     lines.append("")
     lines.append("### Changes from previous report")
     if not previous:
