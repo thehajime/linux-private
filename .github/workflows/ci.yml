@@ -100,7 +100,7 @@ jobs:
             testname: um-mmu
             mode: um-mmu
             userspace_profile: alpine
-            base_image: alpine:edge
+            base_image: mirror.gcr.io/library/alpine:edge
           - displayTargetName: ubuntu-22.04 (time-travel)
             os: unix
             runs_on: ubuntu-22.04
@@ -111,7 +111,7 @@ jobs:
             testname: um-mmu-tt
             mode: um-mmu
             userspace_profile: alpine
-            base_image: alpine:edge
+            base_image: mirror.gcr.io/library/alpine:edge
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
@@ -122,7 +122,7 @@ jobs:
             testname: um-nommu
             mode: um-nommu
             userspace_profile: nommu-plain
-            base_image: alpine:edge
+            base_image: mirror.gcr.io/library/alpine:edge
           - displayTargetName: ubuntu-22.04 (nommu-sas)
             os: unix
             runs_on: ubuntu-22.04
@@ -133,7 +133,7 @@ jobs:
             testname: um-nommu-sas
             mode: um-nommu
             userspace_profile: nommu-swmmu
-            base_image: alpine:edge
+            base_image: mirror.gcr.io/library/alpine:edge
     name: "UML: build (${{ matrix.testname }})"
     timeout-minutes: 100
     permissions:
@@ -469,7 +469,7 @@ jobs:
           build-args: |
             MODE=${{ matrix.mode }}
             USERSPACE_PROFILE=${{ matrix.userspace_profile }}
-            BASE_IMAGE=alpine:${{ matrix.base_tag }}
+            BASE_IMAGE=mirror.gcr.io/library/alpine:${{ matrix.base_tag }}
           push: true
           tags: ghcr.io/thehajime/alpine:${{ matrix.base_tag }}-${{ matrix.testname }}
 
@@ -922,7 +922,7 @@ jobs:
             vmlinux_opt: ""
             name: riscv-nommu
           - displayTargetName: native
-            image_name: alpine:edge
+            image_name: mirror.gcr.io/library/alpine:edge
             image_artifact: ''
             testname: native
             vmlinux_opt: ""
@@ -963,7 +963,7 @@ jobs:
         run: docker pull "${{ matrix.image_name }}"
       - name: Pull native Alpine test image
         if: matrix.testname == 'native'
-        run: docker pull alpine:edge
+        run: docker pull mirror.gcr.io/library/alpine:edge
       - uses: actions/checkout@v6
       - name: Checkout LTP test support files
         uses: actions/checkout@v6
