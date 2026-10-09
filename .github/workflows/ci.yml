@@ -362,7 +362,7 @@ jobs:
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
-        if: ${{ matrix.testname != 'um-mmu-tt' }}
+        if: ${{ matrix.testname != 'um-mmu-tt' && github.event_name != 'workflow_dispatch' }}
         run: |
           mkdir -p output/kunit
           for config in `find . -path './ci-config' -prune -o -name .kunitconfig -print | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
@@ -716,6 +716,7 @@ jobs:
       - name: Setup faketty
         uses: Yuri6037/Action-FakeTTY@v1.1
       - name: setup iperf3/netperf server
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
            set -x
            sudo apt update -y
@@ -737,6 +738,7 @@ jobs:
              | tee output/${{ matrix.testname }}.dat &
              sleep 100 ; exit
       - name: benchmark-2
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
            mkdir -p output
            ## dynamic build failed at iperf -R
@@ -816,6 +818,10 @@ jobs:
             sh .github/workflows/lmbench_run.sh |& tee output/native.dat
           gcc -o do_getpid .github/workflows/do_getpid.c
           ./do_getpid -c 100 | tee -a output/native.dat
+      - name: Run native network benchmarks
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: |
+          mkdir -p output
           if ! ss -ltnH 'sport = :12865' | grep -q LISTEN; then
             sudo service netperf start
           fi
@@ -1139,8 +1145,22 @@ jobs:
           mkdir -p output/swmmu-nginx
           python3 .github/workflows/aggregate-swmmu-nginx-results.py \
             "$RUNNER_TEMP/swmmu-nginx-matrix" output/swmmu-nginx
-          if awk -F, 'NR > 1 && ($2 != "NaN" || $3 != "NaN") { found=1 } END { exit !found }' \
-            output/swmmu-nginx/throughput.csv; then
+          if python3 - output/swmmu-nginx/throughput.csv <<'PY'
+          import csv
+          import math
+          import sys
+
+          with open(sys.argv[1], newline="") as stream:
+              for row in csv.DictReader(stream):
+                  for field in ("workers_1", "workers_4"):
+                      try:
+                          if math.isfinite(float(row[field])):
+                              sys.exit(0)
+                      except (TypeError, ValueError):
+                          pass
+          sys.exit(1)
+          PY
+          then
             gnuplot -e "data_file='output/swmmu-nginx/throughput.csv'; output_file='output/swmmu-nginx/throughput.png'" \
               .github/workflows/plot-swmmu-nginx.gnuplot
           else
