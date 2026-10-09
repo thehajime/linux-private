@@ -8,7 +8,7 @@ mkdir -p output/ltp
 if [ "$LTP_TESTNAME" = native ]; then
 	# The native job uses a stock Alpine image rather than the locally built
 	# UML image, so install the runtime packages normally supplied by it.
-	apk add --no-cache acl curl jq keyutils libaio libacl libcap libselinux \
+	apk add --no-cache acl curl jq keyutils libaio libcap libselinux \
 		libsepol libtirpc numactl openssl py3-msgpack e2fsprogs xfsprogs \
 		dosfstools parted util-linux python3 bash git
 fi
