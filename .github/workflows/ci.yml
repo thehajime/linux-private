@@ -226,6 +226,7 @@ jobs:
           git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
           patch --forward --fuzz=0 -d lmbench -p1 < .github/workflows/patches/lmbench-lat-udp-signal-handler.patch
           git clone https://github.com/HewlettPackard/netperf
+          patch --forward --fuzz=0 -d netperf -p1 < .github/workflows/patches/netperf-portable-cpu-affinity.patch
           cat > "$RUNNER_TEMP/lmbench-gcc" <<'EOF'
           #!/bin/sh
           exec gcc "$@" -ltirpc

@@ -1,0 +1,48 @@
+--- a/src/netlib.c
++++ b/src/netlib.c
+@@ -98,6 +98,9 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <math.h>
++#if HAVE_SCHED_SETAFFINITY
++#include <sched.h>
++#endif
+ #include <string.h>
+ #include <assert.h>
+ #ifdef HAVE_ENDIAN_H
+@@ -2331,30 +2334,12 @@
+      value will not tell you if you are bound vs unbound. */
+   bindprocessor(BINDPROCESS,getpid(),(cpu_t)mapped_affinity);
+ #elif HAVE_SCHED_SETAFFINITY
+-#include <sched.h>
+-  /* in theory this should cover systems with more CPUs than bits in a
+-     long, without having to specify __USE_GNU.  we "cheat" by taking
+-     defines from /usr/include/bits/sched.h, which we ass-u-me is
+-     included by <sched.h>.  If they are not there we will just
+-     fall-back on what we had before, which is to use just the size of
+-     an unsigned long. raj 2006-09-14 */
+-
+-#if defined(__CPU_SETSIZE)
+-#define NETPERF_CPU_SETSIZE __CPU_SETSIZE
+-#if defined(__CPU_SET_S)
+-#define NETPERF_CPU_SET(cpu, cpusetp)  __CPU_SET_S(cpu, sizeof (cpu_set_t), cpusetp)
+-#define NETPERF_CPU_ZERO(cpusetp)      __CPU_ZERO_S (sizeof (cpu_set_t), cpusetp)
+-#else
+-#define NETPERF_CPU_SET(cpu, cpusetp)  __CPU_SET(cpu, cpusetp)
+-#define NETPERF_CPU_ZERO(cpusetp)      __CPU_ZERO (cpusetp)
+-#endif
++  /* Use the public CPU set interface so this works with both glibc and
++     musl, whose private __CPU_* interfaces differ. */
++#define NETPERF_CPU_SETSIZE CPU_SETSIZE
++#define NETPERF_CPU_SET(cpu, cpusetp) CPU_SET(cpu, cpusetp)
++#define NETPERF_CPU_ZERO(cpusetp) CPU_ZERO(cpusetp)
+   typedef cpu_set_t netperf_cpu_set_t;
+-#else
+-#define NETPERF_CPU_SETSIZE sizeof(unsigned long)
+-#define NETPERF_CPU_SET(cpu, cpusetp) *cpusetp = 1 << cpu
+-#define NETPERF_CPU_ZERO(cpusetp) *cpusetp = (unsigned long)0
+-  typedef unsigned long netperf_cpu_set_t;
+-#endif
+ 
+   netperf_cpu_set_t   netperf_cpu_set;
+   unsigned int        len = sizeof(netperf_cpu_set);
