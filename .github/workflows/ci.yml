@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: codex/lmbench-process-method
+      aports_ref:
+        description: 'Pinned aports source commit used by the temporary NOMMU APK release'
+        required: false
+        type: string
+        default: f9ec9629f50634534a0ee89339ca5ed5633aa503
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
@@ -32,46 +37,41 @@ env:
 
 jobs:
   build_nommu_apks:
+    name: "Download signed NOMMU APKs from aports prerelease"
     runs-on: ubuntu-22.04
     permissions:
       contents: read
     steps:
-      - name: Checkout CI scripts
+      - name: Checkout selected kernel source
         uses: actions/checkout@v6
         with:
-          ref: ci/uml-nommu
-      - name: Checkout pinned aports source
+          repository: thehajime/linux-private
+          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+          path: kernel-source
+      - name: Checkout selected aports source revision
         uses: actions/checkout@v6
         with:
           repository: thehajime/aports
-          ref: f9ec9629f50634534a0ee89339ca5ed5633aa503
+          ref: ${{ inputs.aports_ref || 'f9ec9629f50634534a0ee89339ca5ed5633aa503' }}
           path: aports-source
           sparse-checkout: |
             main/busybox
             main/musl
             scripts/swmmu-profile.sh
             scripts/swmmu-cc
-      - name: Checkout kernel headers and SWMMU plugin source
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
-          path: kernel-source
-      - name: Cache verified aports source archives
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/aports-distfiles
-          key: aports-distfiles-${{ hashFiles('aports-source/main/busybox/APKBUILD', 'aports-source/main/musl/APKBUILD') }}
-      - name: Build signed NOMMU APKs from aports
+      - name: Download matching prerelease APK profiles
+        id: download
         run: |
+          kernel_sha=$(git -C kernel-source rev-parse HEAD)
+          aports_sha=$(git -C aports-source rev-parse HEAD)
+          release_tag="ci-nommu-${kernel_sha}-${aports_sha}"
           mkdir -p "$RUNNER_TEMP/nommu-apks"
-          mkdir -p "$RUNNER_TEMP/aports-distfiles"
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE/aports-source:/src:ro" \
-            --volume "$GITHUB_WORKSPACE/kernel-source:/kernel:ro" \
-            --volume "$GITHUB_WORKSPACE/.github/workflows/build-nommu-apks.sh:/build.sh:ro" \
-            --volume "$RUNNER_TEMP/nommu-apks:/out" \
-            --volume "$RUNNER_TEMP/aports-distfiles:/var/cache/distfiles" \
-            alpine:3.20.3 sh /build.sh
+          curl --fail --location --retry 3 \
+            "https://github.com/thehajime/aports/releases/download/${release_tag}/nommu-apks.tar.gz" \
+            --output "$RUNNER_TEMP/nommu-apks.tar.gz"
+          tar -xzf "$RUNNER_TEMP/nommu-apks.tar.gz" -C "$RUNNER_TEMP/nommu-apks"
+          test -s "$RUNNER_TEMP/nommu-apks/manifest.txt"
+          printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
       - name: Upload signed NOMMU APK profiles and public key
         uses: actions/upload-artifact@v4
         with:
@@ -443,44 +443,6 @@ jobs:
           push: true
           tags: ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
 
-  buildroot_riscv:
-    runs-on: ubuntu-22.04
-    name: "buildroot: build riscv64-nommu (local)"
-    timeout-minutes: 150
-    permissions:
-      contents: read
-    env:
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
-      USE_CCACHE: 1
-    steps:
-      - name: LTP checkout
-        run: git clone -b fix-nommu https://github.com/thehajime/ltp
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: network=host
-      - name: Install QEMU system emulator in the local LTP image
-        run: sed -i '/^RUN apt install -y qemu-utils$/c\RUN apt-get update && apt-get install -y qemu-utils qemu-system-misc' ltp/tools/buildroot/Dockerfile
-      - name: Build RISC-V NOMMU image locally
-        uses: docker/build-push-action@v7
-        env:
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: ltp/tools/buildroot/
-          push: false
-          load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: uml-ci/buildroot-riscv64-nommu:0.1
-      - name: Save local RISC-V image
-        run: docker save uml-ci/buildroot-riscv64-nommu:0.1 -o "$RUNNER_TEMP/buildroot-riscv-image.tar"
-      - name: Upload local RISC-V image
-        uses: actions/upload-artifact@v4
-        with:
-          name: buildroot-riscv64-nommu-image
-          path: ${{ runner.temp }}/buildroot-riscv-image.tar
-          if-no-files-found: error
-
   benchmark:
     runs-on: ${{ matrix.runs_on }}
     needs: [build_uml]
@@ -568,7 +530,7 @@ jobs:
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
               --rm uml-ci/alpine:3.20.3-${{ matrix.image_name }} mem=2G \
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
-              root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 ${{ matrix.bench1_opt }} \
+              root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
               init=/root/iperf3.sh \
              | tee output/${{ matrix.testname }}-iperf3.dat &
              sleep 300 ; exit
@@ -604,6 +566,48 @@ jobs:
            sudo apt update -y
            sudo apt install -y aspell ccache sparse
            git clone https://github.com/daxtens/smart-sparse-diff
+      - name: Install native benchmark dependencies
+        run: sudo apt install -y libtirpc-dev iperf3 netperf
+      - name: Build lmbench for native benchmark
+        run: |
+          git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
+          cat > "$RUNNER_TEMP/lmbench-gcc" <<'EOF'
+          #!/bin/sh
+          exec gcc "$@" -ltirpc
+          EOF
+          chmod +x "$RUNNER_TEMP/lmbench-gcc"
+          lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
+          mkdir -p "$lmbench_bin"
+          lmbench_cflags="-O2 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc"
+          if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
+            gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
+            lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
+          fi
+          make -C lmbench/src OS=Linux CC="$RUNNER_TEMP/lmbench-gcc" \
+            O="$lmbench_bin" BINDIR="$lmbench_bin" \
+            CFLAGS="$lmbench_cflags"
+      - name: Run native benchmarks
+        run: |
+          mkdir -p output
+          LMBENCH_BIN_DIR="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1" \
+            LMBENCH_PROCESS_METHOD=both \
+            sh .github/workflows/lmbench_run.sh |& tee output/native.dat
+          gcc -o do_getpid .github/workflows/do_getpid.c
+          ./do_getpid -c 100 | tee -a output/native.dat
+          sudo netserver
+          iperf3 -s &
+          iperf_server_pid=$!
+          trap 'kill "$iperf_server_pid" 2>/dev/null || true' EXIT
+          iperf3 -c localhost -fm | tee output/native-iperf3.dat
+          iperf3 -c localhost -fm -R | tee -a output/native-iperf3.dat
+          bash .github/workflows/netperf-bench.sh localhost netperf | tee -a output/native-iperf3.dat
+      - name: Upload native benchmark measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-result-native
+          path: output/native*.dat
+          if-no-files-found: warn
       #- name: Setup tmate session
       #  uses: mxschmitt/action-tmate@v3
       #  with:
@@ -643,53 +647,12 @@ jobs:
   build_ltp:
     uses: ./.github/workflows/ci-docker-build.yml
     name: "LTP: build"
-  build_ltp_riscv:
-    runs-on: ubuntu-latest
-    name: "LTP: build (RISC-V, local Buildroot image)"
-    timeout-minutes: 100
-    permissions:
-      contents: read
-    needs: [buildroot_riscv]
-    steps:
-      - name: Download local Buildroot image
-        uses: actions/download-artifact@v4
-        with:
-          name: buildroot-riscv64-nommu-image
-          path: ${{ runner.temp }}/buildroot-image
-      - name: Load local Buildroot image
-        run: docker load -i "$RUNNER_TEMP/buildroot-image/buildroot-riscv-image.tar"
-      - name: Checkout canonical CI support files
-        uses: actions/checkout@v6
-        with:
-          ref: ci/uml-nommu
-          path: ci-config
-      - name: Checkout LTP source
-        uses: actions/checkout@v6
-        with:
-          repository: thehajime/ltp
-          ref: fix-nommu
-          path: ltp-source
-          submodules: recursive
-      - name: Build RISC-V LTP in local Buildroot image
-        run: |
-          mkdir -p "$RUNNER_TEMP/ltp-home" "$RUNNER_TEMP/ltp-riscv-artifact"
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE/ltp-source:/work-buildroot/ltp" \
-            --volume "$GITHUB_WORKSPACE/ci-config/.github/workflows/build-ltp-riscv.sh:/build-ltp-riscv.sh:ro" \
-            --volume "$RUNNER_TEMP/ltp-home:/github/home" \
-            --volume "$RUNNER_TEMP/ltp-riscv-artifact:/run-artifacts" \
-            --workdir /work-buildroot/ltp \
-            --entrypoint /bin/bash \
-            uml-ci/buildroot-riscv64-nommu:0.1 /build-ltp-riscv.sh
-      - name: Upload RISC-V LTP install artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ltp-alpine-riscv-nommu.tar.gz
-          path: ${{ runner.temp }}/ltp-riscv-artifact/ltp-alpine-riscv-nommu.tar.gz
-          if-no-files-found: error
   test_ltp:
     runs-on: ubuntu-latest
-    needs: [build_uml, build_ltp, build_ltp_riscv, buildroot_riscv]
+    needs: [build_uml, build_ltp]
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -719,8 +682,8 @@ jobs:
             vmlinux_opt: "seccomp=on"
             name: um-nommu
           - displayTargetName: qemu-riscv-nommu
-            image_name: uml-ci/buildroot-riscv64-nommu:0.1
-            image_artifact: buildroot-riscv64-nommu-image
+            image_name: ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-3a01c5ac8771122fd40ddf41024bf865769279be
+            image_artifact: ''
             testname: riscv-nommu
             vmlinux_opt: ""
             name: riscv-nommu
@@ -754,6 +717,16 @@ jobs:
       - name: Load local test image
         if: matrix.image_artifact != ''
         run: docker load -i "$(find "$RUNNER_TEMP/local-image" -maxdepth 1 -name '*.tar' -print -quit)"
+      - name: Log in to ghcr.io for RISC-V test image
+        if: matrix.testname == 'riscv-nommu'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull prebuilt RISC-V test image
+        if: matrix.testname == 'riscv-nommu'
+        run: docker pull "${{ matrix.image_name }}"
       - name: Pull native Alpine test image
         if: matrix.testname == 'native'
         run: docker pull alpine:3.20.3
@@ -765,14 +738,34 @@ jobs:
           ref: fix-nommu
           path: ltp-source
           submodules: recursive
+      - name: Prepare RISC-V LTP build cache
+        if: matrix.testname == 'riscv-nommu'
+        run: mkdir -p "$RUNNER_TEMP/ltp-riscv-artifact" "$RUNNER_TEMP/ltp-home"
+      - name: Build RISC-V LTP install tree in the prebuilt image
+        if: matrix.testname == 'riscv-nommu'
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE/ltp-source:/work-buildroot/ltp" \
+            --volume "$GITHUB_WORKSPACE/.github/workflows/build-ltp-riscv.sh:/build-ltp-riscv.sh:ro" \
+            --volume "$RUNNER_TEMP/ltp-home:/github/home" \
+            --volume "$RUNNER_TEMP/ltp-riscv-artifact:/run-artifacts" \
+            --workdir /work-buildroot/ltp \
+            --entrypoint /bin/bash \
+            "${{ matrix.image_name }}" /build-ltp-riscv.sh
       - uses: actions/download-artifact@v7
+        if: matrix.testname != 'riscv-nommu'
         with:
           name: ltp-alpine-${{ matrix.name }}.tar.gz
           path: ${{ runner.temp }}/ltp-install
       - name: Extract LTP install tree on the runner
         run: |
           mkdir -p "$RUNNER_TEMP/ltp-root"
-          tar -xzf "$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz" \
+          if [ "${{ matrix.testname }}" = riscv-nommu ]; then
+            archive="$RUNNER_TEMP/ltp-riscv-artifact/ltp-alpine-riscv-nommu.tar.gz"
+          else
+            archive="$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz"
+          fi
+          tar -xzf "$archive" \
             -C "$RUNNER_TEMP/ltp-root"
           test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
       - name: Create local test container
@@ -863,7 +856,7 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-22.04
     name: bench-result
-    needs: [build_uml,benchmark,test_ltp]
+    needs: [build_uml,benchmark,test_ltp,checkpatch]
     permissions:
       actions: read
       contents: read
@@ -890,44 +883,7 @@ jobs:
         run: mkdir -p output && ls -R output || true
       - name: Install packages
         if: ${{ needs.benchmark.result == 'success' }}
-        run: |
-          sudo apt update -y
-          sudo apt install -y gnuplot libtirpc-dev iperf3 netperf jq
-      - name: Build lmbench-NoMMU for host benchmarks
-        if: ${{ needs.benchmark.result == 'success' }}
-        run: |
-          git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
-          cat > "$RUNNER_TEMP/lmbench-gcc" <<'EOF'
-          #!/bin/sh
-          exec gcc "$@" -ltirpc
-          EOF
-          chmod +x "$RUNNER_TEMP/lmbench-gcc"
-          lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
-          mkdir -p "$lmbench_bin"
-          lmbench_cflags="-O2 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc"
-          if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
-            gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
-            lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
-          fi
-          make -C lmbench/src OS=Linux CC="$RUNNER_TEMP/lmbench-gcc" \
-            O="$lmbench_bin" BINDIR="$lmbench_bin" \
-            CFLAGS="$lmbench_cflags"
-      - name: benchmark-host
-        if: ${{ needs.benchmark.result == 'success' }}
-        run: |
-           mkdir -p output
-           sudo ln -s /usr/include/x86_64-linux-gnu/sys /usr/include/sys
-           sudo mkdir -p /var/tmp/lmbench/
-           sudo chown ${USER} /var/tmp/lmbench/
-           LMBENCH_BIN_DIR="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1" \
-             LMBENCH_PROCESS_METHOD=both \
-             sh .github/workflows/lmbench_run.sh |& tee output/native.dat
-           gcc -o do_getpid .github/workflows/do_getpid.c
-           ./do_getpid -c 100 | tee -a output/native.dat
-           iperf3 -s &
-           iperf3 -c localhost -fm | tee output/native-iperf3.dat
-           iperf3 -c localhost -fm -R | tee -a output/native-iperf3.dat
-           bash .github/workflows/netperf-bench.sh localhost netperf | tee -a output/native-iperf3.dat
+        run: sudo apt update -y && sudo apt install -y gnuplot jq
       - name: bench data parse/out
         if: ${{ needs.benchmark.result == 'success' }}
         run: |

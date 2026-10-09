@@ -1,0 +1,89 @@
+name: Build RISC-V NOMMU test image
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: Linux commit or branch to embed in the Buildroot image
+        required: true
+        type: string
+        default: feature-swmmu-nommu
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout LTP Buildroot context
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/ltp
+          ref: fix-nommu
+          path: ltp-source
+      - name: Resolve kernel source and version
+        id: kernel
+        env:
+          KERNEL_REF: ${{ inputs.kernel_ref }}
+        run: |
+          git init kernel-source
+          git -C kernel-source remote add origin https://github.com/thehajime/linux.git
+          git -C kernel-source fetch --depth=1 origin "$KERNEL_REF"
+          git -C kernel-source checkout --detach FETCH_HEAD
+          echo "sha=$(git -C kernel-source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$(make -s -C kernel-source kernelversion)" >> "$GITHUB_OUTPUT"
+      - name: Update the LTP Dockerfile with the selected kernel
+        env:
+          KERNEL_SHA: ${{ steps.kernel.outputs.sha }}
+          KERNEL_VERSION: ${{ steps.kernel.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          dockerfile = Path("ltp-source/tools/buildroot/Dockerfile")
+          text = dockerfile.read_text()
+          old_clone = "RUN git clone --depth=1 https://github.com/thehajime/linux/ -b zpoline-nommu-v6.10"
+          new_clone = (
+              "RUN git init /work-buildroot/linux && "
+              "cd /work-buildroot/linux && "
+              "git remote add origin https://github.com/thehajime/linux.git && "
+              f"git fetch --depth=1 origin {os.environ['KERNEL_SHA']} && "
+              "git checkout --detach FETCH_HEAD"
+          )
+          if old_clone not in text:
+              raise SystemExit("expected kernel clone line was not found in LTP Dockerfile")
+          text = text.replace(old_clone, new_clone)
+          text = text.replace(
+              "RUN apt install -y qemu-utils",
+              "RUN apt-get update && apt-get install -y qemu-utils qemu-system-misc",
+          )
+          text = text.replace(r"7\.2\.0-rc4", os.environ["KERNEL_VERSION"])
+          major_minor = ".".join(os.environ["KERNEL_VERSION"].split(".")[:2])
+          text = text.replace('sed "s/2\\.6/7\\.2/"', f'sed "s/2\\.6/{major_minor}/"')
+          dockerfile.write_text(text)
+          PY
+          grep -nE 'git fetch|qemu-system-misc|CUSTOM_VERSION_VALUE|sed "s/2' ltp-source/tools/buildroot/Dockerfile
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
+      - name: Publish versioned RISC-V NOMMU image
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: ltp-source/tools/buildroot
+          push: true
+          tags: ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-${{ steps.kernel.outputs.sha }}

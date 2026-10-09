@@ -14,8 +14,11 @@ and set `kernel_ref` to the branch, tag, or full commit SHA. Short SHA prefixes
 are not accepted by the checkout action. The CI job checks out the selected
 kernel plus the canonical support files from `ci/uml-nommu`.
 
-Every run builds signed NOMMU APK profiles from the pinned aports revision in
-GitHub Actions. MMU UML keeps Alpine's standard userspace; `um-nommu` uses
+The `thehajime/aports` workflow `publish-nommu-apks.yml` builds signed NOMMU
+APK profiles on demand and publishes a prerelease asset keyed by the exact
+Linux and aports commits. Publish the pair selected by `ci.yml` before running
+the UML matrix; the build job downloads that matching asset. MMU UML keeps
+Alpine's standard userspace; `um-nommu` uses
 uninstrumented `SWMMU=0` APKs with `CONFIG_NOMMU_SWMMU` disabled, and
 `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with the selected kernel
 ref's GCC plugin and UAPI. Both profiles are built and installed into their
@@ -64,11 +67,23 @@ published rootfs can be reproduced and audited. The
 `busybox-nommu` and `musl-nommu` package changes are intended for eventual
 upstreaming to Alpine; track that work in the root `AGENTS.md` TODO list.
 
-The UML and Buildroot RISC-V images are built locally, saved as workflow
-artifacts, and loaded by benchmark and LTP jobs. No test job pulls a GHCR image;
-GHCR is used only when `publish_images` is explicitly enabled. The RISC-V LTP
-build and test jobs run in the Buildroot image from that run; its cross
-toolchain is not copied from an older published image.
+The UML images are built in each CI run and passed to benchmark and LTP jobs as
+workflow artifacts. The RISC-V Buildroot image is maintained separately by
+`build-riscv-image.yml`, which is a manual workflow. It checks out the selected
+kernel ref, updates the LTP fork's Buildroot Dockerfile to that exact commit and
+kernel version, then publishes an immutable GHCR tag. The `riscv-nommu` matrix
+entry pins that image tag and builds its LTP test programs in the same job that
+runs QEMU, avoiding a large image artifact transfer between jobs. Update the
+image tag in `ci.yml` only after publishing and validating a replacement. The
+RISC-V comparison image can be refreshed less often than the main kernel CI.
+
+The native lmbench, getpid, iperf3, and netperf measurements run in the
+independent `checkpatch` job and are uploaded as `test-result-native`.
+`bench-result` only downloads, aggregates, and plots measurements and test
+results after the benchmark/LTP jobs finish. The LTP jobs do not currently use
+ccache. The repository already has about 10.4 GB of Actions cache entries,
+mostly BuildKit layers and per-run UML compiler caches, so additional LTP
+compiler caches are deferred until cache retention or quota is reviewed.
 
 The LTP runner temporarily excludes `ptrace06` from `um-mmu` and
 `perf_event_open03` from `um-nommu-seccomp` and `um-nommu-sas-seccomp`. The
