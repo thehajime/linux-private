@@ -233,7 +233,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/lmbench-gcc"
           lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
           mkdir -p "$lmbench_bin"
-          lmbench_cflags="-O2 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
+          lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
           if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
             gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
             lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
@@ -799,7 +799,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/lmbench-gcc"
           lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
           mkdir -p "$lmbench_bin"
-          lmbench_cflags="-O2 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
+          lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
           if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
             gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
             lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
