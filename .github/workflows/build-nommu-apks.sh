@@ -31,17 +31,20 @@ for profile in nommu-plain nommu-swmmu; do
 	if [ "$profile" = nommu-swmmu ]; then
 		cp -a /src/main/openssl /src/main/python3 "/home/builder/aports-$profile/main/"
 		cp -a /src/scripts/swmmu-prepare.sh "/home/builder/aports-$profile/scripts/"
-		# Retain edge extension headers and add SWMMU Python host build dependencies.
+		# Avoid enabling target extensions against host-only libraries.
 		python3 - "/home/builder/aports-$profile/main/python3/APKBUILD" <<'PYAPK'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 text = path.read_text()
 old = '\tmakedepends="bash python3-dev openssl-dev"'
-new = '\tmakedepends="$makedepends bash python3-dev openssl-dev zstd-dev"'
-if text.count(old) != 1:
-    raise SystemExit(f"expected one SWMMU_ONLY makedepends assignment in {path}")
-path.write_text(text.replace(old, new))
+new = '\tmakedepends="$makedepends bash python3-dev openssl-dev"'
+old_configure = '\t\tac_cv_file__dev_ptmx=yes \\\n'
+new_configure = '\t\tPKG_CONFIG=false \\\n\t\tac_cv_file__dev_ptmx=yes \\\n'
+if text.count(old) != 1 or text.count(old_configure) != 1:
+    raise SystemExit(f"expected one SWMMU_ONLY dependency/configure block in {path}")
+text = text.replace(old, new).replace(old_configure, new_configure)
+path.write_text(text)
 PYAPK
 	fi
 done
