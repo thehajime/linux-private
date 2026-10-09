@@ -68,9 +68,12 @@ chown -R builder:abuild "$SWMMU_WORK" /var/cache/distfiles
 su -s /bin/sh builder -c '
 set -eu
 work=$1
+kernel_src=$2
 export PACKAGER="UML CI <uml-ci@example.invalid>"
 export REPODEST="$work/repo"
 export SWMMU=1
+export SWMMU_KERNEL_SRC="$kernel_src"
+export SWMMU_KERNEL_BUILD="$work/kernel-build"
 export SWMMU_PLUGIN="$work/kernel-build/scripts/gcc-plugins/swmmu_plugin.so"
 export SWMMU_UAPI="$work/kernel-uapi/include"
 export SWMMU_SYSROOT="$work/sysroot"
@@ -89,7 +92,7 @@ set -- "$HOME"/.config/abuild/*.rsa.pub
 [ -f "$1" ] || set -- "$HOME"/.abuild/*.rsa.pub
 [ "$#" -eq 1 ] && [ -f "$1" ]
 cp "$1" "$work/artifact/keys/"
-' swmmu-build "$SWMMU_WORK" 2>&1 | tee "$SWMMU_WORK/logs/apk-build.log"
+' swmmu-build "$SWMMU_WORK" "$SWMMU_KERNEL_SRC" 2>&1 | tee "$SWMMU_WORK/logs/apk-build.log"
 
 for package in musl-nommu busybox-nommu libcrypto3 libssl3 nginx-nommu coreutils-nommu busybox-static; do
 	set -- "$PACKAGES/$package"-*.apk

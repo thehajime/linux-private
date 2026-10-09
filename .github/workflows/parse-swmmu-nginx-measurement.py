@@ -62,6 +62,8 @@ def main() -> int:
     )
     if not requests:
         failures.append("wrk Requests/sec measurement is missing")
+    elif float(requests.group(1)) <= 0:
+        failures.append("wrk Requests/sec measurement is not positive")
     if not latency:
         failures.append("wrk latency measurement is missing")
     if not socket_errors:
