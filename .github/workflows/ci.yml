@@ -337,7 +337,7 @@ jobs:
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
-        if: matrix.testname != 'um-mmu-tt'
+        if: ${{ matrix.testname != 'um-mmu-tt' && github.event_name != 'workflow_dispatch' }}
         run: |
           mkdir -p output/kunit
           for config in `find . -path './ci-config' -prune -o -name .kunitconfig -print | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
@@ -346,7 +346,7 @@ jobs:
             ./tools/testing/kunit/kunit.py run --json="output/kunit/kunit-${{ matrix.testname }}-${result_name}.json" --kunitconfig="$config" ${{ matrix.kunit_opts }}
           done
       - name: Upload KUnit result data
-        if: ${{ always() && matrix.testname != 'um-mmu-tt' }}
+        if: ${{ always() && matrix.testname != 'um-mmu-tt' && github.event_name != 'workflow_dispatch' }}
         uses: actions/upload-artifact@v7
         with:
           name: kunit-results-${{ matrix.testname }}
@@ -862,6 +862,7 @@ jobs:
     uses: ./.github/workflows/ci-docker-build.yml
     name: "LTP: build"
   test_ltp:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     needs: [build_uml, build_ltp]
     permissions:
