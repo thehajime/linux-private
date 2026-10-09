@@ -31,14 +31,14 @@ for profile in nommu-plain nommu-swmmu; do
 	if [ "$profile" = nommu-swmmu ]; then
 		cp -a /src/main/openssl /src/main/python3 "/home/builder/aports-$profile/main/"
 		cp -a /src/scripts/swmmu-prepare.sh "/home/builder/aports-$profile/scripts/"
-		# Keep edge's optional extension headers in SWMMU_ONLY makedepends.
+		# Retain edge extension headers and add SWMMU Python host build dependencies.
 		python3 - "/home/builder/aports-$profile/main/python3/APKBUILD" <<'PYAPK'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 text = path.read_text()
 old = '\tmakedepends="bash python3-dev openssl-dev"'
-new = '\tmakedepends="$makedepends bash python3-dev openssl-dev"'
+new = '\tmakedepends="$makedepends bash python3-dev openssl-dev zstd-dev"'
 if text.count(old) != 1:
     raise SystemExit(f"expected one SWMMU_ONLY makedepends assignment in {path}")
 path.write_text(text.replace(old, new))
