@@ -41,8 +41,7 @@ make -C "$SWMMU_KERNEL_SRC" ARCH=um O="$BUILD" olddefconfig \
 	2>&1 | tee -a "$SWMMU_WORK/logs/kernel-config.log"
 grep -q '^CONFIG_NOMMU_SWMMU=y$' "$BUILD/.config"
 grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' "$BUILD/.config"
-make -C "$SWMMU_KERNEL_SRC" ARCH=um O="$BUILD" \
-	scripts/gcc-plugins/swmmu_plugin.so \
+make -C "$SWMMU_KERNEL_SRC" ARCH=um O="$BUILD" scripts \
 	2>&1 | tee "$SWMMU_WORK/logs/kernel-plugin.log"
 make -C "$SWMMU_KERNEL_SRC" ARCH=um O="$BUILD" \
 	INSTALL_HDR_PATH="${UAPI%/include}" headers_install \
