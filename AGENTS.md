@@ -276,20 +276,22 @@ reproducible kselftest build instructions in
   `Linux-um-mmu-tt-ccache-build` cache because the restore prefix had an extra
   trailing hyphen, but successfully saved
   `Linux-um-mmu-tt-ccache-build-37767571411-1`. The key includes `github.run_id`
-  and `github.run_attempt`; the restore prefix now also matches the legacy key.
-  Run `37770276697` restored the previous cache and saved a new run-specific key
-  for each of the four UML profiles. The ccache entries currently occupy about
-  6.7 GB total; monitor GitHub cache eviction and storage as future runs add
-  immutable per-run entries.
-- [ ] Verify the corrected UML cache restore prefix on the next CI run. In
-  run `37998928481`, `um-nommu` build-0 took 45 seconds with 99.70% ccache
-  hits, while `um-mmu` took 4m09s with 12.22% hits and `um-mmu-tt` took
-  5m53s with 12.76% hits. Those two restored the literal legacy keys
-  `Linux-um-mmu-ccache-build` and `Linux-um-mmu-tt-ccache-build`, created
-  on Oct 6, even though newer per-run caches existed. The restore prefix
-  now ends in `-` so it selects run-specific keys and avoids those stale
-  exact-match entries. Require build-0 under one minute for every profile;
-  retrieve the SAS hit rate after its job finishes.
+  and `github.run_attempt`. The restore prefix was later changed to match the
+  legacy key, but run `37998928481` showed that this selected stale entries over
+  newer per-run caches. The prefix now ends in `-` to select run-specific keys.
+  Run `37770276697` restored a previous cache and saved a new key for each of
+  the four UML profiles. GitHub reports 22 active Actions caches occupying
+  10.67 GB (9.94 GiB), near the default cache quota; monitor eviction.
+- [x] Verify the corrected UML cache restore prefix with focused run
+  `38003391527` (https://github.com/thehajime/linux-private/actions/runs/38003391527).
+  It restored run-specific cache keys: um-mmu from `37998928481`, um-mmu-tt
+  from `38002524303`, and um-nommu / um-nommu-sas from `37998928481`. All four
+  build-0 steps completed under one minute: um-mmu 44s (99.77% hits),
+  um-mmu-tt 17s (99.77%), um-nommu 32s (99.68%), and um-nommu-sas 35s
+  (99.69%). The focused run did not run KUnit, LTP, iperf3/netperf, or guest
+  benchmarks. Its initial attempt failed only because the temporary test
+  workflow omitted `/usr/lib/ccache` from PATH; that harness error was fixed
+  before the successful run.
 - [ ] Verify BusyBox `cd -` in the generated NOMMU binary before publishing an
   image.
 - [ ] Upstream the `busybox-nommu` and `musl-nommu` APKBUILD changes to Alpine.
