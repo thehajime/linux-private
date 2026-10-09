@@ -174,7 +174,7 @@ jobs:
       run: |
         INSTALL=${{ matrix.container }}
         INSTALL="${INSTALL%%:*}"
-        INSTALL="${INSTALL%%/*}"
+        INSTALL="${INSTALL##*/}"
         ACTION="$VARIANT" ./ci/$INSTALL.sh || true || if [ $? -eq 106 ]; then
           echo "::warning ::Skipping job due broken repositories"
           ./ci/tools/patchwork.sh check \
