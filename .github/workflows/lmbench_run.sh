@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LM_BENCH_BIN_DIR=${LMBENCH_BIN_DIR:-$SCRIPT_DIR}
