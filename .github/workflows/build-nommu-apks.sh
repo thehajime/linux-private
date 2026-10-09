@@ -118,10 +118,10 @@ build_profile() {
 build_profile nommu-plain
 build_profile nommu-swmmu
 
-set -- "$HOME/.abuild/"*.rsa.pub
+set -- "$HOME/.config/abuild/"*.rsa.pub
 [ "$#" -eq 1 ] && [ -f "$1" ] || {
 	echo "expected one abuild public key; matches: $*" >&2
-	ls -la "$HOME/.abuild" >&2 || true
+	ls -la "$HOME/.config/abuild" >&2 || true
 	exit 1
 }
 echo "Collecting abuild public key: $1"
