@@ -55,9 +55,13 @@ dispatch inputs and uses the selected kernel ref plus the pinned aports commit
 recorded in the workflow artifact manifest. It builds and signs the guest APKs
 once, shares the rootfs among six worker/connection matrix legs, and uses a
 separate wrk client container. Each leg uploads its raw logs and
-`measurement.json`; `swmmu-nginx-aggregate-plot` contains the combined JSON,
-CSV, and throughput plot. HTTP and TLS smoke checks must pass, and a wrk
-timeout or socket error marks that leg failed.
+`measurement.json`; `bench-result` aggregates the matrix and uploads
+`swmmu-nginx-aggregate-plot` with the combined JSON, CSV, throughput plot, and
+rootfs diagnostics. HTTP and TLS smoke checks must pass, and a wrk timeout or
+socket error marks that leg failed. Manual dispatch runs the existing KUnit and
+LTP jobs normally; the nginx comparison does not skip them. The package/rootfs
+build runs as root in the Alpine chroot so it can create the unprivileged
+`abuild` user, then restores runner ownership before uploading diagnostics.
 
 ## Root filesystem package source
 

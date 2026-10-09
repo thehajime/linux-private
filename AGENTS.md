@@ -58,6 +58,39 @@ reproducible kselftest build instructions in
   established fact.
 - [ ] Continue cleanup as small, reviewable changes before adding features.
 
+### Deferred investigations: compiler stack probes and plain NOMMU SMP
+
+- [ ] Investigate SWMMU coverage of GCC-generated stack-clash probes. A local
+  reproduction with Alpine edge GCC 15.2.0 and the SWMMU plugin from kernel
+  `86ee6de52c4a2cfe46f613cecda7a8888808cadd` showed that dynamic `alloca`
+  probes first appear as `UNSPEC_PROBE_STACK` in RTL `expand`, while fixed
+  frame probes first appear in `pro_and_epilogue`; generated assembly retains
+  accesses such as `orq $0,(%rsp)`, outside the current GIMPLE instrumentation.
+  The exact `coreutils/wc` compile command and its package-build logs remain
+  uncollected. Reproduce that build with the exact GCC/plugin versions and save
+  the command, pass dumps, and assembly. Compare a GIMPLE-side implementation
+  with a target-aware late RTL/backend implementation, preserving stack pointer,
+  guard-page fault, and unwind/CFA semantics; never rewrite `%rsp` accesses
+  indiscriminately. Add fixed-size, dynamic-size, and multi-page regression
+  tests and validate them in a SWMMU guest. Keep the existing
+  `-fno-stack-clash-protection` workaround until guest validation passes.
+  Track the coreutils 4 KiB buffer change separately as a NOMMU stack-capacity
+  workaround.
+- [ ] Investigate SMP support for **plain NOMMU UML only**. The feature branch
+  currently selects `UML_SUBARCH_SUPPORTS_SMP` under `X86_CX8 && MMU`, while
+  upstream UML `next` commit `aa3e6faf620b1091ae85b07c0106918d48fcce05`
+  selects it under `X86_CX8`. The feature branch already contains the queued
+  lock selects and `arch/x86/um/asm/spinlock.h`; the extra `MMU` condition is
+  the relevant Kconfig difference found so far. A plain-NOMMU
+  `olddefconfig` with `CONFIG_MMU=n` and `X86_CX8=y` did not retain
+  `CONFIG_SMP`, but no kernel source change, SMP build, or boot test has been
+  made. Compare the target kernel revision and upstream SMP dependencies,
+  determine whether a separate Kconfig change is sufficient, then build and
+  boot with multiple CPUs and verify online CPUs, scheduler/worker behavior,
+  and a same-condition single-versus-multiple-CPU workload. Do not infer
+  SAS/SWMMU SMP support from a plain-NOMMU result; assess those modes separately
+  and state the required runtime and kernel support.
+
 ### Correctness and coverage
 
 - [ ] Finish the user-copy architecture and remaining aggregate/bitfield

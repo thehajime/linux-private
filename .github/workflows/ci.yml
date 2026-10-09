@@ -337,7 +337,7 @@ jobs:
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
-        if: ${{ matrix.testname != 'um-mmu-tt' && github.event_name != 'workflow_dispatch' }}
+        if: ${{ matrix.testname != 'um-mmu-tt' }}
         run: |
           mkdir -p output/kunit
           for config in `find . -path './ci-config' -prune -o -name .kunitconfig -print | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
@@ -346,7 +346,7 @@ jobs:
             ./tools/testing/kunit/kunit.py run --json="output/kunit/kunit-${{ matrix.testname }}-${result_name}.json" --kunitconfig="$config" ${{ matrix.kunit_opts }}
           done
       - name: Upload KUnit result data
-        if: ${{ always() && matrix.testname != 'um-mmu-tt' && github.event_name != 'workflow_dispatch' }}
+        if: ${{ always() && matrix.testname != 'um-mmu-tt' }}
         uses: actions/upload-artifact@v7
         with:
           name: kunit-results-${{ matrix.testname }}
@@ -506,13 +506,19 @@ jobs:
             isl-dev
             elfutils-dev
       - name: Build signed SWMMU packages and one shared guest rootfs
-        shell: alpine.sh {0}
+        shell: alpine.sh --root {0}
         env:
           SWMMU_KERNEL_SRC: ${{ github.workspace }}/kernel-source
           SWMMU_APORTS_SRC: ${{ github.workspace }}/aports-source
           SWMMU_INIT_SCRIPT: ${{ github.workspace }}/.github/workflows/swmmu-nginx-init.sh
           SWMMU_WORK: ${{ github.workspace }}/.swmmu-nginx
         run: bash .github/workflows/build-swmmu-nginx-rootfs.sh
+      - name: Restore runner ownership of SWMMU rootfs files
+        if: always()
+        run: |
+          if [ -d .swmmu-nginx ]; then
+            sudo chown -R "$(id -u):$(id -g)" .swmmu-nginx
+          fi
       - name: Upload shared rootfs, signed APKs, and manifest
         uses: actions/upload-artifact@v4
         with:
@@ -621,41 +627,6 @@ jobs:
           name: swmmu-nginx-w${{ matrix.workers }}-c${{ matrix.connections }}
           path: output/w${{ matrix.workers }}-c${{ matrix.connections }}
           if-no-files-found: error
-
-  aggregate_swmmu_nginx_benchmarks:
-    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
-    name: Aggregate and plot SWMMU nginx results
-    needs: [nginx_swmmu_benchmark]
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Check out report helpers
-        uses: actions/checkout@v6
-      - name: Download all matrix result artifacts
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          pattern: swmmu-nginx-w*-c*
-          path: ${{ runner.temp }}/swmmu-nginx-matrix
-          merge-multiple: false
-      - name: Install gnuplot and make aggregate report
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gnuplot-nox
-          mkdir -p output/swmmu-nginx
-          python3 .github/workflows/aggregate-swmmu-nginx-results.py \
-            "$RUNNER_TEMP/swmmu-nginx-matrix" output/swmmu-nginx
-          gnuplot -e "data_file='output/swmmu-nginx/throughput.csv'; output_file='output/swmmu-nginx/throughput.png'" \
-            .github/workflows/plot-swmmu-nginx.gnuplot
-      - name: Upload aggregate JSON, CSV, and gnuplot comparison
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: swmmu-nginx-aggregate-plot
-          path: output/swmmu-nginx
-          if-no-files-found: warn
 
   benchmark:
     runs-on: ${{ matrix.runs_on }}
@@ -808,13 +779,13 @@ jobs:
             sh .github/workflows/lmbench_run.sh |& tee output/native.dat
           gcc -o do_getpid .github/workflows/do_getpid.c
           ./do_getpid -c 100 | tee -a output/native.dat
-          sudo netserver
+          sudo netserver -4 -L 127.0.0.1
           iperf3 -s &
           iperf_server_pid=$!
           trap 'kill "$iperf_server_pid" 2>/dev/null || true' EXIT
-          iperf3 -c localhost -fm | tee output/native-iperf3.dat
-          iperf3 -c localhost -fm -R | tee -a output/native-iperf3.dat
-          bash .github/workflows/netperf-bench.sh localhost netperf | tee -a output/native-iperf3.dat
+          iperf3 -c 127.0.0.1 -fm | tee output/native-iperf3.dat
+          iperf3 -c 127.0.0.1 -fm -R | tee -a output/native-iperf3.dat
+          bash .github/workflows/netperf-bench.sh 127.0.0.1 netperf | tee -a output/native-iperf3.dat
       - name: Upload native benchmark measurements
         if: always()
         uses: actions/upload-artifact@v7
@@ -859,11 +830,9 @@ jobs:
            aspell list /tmp/a
 
   build_ltp:
-    if: ${{ github.event_name != 'workflow_dispatch' }}
     uses: ./.github/workflows/ci-docker-build.yml
     name: "LTP: build"
   test_ltp:
-    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     needs: [build_uml, build_ltp]
     permissions:
@@ -1072,7 +1041,7 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-22.04
     name: bench-result
-    needs: [build_uml,benchmark,test_ltp,checkpatch]
+    needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_swmmu_benchmark]
     permissions:
       actions: read
       contents: write
@@ -1095,11 +1064,50 @@ jobs:
         with:
             path: output/kunit-results
             pattern: kunit-results-*
+      - name: Download SWMMU nginx matrix results
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: swmmu-nginx-w*-c*
+          path: ${{ runner.temp }}/swmmu-nginx-matrix
+          merge-multiple: false
+      - name: Download SWMMU nginx rootfs diagnostics
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: swmmu-nginx-rootfs-diagnostics
+          path: ${{ runner.temp }}/swmmu-nginx-rootfs-diagnostics
       - name: Display structure of downloaded files
         run: mkdir -p output && ls -R output || true
       - name: Install packages
-        if: ${{ needs.benchmark.result == 'success' }}
+        if: ${{ needs.benchmark.result == 'success' || github.event_name == 'workflow_dispatch' }}
         run: sudo apt update -y && sudo apt install -y gnuplot jq
+      - name: Aggregate SWMMU nginx results
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          mkdir -p output/swmmu-nginx
+          python3 .github/workflows/aggregate-swmmu-nginx-results.py \
+            "$RUNNER_TEMP/swmmu-nginx-matrix" output/swmmu-nginx
+          if awk -F, 'NR > 1 && ($2 != "NaN" || $3 != "NaN") { found=1 } END { exit !found }' \
+            output/swmmu-nginx/throughput.csv; then
+            gnuplot -e "data_file='output/swmmu-nginx/throughput.csv'; output_file='output/swmmu-nginx/throughput.png'" \
+              .github/workflows/plot-swmmu-nginx.gnuplot
+          else
+            printf '%s\n' 'Plot omitted: no successful matrix measurements.' \
+              > output/swmmu-nginx/plot-status.txt
+          fi
+          if [ -d "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" ]; then
+            cp -a "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" \
+              output/swmmu-nginx/rootfs-diagnostics
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        with:
+          name: swmmu-nginx-aggregate-plot
+          path: output/swmmu-nginx
+          if-no-files-found: warn
       - name: bench data parse/out
         if: ${{ needs.benchmark.result == 'success' }}
         run: |
