@@ -19,10 +19,10 @@ on:
         type: string
         default: codex/lmbench-process-method
       aports_ref:
-        description: 'Pinned aports source commit used by the temporary NOMMU APK release'
+        description: 'Pinned master/edge aports source commit used by the temporary NOMMU APK release'
         required: false
         type: string
-        default: f9ec9629f50634534a0ee89339ca5ed5633aa503
+        default: 2fa7f100befb14cb343a659446e539237c66366c
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
@@ -53,13 +53,16 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: thehajime/aports
-          ref: ${{ inputs.aports_ref || 'f9ec9629f50634534a0ee89339ca5ed5633aa503' }}
+          ref: ${{ inputs.aports_ref || '2fa7f100befb14cb343a659446e539237c66366c' }}
           path: aports-source
           sparse-checkout: |
             main/busybox
             main/musl
+            main/openssl
+            main/python3
             scripts/swmmu-profile.sh
             scripts/swmmu-cc
+            scripts/swmmu-prepare.sh
       - name: Download matching prerelease APK profiles
         id: download
         run: |
@@ -97,6 +100,7 @@ jobs:
             testname: um-mmu
             mode: um-mmu
             userspace_profile: alpine
+            base_image: alpine:3.20.3
           - displayTargetName: ubuntu-22.04 (time-travel)
             os: unix
             runs_on: ubuntu-22.04
@@ -107,6 +111,7 @@ jobs:
             testname: um-mmu-tt
             mode: um-mmu
             userspace_profile: alpine
+            base_image: alpine:3.20.3
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
@@ -117,6 +122,7 @@ jobs:
             testname: um-nommu
             mode: um-nommu
             userspace_profile: nommu-plain
+            base_image: alpine:edge
           - displayTargetName: ubuntu-22.04 (nommu-sas)
             os: unix
             runs_on: ubuntu-22.04
@@ -127,6 +133,7 @@ jobs:
             testname: um-nommu-sas
             mode: um-nommu
             userspace_profile: nommu-swmmu
+            base_image: alpine:edge
     name: "UML: build (${{ matrix.testname }})"
     timeout-minutes: 100
     permissions:
@@ -148,7 +155,10 @@ jobs:
       - name: Set env
         shell: bash
         run: |
-          echo "/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin" >> $GITHUB_PATH
+          printf '%s\n' \
+            /usr/lib/ccache/bin \
+            /usr/lib/ccache \
+            "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
           echo "export PATH=/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin:$PATH" >> $HOME/.bashrc
       - name: Checkout
         uses: actions/checkout@v6
@@ -177,6 +187,15 @@ jobs:
         run: |
           sudo apt update -y
           sudo apt install -y ccache iperf3 netperf gdb valgrind libcap-dev libcap-ng-dev libmnl-dev libmbedtls-dev liburing-dev libnuma-dev
+      - name: Verify compiler cache wrapper
+        run: |
+          compiler=$(command -v gcc)
+          echo "gcc resolves to: $compiler"
+          case "$compiler" in
+            /usr/lib/ccache/*) ;;
+            *) echo "gcc is not routed through the ccache wrapper" >&2; exit 1 ;;
+          esac
+          ccache --zero-stats
       - name: Setup latest Alpine Linux
         uses: jirutka/setup-alpine@v1
         with:
@@ -270,6 +289,9 @@ jobs:
           fi
           cat build/.config | sed "s/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/" > /tmp/a; mv /tmp/a build/.config
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
+      - name: Report ccache statistics after build-0
+        if: always()
+        run: ccache --show-stats
       - name: prep for docker build
         if: matrix.testname != 'um-mmu-tt'
         run: |
@@ -289,13 +311,14 @@ jobs:
           build-args: |
             MODE=${{ matrix.mode }}
             USERSPACE_PROFILE=${{ matrix.userspace_profile }}
+            BASE_IMAGE=${{ matrix.base_image }}
           push: false
           load: true
           tags: |
-            uml-ci/alpine:3.20.3-${{ matrix.testname }}
+            uml-ci/alpine:${{ matrix.base_image == 'alpine:edge' && 'edge' || '3.20.3' }}-${{ matrix.testname }}
       - name: Save tested UML image for downstream jobs
         if: matrix.testname != 'um-mmu-tt'
-        run: docker save uml-ci/alpine:3.20.3-${{ matrix.testname }} -o "$RUNNER_TEMP/uml-image.tar"
+        run: docker save uml-ci/alpine:${{ matrix.base_image == 'alpine:edge' && 'edge' || '3.20.3' }}-${{ matrix.testname }} -o "$RUNNER_TEMP/uml-image.tar"
       - name: Upload tested UML image
         if: matrix.testname != 'um-mmu-tt'
         uses: actions/upload-artifact@v4
@@ -306,7 +329,7 @@ jobs:
       - name: image for test
         if: matrix.testname != 'um-mmu-tt'
         run: |
-          docker create --name alpine-nommu uml-ci/alpine:3.20.3-${{ matrix.testname }}
+          docker create --name alpine-nommu uml-ci/alpine:${{ matrix.base_image == 'alpine:edge' && 'edge' || '3.20.3' }}-${{ matrix.testname }}
           docker start alpine-nommu
           docker wait alpine-nommu
           docker logs alpine-nommu
@@ -408,12 +431,15 @@ jobs:
           - testname: um-mmu
             mode: um-mmu
             userspace_profile: alpine
+            base_tag: 3.20.3
           - testname: um-nommu
             mode: um-nommu
             userspace_profile: nommu-plain
+            base_tag: edge
           - testname: um-nommu-sas
             mode: um-nommu
             userspace_profile: nommu-swmmu
+            base_tag: edge
     steps:
       - name: Download tested image context
         uses: actions/download-artifact@v4
@@ -441,8 +467,9 @@ jobs:
           build-args: |
             MODE=${{ matrix.mode }}
             USERSPACE_PROFILE=${{ matrix.userspace_profile }}
+            BASE_IMAGE=alpine:${{ matrix.base_tag }}
           push: true
-          tags: ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
+          tags: ghcr.io/thehajime/alpine:${{ matrix.base_tag }}-${{ matrix.testname }}
 
   build_swmmu_nginx_rootfs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -477,7 +504,7 @@ jobs:
           set -euo pipefail
           mkdir -p .swmmu-nginx
           docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
-          cid=$(docker create uml-ci/alpine:3.20.3-um-nommu-sas)
+          cid=$(docker create uml-ci/alpine:edge-um-nommu-sas)
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker cp "$cid:/root/vmlinux" .swmmu-nginx/vmlinux
           docker rm "$cid" >/dev/null
@@ -566,7 +593,7 @@ jobs:
         run: |
           set -euo pipefail
           docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
-          cid=$(docker create uml-ci/alpine:3.20.3-um-nommu-sas)
+          cid=$(docker create uml-ci/alpine:edge-um-nommu-sas)
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
           docker rm "$cid" >/dev/null
@@ -650,21 +677,25 @@ jobs:
             testname: um-nommu
             vmlinux_opt: ""
             runs_on: ubuntu-22.04
+            base_tag: edge
           - displayTargetName: um-nommu-s
             image_name: um-nommu
             testname: um-nommu-seccomp
             vmlinux_opt: "seccomp=on"
             runs_on: ubuntu-22.04
+            base_tag: edge
           - displayTargetName: um-nommu-sas-s
             image_name: um-nommu-sas
             testname: um-nommu-sas-seccomp
             vmlinux_opt: ""
             runs_on: ubuntu-22.04
+            base_tag: edge
           - displayTargetName: um-nommu-sas-z
             image_name: um-nommu-sas
             testname: um-nommu-sas-zpoline
             vmlinux_opt: "zpoline=1"
             runs_on: ubuntu-22.04
+            base_tag: edge
     name: "UML: bench (${{ matrix.testname }}) "
     timeout-minutes: 100
     steps:
@@ -698,7 +729,7 @@ jobs:
            mkdir -p output
            sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm uml-ci/alpine:3.20.3-${{ matrix.image_name }} \
+              --rm uml-ci/alpine:${{ startsWith(matrix.testname, 'um-nommu') && 'edge' || '3.20.3' }}-${{ matrix.image_name }} \
               mem=2G root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 ${{ matrix.vmlinux_opt }} \
               init=/bench.sh \
              | tee output/${{ matrix.testname }}.dat &
@@ -713,7 +744,7 @@ jobs:
            #  loglevel=8 console=tty init=/root/iperf3.sh \
            #  | tee output/${{ matrix.testname }}-seccomp-iperf3.dat
            faketty docker run -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm uml-ci/alpine:3.20.3-${{ matrix.image_name }} mem=2G \
+              --rm uml-ci/alpine:${{ startsWith(matrix.testname, 'um-nommu') && 'edge' || '3.20.3' }}-${{ matrix.image_name }} mem=2G \
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
               init=/root/iperf3.sh \
@@ -734,7 +765,10 @@ jobs:
       - name: Set env
         shell: bash
         run: |
-          echo "/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin" >> $GITHUB_PATH
+          printf '%s\n' \
+            /usr/lib/ccache/bin \
+            /usr/lib/ccache \
+            "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
           echo "export PATH=/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin:$PATH" >> $HOME/.bashrc
       - name: Checkout
         with:
@@ -779,7 +813,19 @@ jobs:
             sh .github/workflows/lmbench_run.sh |& tee output/native.dat
           gcc -o do_getpid .github/workflows/do_getpid.c
           ./do_getpid -c 100 | tee -a output/native.dat
-          sudo netserver -4 -L 127.0.0.1
+          if ! ss -ltnH 'sport = :12865' | grep -q LISTEN; then
+            sudo service netperf start
+          fi
+          for attempt in {1..10}; do
+            ss -ltnH 'sport = :12865' | grep -q LISTEN && break
+            sleep 1
+          done
+          if ! ss -ltnH 'sport = :12865' | grep -q LISTEN; then
+            echo "netperf service did not open TCP port 12865" >&2
+            sudo ss -ltnp 'sport = :12865' || true
+            exit 1
+          fi
+          sudo ss -ltnp 'sport = :12865'
           iperf3 -s &
           iperf_server_pid=$!
           trap 'kill "$iperf_server_pid" 2>/dev/null || true' EXIT
@@ -855,13 +901,13 @@ jobs:
             vmlinux_opt: "seccomp=on"
             name: um-mmu
           - displayTargetName: um-nommu
-            image_name: uml-ci/alpine:3.20.3-um-nommu
+            image_name: uml-ci/alpine:edge-um-nommu
             image_artifact: uml-docker-image-um-nommu
             testname: um-nommu
             vmlinux_opt: ""
             name: um-nommu
           - displayTargetName: um-nommu-s
-            image_name: uml-ci/alpine:3.20.3-um-nommu
+            image_name: uml-ci/alpine:edge-um-nommu
             image_artifact: uml-docker-image-um-nommu
             testname: um-nommu-seccomp
             vmlinux_opt: "seccomp=on"
@@ -880,13 +926,13 @@ jobs:
             name: um-mmu
             docker_opt: "-v /lib/modules:/lib/modules"
           - displayTargetName: um-nommu-sas-s
-            image_name: uml-ci/alpine:3.20.3-um-nommu-sas
+            image_name: uml-ci/alpine:edge-um-nommu-sas
             image_artifact: uml-docker-image-um-nommu-sas
             testname: um-nommu-sas-seccomp
             vmlinux_opt: ""
             name: um-nommu
           - displayTargetName: um-nommu-sas-z
-            image_name: uml-ci/alpine:3.20.3-um-nommu-sas
+            image_name: uml-ci/alpine:edge-um-nommu-sas
             image_artifact: uml-docker-image-um-nommu-sas
             testname: um-nommu-sas-zpoline
             vmlinux_opt: "zpoline=1"

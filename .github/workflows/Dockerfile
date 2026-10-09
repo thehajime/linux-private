@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-FROM alpine:3.20.3
+ARG BASE_IMAGE=alpine:3.20.3
+FROM ${BASE_IMAGE}
 
 ARG MODE=
 ARG USERSPACE_PROFILE=alpine
@@ -68,9 +69,18 @@ RUN --mount=type=bind,source=aports-artifacts,target=/tmp/aports-artifacts,ro \
         chmod 755 /tmp/busybox-host && \
         mkdir -p /tmp/busybox-host-bin && \
         /tmp/busybox-host --install -s /tmp/busybox-host-bin && \
-        apk add --no-cache --no-scripts \
-          /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/busybox-nommu-*.apk \
-          /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/musl-nommu-*.apk && \
+        if [ "${USERSPACE_PROFILE}" = nommu-swmmu ]; then \
+          apk add --no-cache --no-scripts --force-overwrite \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/busybox-nommu-*.apk \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/musl-nommu-*.apk \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/libcrypto3-*.apk \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/libssl3-*.apk \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/python3-nommu-*.apk; \
+        else \
+          apk add --no-cache --no-scripts \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/busybox-nommu-*.apk \
+            /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/musl-nommu-*.apk; \
+        fi && \
         /tmp/busybox-host --install -s ;; \
       *) echo "unknown USERSPACE_PROFILE: ${USERSPACE_PROFILE}" >&2; exit 1 ;; \
     esac

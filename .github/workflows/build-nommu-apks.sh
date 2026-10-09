@@ -28,6 +28,10 @@ for profile in nommu-plain nommu-swmmu; do
 	mkdir -p "/home/builder/aports-$profile/main" "/home/builder/aports-$profile/scripts" "/out/$profile/packages" "/out/$profile/tools"
 	cp -a /src/main/musl /src/main/busybox "/home/builder/aports-$profile/main/"
 	cp -a /src/scripts/swmmu-profile.sh /src/scripts/swmmu-cc "/home/builder/aports-$profile/scripts/"
+	if [ "$profile" = nommu-swmmu ]; then
+		cp -a /src/main/openssl /src/main/python3 "/home/builder/aports-$profile/main/"
+		cp -a /src/scripts/swmmu-prepare.sh "/home/builder/aports-$profile/scripts/"
+	fi
 done
 chown -R builder:abuild /home/builder /out /var/cache/distfiles
 
@@ -52,6 +56,13 @@ build_profile() {
 	abuild -r
 	cd "$HOME/aports-$profile/main/busybox"
 	abuild -r
+	if [ "$profile" = nommu-swmmu ]; then
+		"$HOME/aports-$profile/scripts/swmmu-prepare.sh" check
+		cd "$HOME/aports-$profile/main/openssl"
+		SWMMU_ONLY=1 abuild -r
+		cd "$HOME/aports-$profile/main/python3"
+		SWMMU_ONLY=1 abuild -r
+	fi
 	for package in busybox-nommu musl-nommu; do
 		set -- "$REPODEST/main/x86_64/$package"-*.apk
 		[ "$#" -eq 1 ] && [ -f "$1" ] || {
@@ -60,6 +71,16 @@ build_profile() {
 		}
 		cp "$1" "/out/$profile/packages/"
 	done
+	if [ "$profile" = nommu-swmmu ]; then
+		for package in libcrypto3 libssl3 python3-nommu; do
+			set -- "$REPODEST/main/x86_64/$package"-*.apk
+			[ "$#" -eq 1 ] && [ -f "$1" ] || {
+				echo "expected one built SWMMU APK for $package" >&2
+				exit 1
+			}
+			cp "$1" "/out/$profile/packages/"
+		done
+	fi
 	set -- "$REPODEST/main/x86_64/busybox-static"-*.apk
 	[ "$#" -eq 1 ] && [ -f "$1" ] || {
 		echo "expected one static host BusyBox APK for $profile" >&2

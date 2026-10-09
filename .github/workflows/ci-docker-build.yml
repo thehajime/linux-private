@@ -69,7 +69,7 @@ jobs:
               #branch: 'master'
 
           # musl-nommu (native)
-          - container: "alpine:3.20.3"
+          - container: "alpine:edge"
             env:
               CC: gcc
               MAKE_INSTALL: 1

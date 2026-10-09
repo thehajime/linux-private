@@ -19,6 +19,10 @@ rm -rf "$ROOTFS" "$BUILD" "$SYSROOT" "$REPODEST" "$OUT" "$SWMMU_WORK/aports"
 mkdir -p "$SWMMU_WORK/logs" "$REPODEST" "$OUT/packages" "$OUT/tools" "$OUT/keys"
 mkdir -p "$ROOTFS" "$SYSROOT"
 
+# This script runs as root inside setup-alpine while the checkouts remain owned
+# by the runner user. Allow Git to inspect only these two mounted worktrees.
+git config --global --add safe.directory "$SWMMU_KERNEL_SRC"
+git config --global --add safe.directory "$SWMMU_APORTS_SRC"
 kernel_sha=$(git -C "$SWMMU_KERNEL_SRC" rev-parse HEAD)
 aports_sha=$(git -C "$SWMMU_APORTS_SRC" rev-parse HEAD)
 gcc_version=$(gcc -dumpfullversion)
