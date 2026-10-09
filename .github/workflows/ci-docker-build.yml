@@ -159,6 +159,17 @@ jobs:
         ref: ${{ matrix.env.branch }}
         submodules: 'recursive'
 
+    - name: Checkout CI compatibility patches
+      uses: actions/checkout@v6
+      with:
+        repository: thehajime/linux-private
+        ref: ci/uml-nommu
+        path: linux-private-ci
+        sparse-checkout: .github/workflows/patches/ltp-madvise11-void-ptrs.patch
+
+    - name: Fix LTP madvise11 pointer type for GCC on Alpine edge
+      run: patch --forward --fuzz=0 -p1 < linux-private-ci/.github/workflows/patches/ltp-madvise11-void-ptrs.patch
+
     - name: Install additional packages
       run: |
         INSTALL=${{ matrix.container }}
