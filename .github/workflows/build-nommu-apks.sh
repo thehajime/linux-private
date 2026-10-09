@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+trap 'status=$?; if [ "$status" -ne 0 ]; then echo "build-nommu-apks.sh failed (exit $status)" >&2; fi' EXIT
 
 apk add --no-cache alpine-sdk bash doas git bc bison flex openssl-dev perl python3 elfutils-dev gmp-dev mpfr-dev mpc1-dev isl-dev rsync
 
@@ -83,27 +84,34 @@ build_profile() {
 	for package in busybox-nommu musl-nommu; do
 		set -- "$REPODEST/main/x86_64/$package"-*.apk
 		[ "$#" -eq 1 ] && [ -f "$1" ] || {
-			echo "expected one built APK for $profile/$package" >&2
+			echo "expected one built APK for $profile/$package; matches: $*" >&2
 			exit 1
 		}
+		echo "Collecting $profile/$package: $1"
 		cp "$1" "/out/$profile/packages/"
 	done
 	if [ "$profile" = nommu-swmmu ]; then
 		for package in libcrypto3 libssl3 python3-nommu; do
 			set -- "$REPODEST/main/x86_64/$package"-*.apk
 			[ "$#" -eq 1 ] && [ -f "$1" ] || {
-				echo "expected one built SWMMU APK for $package" >&2
+				echo "expected one built SWMMU APK for $package; matches: $*" >&2
 				exit 1
 			}
+			echo "Collecting $profile/$package: $1"
 			cp "$1" "/out/$profile/packages/"
 		done
 	fi
 	set -- "$REPODEST/main/x86_64/busybox-static"-*.apk
 	[ "$#" -eq 1 ] && [ -f "$1" ] || {
-		echo "expected one static host BusyBox APK for $profile" >&2
+		echo "expected one static host BusyBox APK for $profile; matches: $*" >&2
 		exit 1
 	}
-	tar -xOf "$1" bin/busybox.static >"/out/$profile/tools/busybox-host" 2>/dev/null
+	echo "Extracting host BusyBox from: $1"
+	if ! tar -xOf "$1" bin/busybox.static >"/out/$profile/tools/busybox-host"; then
+		echo "could not extract bin/busybox.static from $1; APK entries follow:" >&2
+		tar -tvf "$1" >&2 || true
+		exit 1
+	fi
 	chmod 755 "/out/$profile/tools/busybox-host"
 }
 
@@ -111,6 +119,11 @@ build_profile nommu-plain
 build_profile nommu-swmmu
 
 set -- "$HOME/.abuild/"*.rsa.pub
-[ "$#" -eq 1 ] && [ -f "$1" ]
+[ "$#" -eq 1 ] && [ -f "$1" ] || {
+	echo "expected one abuild public key; matches: $*" >&2
+	ls -la "$HOME/.abuild" >&2 || true
+	exit 1
+}
+echo "Collecting abuild public key: $1"
 cp "$1" /out/keys/
 '
