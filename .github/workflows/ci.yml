@@ -444,6 +444,219 @@ jobs:
           push: true
           tags: ghcr.io/thehajime/alpine:3.20.3-${{ matrix.testname }}
 
+  build_swmmu_nginx_rootfs:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    name: Build SWMMU nginx rootfs once
+    needs: [build_uml]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - name: Check out CI support files
+        uses: actions/checkout@v6
+      - name: Checkout the selected SWMMU kernel source
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/linux-private
+          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+          path: kernel-source
+      - name: Checkout the pinned SWMMU aports source
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/aports
+          ref: 2fa7f100befb14cb343a659446e539237c66366c
+          path: aports-source
+      - name: Download the built NOMMU-SAS UML image
+        uses: actions/download-artifact@v4
+        with:
+          name: uml-docker-image-um-nommu-sas
+          path: ${{ runner.temp }}/uml-image
+      - name: Extract the exact UML kernel from the tested image
+        run: |
+          set -euo pipefail
+          mkdir -p .swmmu-nginx
+          docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
+          cid=$(docker create uml-ci/alpine:3.20.3-um-nommu-sas)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" .swmmu-nginx/vmlinux
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 .swmmu-nginx/vmlinux
+      - name: Set up Alpine edge SWMMU toolchain
+        uses: jirutka/setup-alpine@v1
+        with:
+          branch: edge
+          packages: >
+            alpine-sdk
+            doas
+            git
+            bash
+            ca-certificates
+            openssl
+            bc
+            bison
+            flex
+            perl
+            python3
+            rsync
+            gmp-dev
+            mpfr-dev
+            mpc1-dev
+            isl-dev
+            elfutils-dev
+      - name: Build signed SWMMU packages and one shared guest rootfs
+        shell: alpine.sh {0}
+        env:
+          SWMMU_KERNEL_SRC: ${{ github.workspace }}/kernel-source
+          SWMMU_APORTS_SRC: ${{ github.workspace }}/aports-source
+          SWMMU_INIT_SCRIPT: ${{ github.workspace }}/.github/workflows/swmmu-nginx-init.sh
+          SWMMU_WORK: ${{ github.workspace }}/.swmmu-nginx
+        run: bash .github/workflows/build-swmmu-nginx-rootfs.sh
+      - name: Upload shared rootfs, signed APKs, and manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: swmmu-nginx-rootfs
+          path: .swmmu-nginx/artifact
+          if-no-files-found: error
+      - name: Upload rootfs build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swmmu-nginx-rootfs-diagnostics
+          path: .swmmu-nginx/logs
+          if-no-files-found: warn
+
+  nginx_swmmu_benchmark:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    name: "SWMMU nginx: workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
+    needs: [build_uml, build_swmmu_nginx_rootfs]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        workers: [1, 4]
+        connections: [4, 16, 64]
+        wrk_threads: [2]
+    steps:
+      - name: Check out CI benchmark helpers
+        uses: actions/checkout@v6
+      - name: Create per-leg output directory
+        run: mkdir -p "output/w${{ matrix.workers }}-c${{ matrix.connections }}"
+      - name: Download the shared SWMMU rootfs and packages
+        uses: actions/download-artifact@v4
+        with:
+          name: swmmu-nginx-rootfs
+          path: ${{ runner.temp }}/swmmu-nginx
+      - name: Download the tested UML image
+        uses: actions/download-artifact@v4
+        with:
+          name: uml-docker-image-um-nommu-sas
+          path: ${{ runner.temp }}/uml-image
+      - name: Extract rootfs and kernel
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
+          cid=$(docker create uml-ci/alpine:3.20.3-um-nommu-sas)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 "$RUNNER_TEMP/vmlinux"
+          mkdir -p rootfs
+          tar -xzf "$RUNNER_TEMP/swmmu-nginx/rootfs.tar.gz" -C rootfs
+      - name: Install UML host networking and capability tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends iproute2 libcap2-bin
+      - name: Run HTTP/TLS smoke tests and wrk from a separate client container
+        env:
+          WORKERS: ${{ matrix.workers }}
+          THREADS: ${{ matrix.wrk_threads }}
+          CONNECTIONS: ${{ matrix.connections }}
+        run: |
+          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/swmmu-nginx/manifest.txt")
+          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/swmmu-nginx/manifest.txt")
+          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/swmmu-nginx/manifest.txt")
+          .github/workflows/run-swmmu-nginx-benchmark.sh \
+            --kernel "$RUNNER_TEMP/vmlinux" \
+            --rootfs rootfs \
+            --workers "$WORKERS" \
+            --threads "$THREADS" \
+            --connections "$CONNECTIONS" \
+            --duration 30 \
+            --kernel-sha "$kernel_sha" \
+            --aports-sha "$aports_sha" \
+            --gcc-version "$gcc_version" \
+            --output "output/w${WORKERS}-c${CONNECTIONS}"
+      - name: Ensure a structured result exists after setup failures
+        if: always()
+        env:
+          WORKERS: ${{ matrix.workers }}
+          THREADS: ${{ matrix.wrk_threads }}
+          CONNECTIONS: ${{ matrix.connections }}
+        run: |
+          out="output/w${WORKERS}-c${CONNECTIONS}"
+          if [[ ! -s "$out/measurement.json" ]]; then
+            mkdir -p "$out"
+            for file in kernel.log nginx.log client-setup.log smoke-http.log smoke-tls.log wrk-warmup.log wrk.log nginx-swmmu.conf; do
+              touch "$out/$file"
+            done
+            printf 'FAIL\n' >"$out/harness.status"
+            printf 'FAIL\n' >"$out/smoke-http.status"
+            printf 'FAIL\n' >"$out/smoke-tls.status"
+            printf '125\n' >"$out/wrk.exit-code"
+            python3 .github/workflows/parse-swmmu-nginx-measurement.py \
+              --output "$out" --workers "$WORKERS" --threads "$THREADS" \
+              --connections "$CONNECTIONS" --duration 30 \
+              --kernel-sha unknown --aports-sha unknown --gcc-version unknown || true
+          fi
+      - name: Upload this leg's raw logs and measurement JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swmmu-nginx-w${{ matrix.workers }}-c${{ matrix.connections }}
+          path: output/w${{ matrix.workers }}-c${{ matrix.connections }}
+          if-no-files-found: error
+
+  aggregate_swmmu_nginx_benchmarks:
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+    name: Aggregate and plot SWMMU nginx results
+    needs: [nginx_swmmu_benchmark]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out report helpers
+        uses: actions/checkout@v6
+      - name: Download all matrix result artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: swmmu-nginx-w*-c*
+          path: ${{ runner.temp }}/swmmu-nginx-matrix
+          merge-multiple: false
+      - name: Install gnuplot and make aggregate report
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnuplot-nox
+          mkdir -p output/swmmu-nginx
+          python3 .github/workflows/aggregate-swmmu-nginx-results.py \
+            "$RUNNER_TEMP/swmmu-nginx-matrix" output/swmmu-nginx
+          gnuplot -e "data_file='output/swmmu-nginx/throughput.csv'; output_file='output/swmmu-nginx/throughput.png'" \
+            .github/workflows/plot-swmmu-nginx.gnuplot
+      - name: Upload aggregate JSON, CSV, and gnuplot comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swmmu-nginx-aggregate-plot
+          path: output/swmmu-nginx
+          if-no-files-found: warn
+
   benchmark:
     runs-on: ${{ matrix.runs_on }}
     needs: [build_uml]

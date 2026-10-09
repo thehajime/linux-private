@@ -50,6 +50,15 @@ push cannot change the default branch. The image tags used by
 `Documentation/virt/uml/nommu-uml.rst` should only be updated from a validated
 kernel and rootfs combination.
 
+The SWMMU nginx comparison runs only on a manual `ci.yml` dispatch; it adds no
+dispatch inputs and uses the selected kernel ref plus the pinned aports commit
+recorded in the workflow artifact manifest. It builds and signs the guest APKs
+once, shares the rootfs among six worker/connection matrix legs, and uses a
+separate wrk client container. Each leg uploads its raw logs and
+`measurement.json`; `swmmu-nginx-aggregate-plot` contains the combined JSON,
+CSV, and throughput plot. HTTP and TLS smoke checks must pass, and a wrk
+timeout or socket error marks that leg failed.
+
 ## Root filesystem package source
 
 The Dockerfile receives the APKs and generated public signing key as a
