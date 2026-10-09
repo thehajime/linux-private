@@ -1,0 +1,10 @@
+--- a/src/lat_udp.c
++++ b/src/lat_udp.c
+@@ -22 +22 @@ void	server_main();
+-void	timeout();
++void	timeout(int sig);
+@@ -171 +171 @@ void
+-timeout()
++timeout(int sig)
+@@ -172,0 +173 @@ timeout()
++	(void)sig;
