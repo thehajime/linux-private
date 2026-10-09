@@ -40,7 +40,7 @@ ADD netperf /root/.
 ADD lib/ /lib
 
 RUN apk update && apk add \
-	acl curl jq keyutils libaio libacl libcap libselinux libsepol libtirpc utmps-libs \
+	acl curl jq keyutils libaio libcap libselinux libsepol libtirpc utmps-libs \
 	numactl openssl py3-msgpack btrfs-progs e2fsprogs xfsprogs \
 	dosfstools parted util-linux make iperf3 python3 bash git && \
 	adduser -D -g "Unprivileged LTP user" ltp && \
