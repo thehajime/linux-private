@@ -64,6 +64,9 @@ RUN --mount=type=bind,source=aports-artifacts,target=/tmp/aports-artifacts,ro \
     case "${USERSPACE_PROFILE}" in \
       alpine) ;; \
       nommu-plain|nommu-swmmu) \
+        if [ "${USERSPACE_PROFILE}" = nommu-swmmu ]; then \
+          apk del openssl py3-msgpack python3; \
+        fi && \
         cp /tmp/aports-artifacts/keys/*.rsa.pub /etc/apk/keys/ && \
         cp /tmp/aports-artifacts/${USERSPACE_PROFILE}/tools/busybox-host /tmp/busybox-host && \
         chmod 755 /tmp/busybox-host && \
