@@ -1036,6 +1036,12 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
         with:
           detached: true
+      - name: Monitor UML Python process mappings
+        if: ${{ matrix.testname == 'um-nommu-sas-zpoline' }}
+        run: |
+          mkdir -p output/ltp/uml-python-debug
+          docker exec -d ltp-test /bin/sh \
+            /github/workspace/.github/workflows/capture-uml-python-maps.sh
       - name: Extract test programs and run LTP
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
@@ -1066,6 +1072,32 @@ jobs:
                 fi'
               ;;
           esac
+      - name: Collect UML Python mappings and exact ELF files
+        if: ${{ always() && matrix.testname == 'um-nommu-sas-zpoline' }}
+        run: |
+          set +e
+          diag=output/ltp/uml-python-debug
+          mkdir -p "$diag/elf"
+          docker exec ltp-test /bin/sh -c \
+            'for p in /proc/[0-9]*; do
+               [ "$(cat "$p/comm" 2>/dev/null)" = python3 ] || continue
+               printf "pid=%s\\n" "${p#/proc/}"
+               cat "$p/status" 2>/dev/null
+               cat "$p/maps" 2>/dev/null
+             done' > "$diag/final-proc-snapshot.txt" 2>&1
+          for path in /usr/bin/python3.14 /usr/lib/libpython3.14.so.1.0 \
+                      /lib/ld-musl-x86_64.so.1; do
+            source=$(docker exec ltp-test readlink -f "$path" 2>/dev/null)
+            [ -n "$source" ] || continue
+            name=$(basename "$path")
+            docker cp "ltp-test:$source" "$diag/elf/$name" 2>/dev/null
+          done
+          for elf in "$diag"/elf/*; do
+            [ -f "$elf" ] || continue
+            sha256sum "$elf" >> "$diag/elf-metadata.txt"
+            readelf -n "$elf" >> "$diag/elf-metadata.txt" 2>&1
+            readelf -l "$elf" >> "$diag/elf-metadata.txt" 2>&1
+          done
       - name: Stop local test container
         if: always()
         run: docker rm -f ltp-test || true
