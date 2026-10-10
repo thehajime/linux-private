@@ -5,15 +5,24 @@
 # UML host processes, not guest tasks. The hostfs root exposes the workspace
 # at the same path, so snapshots survive a guest kernel panic.
 
-base=/github/workspace/output/ltp/uml-python-debug/guest-processes
+mode=${1:-guest}
+case "$mode" in
+	guest) base=/github/workspace/output/ltp/uml-python-debug/guest-processes ;;
+	host) base=/github/workspace/output/ltp/uml-python-debug/host-processes ;;
+	*) echo "unknown capture mode: $mode" >&2; exit 1 ;;
+esac
 mkdir -p "$base"
 
 while :; do
 	for proc in /proc/[0-9]*; do
 		[ -r "$proc/comm" ] || continue
 		comm=$(cat "$proc/comm" 2>/dev/null) || continue
-		case "$comm" in
-			python3|python3.14) ;;
+		case "$mode:$comm" in
+			guest:python3|guest:python3.14) ;;
+			host:*)
+				exe=$(readlink "$proc/exe" 2>/dev/null) || continue
+				case "${exe##*/}" in vmlinux|linux) ;; *) continue ;; esac
+				;;
 			*) continue ;;
 		esac
 

@@ -1031,6 +1031,12 @@ jobs:
               --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
           fi
           docker start ltp-test
+      - name: Monitor UML host process mappings
+        if: ${{ matrix.testname == 'um-nommu-sas-zpoline' }}
+        run: |
+          mkdir -p output/ltp/uml-python-debug
+          docker exec -d ltp-test /bin/sh \
+            /github/workspace/.github/workflows/capture-uml-python-maps.sh host
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
@@ -1074,7 +1080,8 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$diag" 2>/dev/null || true
           mkdir -p "$diag/elf"
           : > "$diag/collection.log"
-          find "$diag/guest-processes" -mindepth 2 -maxdepth 2 -type f \
+          find "$diag" -type f \
+            \( -path '*/guest-processes/*' -o -path '*/host-processes/*' \) \
             -print 2>/dev/null | sort > "$diag/captured-files.txt"
           find "$diag/guest-processes" -name auxv -type f -print 2>/dev/null |
           while read -r auxv; do
@@ -1094,7 +1101,9 @@ jobs:
               echo "Failed to copy $source" >> "$diag/collection.log"
             fi
           done
-          find "$diag/guest-processes" -name maps -type f -print 2>/dev/null |
+          find "$diag" -type f \
+            \( -path '*/guest-processes/*/maps' -o \
+               -path '*/host-processes/*/maps' \) -print 2>/dev/null |
           while read -r maps; do
             awk '$6 ~ /^\// {print $6}' "$maps" | sort -u
           done | while read -r path; do
