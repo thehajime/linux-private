@@ -749,6 +749,7 @@ jobs:
              sleep 100 ; exit
       - name: benchmark-2
         run: |
+           set -o pipefail
            mkdir -p output
            ## dynamic build failed at iperf -R
            echo "===========================non-static build may fail...==========================="
@@ -761,8 +762,7 @@ jobs:
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
               init=/root/iperf3.sh \
-             | tee output/${{ matrix.testname }}-iperf3.dat &
-             sleep 300 ; exit
+             | tee output/${{ matrix.testname }}-iperf3.dat
       - uses: actions/upload-artifact@v7
         with:
           name: test-result-${{ matrix.testname }}
