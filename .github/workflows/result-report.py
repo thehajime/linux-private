@@ -159,7 +159,10 @@ def collect_benchmarks(root):
             target = stem.removesuffix("-getpid-out")
             text = path.read_text(errors="replace")
             value = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text)
-            add("getpid", target, float(value.group()) if value else rows[-1][-1], "nsec")
+            if value:
+                add("getpid", target, float(value.group()), "nsec")
+            elif rows:
+                add("getpid", target, rows[-1][-1], "nsec")
         elif stem.endswith("-iperf3-out"):
             target = stem.removesuffix("-iperf3-out")
             labels = ("forward", "reverse")
