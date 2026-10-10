@@ -39,6 +39,38 @@ def main() -> int:
     raw = read_text(args.output / "wrk.log")
     failures = []
     harness_status = read_text(args.output / "harness.status")
+    if harness_status == "SKIP":
+        result = {
+            "schema_version": 1,
+            "status": "SKIP",
+            "skip_reason": read_text(args.output / "harness.error") or "unsupported matrix leg",
+            "failures": [],
+            "profile": args.profile,
+            "workers": args.workers,
+            "wrk_threads": args.threads,
+            "connections": args.connections,
+            "duration_seconds": args.duration,
+            "wrk_timeout_seconds": 30,
+            "kernel_sha": args.kernel_sha,
+            "aports_sha": args.aports_sha,
+            "gcc_version": args.gcc_version,
+            "requests_per_second": None,
+            "average_latency_ms": None,
+            "socket_errors": None,
+            "smoke_http": False,
+            "smoke_tls": False,
+            "raw_logs": [
+                "capability.log", "host-sysctl.log", "tap.log", "kernel.log",
+                "online-cpus.txt", "nginx.log", "client-setup.log",
+                "client-container.log", "smoke-http.log", "smoke-tls.log",
+                "wrk-warmup.log", "wrk.log", "nginx.conf",
+            ],
+        }
+        (args.output / "measurement.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n"
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
     if harness_status != "PASS":
         reason = read_text(args.output / "harness.error") or "benchmark harness did not complete"
         failures.append(reason)

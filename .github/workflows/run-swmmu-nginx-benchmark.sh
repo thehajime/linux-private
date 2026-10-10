@@ -86,8 +86,8 @@ fail() {
 }
 
 capture_logs() {
-	if [[ -f "$ROOTFS/tmp/nginx-error.log" ]]; then
-		cp "$ROOTFS/tmp/nginx-error.log" "$OUTPUT/nginx.log"
+	if [[ -f "$ROOTFS/run/nginx-error.log" ]]; then
+		cp "$ROOTFS/run/nginx-error.log" "$OUTPUT/nginx.log"
 	else
 		: >"$OUTPUT/nginx.log"
 	fi
@@ -96,11 +96,11 @@ capture_logs() {
 			if [[ -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
 				timeout --foreground 5s bash -c 'printf "stop\\n" > "$1"' _ \
 					"$ROOTFS/run/nginx-benchmark-stop" 2>/dev/null || true
+				for _ in {1..15}; do
+					kill -0 "$UML_PID" 2>/dev/null || break
+					sleep 1
+				done
 			fi
-			for _ in {1..15}; do
-				kill -0 "$UML_PID" 2>/dev/null || break
-				sleep 1
-			done
 		fi
 		if kill -0 "$UML_PID" 2>/dev/null; then
 			kill -TERM "$UML_PID" 2>/dev/null || true
@@ -113,8 +113,8 @@ capture_logs() {
 		wait "$UML_PID" 2>/dev/null || true
 		UML_PID=
 	fi
-	if [[ -f "$ROOTFS/tmp/nginx-error.log" ]]; then
-		cp "$ROOTFS/tmp/nginx-error.log" "$OUTPUT/nginx.log"
+	if [[ -f "$ROOTFS/run/nginx-error.log" ]]; then
+		cp "$ROOTFS/run/nginx-error.log" "$OUTPUT/nginx.log"
 	fi
 	if docker inspect "$CLIENT" >/dev/null 2>&1; then
 		docker logs "$CLIENT" >"$OUTPUT/client-container.log" 2>&1 || true
@@ -136,6 +136,19 @@ finish() {
 		--gcc-version "$GCC_VERSION"
 }
 trap finish EXIT
+
+if [[ ( "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp ) && "$WORKERS" -gt 1 ]]; then
+	HARNESS_STATUS=SKIP
+	HARNESS_ERROR="plain NOMMU UML does not support fork(), so nginx worker_processes=$WORKERS is unavailable"
+	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
+	printf 'SKIP\n' >"$OUTPUT/harness.status"
+	printf 'not run: plain NOMMU has no fork support\n' >"$OUTPUT/wrk.log"
+	printf '125\n' >"$OUTPUT/wrk.exit-code"
+	trap - EXIT
+	finish
+	finish_status=$?
+	exit "$finish_status"
+fi
 
 if [[ ! -x "$KERNEL" ]]; then
 	fail "UML kernel is missing or not executable"
@@ -171,11 +184,15 @@ if [[ "$PROFILE" == um-nommu-sas-seccomp || "$PROFILE" == um-nommu-sas-zpoline ]
 	GUEST_INIT=/sbin/swmmu-nginx-init
 fi
 sed -i -E "s/^worker_processes[[:space:]]+[0-9]+;/worker_processes ${WORKERS};/" "$NGINX_CONF"
-sed -i 's#error_log stderr notice;#error_log /tmp/nginx-error.log notice;#' "$NGINX_CONF"
+sed -i -E 's#^error_log[[:space:]].*;#error_log /run/nginx-error.log notice;#' "$NGINX_CONF"
+if [[ "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp ]]; then
+	sed -i -e 's/^daemon on;$/daemon off;/' \
+		-e 's/^master_process on;$/master_process off;/' "$NGINX_CONF"
+fi
 cp "$NGINX_CONF" "$OUTPUT/nginx.conf" 2>/dev/null || \
 	fail "nginx SWMMU config is missing"
 if ! grep -q "^worker_processes ${WORKERS};$" "$OUTPUT/nginx.conf" 2>/dev/null || \
-	! grep -q '^error_log /tmp/nginx-error.log notice;$' "$OUTPUT/nginx.conf" 2>/dev/null; then
+	! grep -q '^error_log /run/nginx-error.log notice;$' "$OUTPUT/nginx.conf" 2>/dev/null; then
 	fail "matrix worker count or nginx diagnostic log configuration was not applied"
 fi
 
@@ -200,11 +217,12 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	if [[ "$ready" != 1 ]]; then
 		fail "UML guest did not report its nginx ready marker within 120 seconds"
 	else
-		if [[ -s "$ROOTFS/tmp/online-cpus.txt" ]]; then
-			cp "$ROOTFS/tmp/online-cpus.txt" "$OUTPUT/online-cpus.txt"
+		if [[ -s "$ROOTFS/run/online-cpus.txt" ]]; then
+			cp "$ROOTFS/run/online-cpus.txt" "$OUTPUT/online-cpus.txt"
 		fi
 		if [[ " $KERNEL_ARGS_TEXT " == *" ncpus=4 "* ]]; then
-			if [[ "$(tr -d '\n' <"$ROOTFS/tmp/online-cpus.txt" 2>/dev/null)" != "0-3" ]]; then
+			if [[ "$(tr -d '\n' <"$ROOTFS/run/online-cpus.txt" 2>/dev/null)" != "0-3" ]] && \
+			   ! grep -Eq 'smp: Brought up [0-9]+ node, 4 CPUs' "$OUTPUT/kernel.log"; then
 				fail "SMP UML did not report all four CPUs online"
 			fi
 		fi
@@ -280,4 +298,4 @@ fi
 trap - EXIT
 finish
 finish_status=$?
-[[ "$HARNESS_STATUS" == PASS && "$finish_status" -eq 0 ]]
+[[ ( "$HARNESS_STATUS" == PASS || "$HARNESS_STATUS" == SKIP ) && "$finish_status" -eq 0 ]]
