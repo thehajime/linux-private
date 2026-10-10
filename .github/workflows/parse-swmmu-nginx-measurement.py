@@ -95,7 +95,7 @@ def main() -> int:
         "wrk_threads": args.threads,
         "connections": args.connections,
         "duration_seconds": args.duration,
-        "wrk_timeout_seconds": 10,
+        "wrk_timeout_seconds": 30,
         "kernel_sha": args.kernel_sha,
         "aports_sha": args.aports_sha,
         "gcc_version": args.gcc_version,

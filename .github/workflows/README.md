@@ -58,10 +58,12 @@ separate wrk client container. Each leg uploads its raw logs and
 `measurement.json`; `bench-result` aggregates the matrix and uploads
 `swmmu-nginx-aggregate-plot` with the combined JSON, CSV, throughput plot, and
 rootfs diagnostics. HTTP and TLS smoke checks must pass, and a wrk timeout or
-socket error marks that leg failed. Manual dispatch runs the existing KUnit and
-LTP jobs normally; the nginx comparison does not skip them. The package/rootfs
-build runs as root in the Alpine chroot so it can create the unprivileged
-`abuild` user, then restores runner ownership before uploading diagnostics.
+socket error marks that leg failed. Manual diagnostic dispatch temporarily
+skips KUnit/LTP and the iperf3/netperf benchmark-2 jobs; the lmbench
+benchmark-1 remains enabled. Push-triggered CI retains its normal KUnit, LTP,
+and network benchmark jobs. The package/rootfs build runs as root in the Alpine
+chroot so it can create the unprivileged `abuild` user, then restores runner
+ownership before uploading diagnostics.
 
 ## Root filesystem package source
 

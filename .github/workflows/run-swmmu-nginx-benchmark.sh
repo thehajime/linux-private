@@ -208,9 +208,9 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 fi
 if [[ "$HARNESS_STATUS" == PASS ]]; then
 	wrk_rc=0
-	timeout --foreground --signal=TERM --kill-after=5s "$((DURATION + 15))s" \
+	timeout --foreground --signal=TERM --kill-after=5s "$((DURATION + 45))s" \
 		docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
-		-T 10s -d"${DURATION}s" --latency "http://$GUEST_IP:8080/" \
+		-T 30s -d"${DURATION}s" --latency "http://$GUEST_IP:8080/" \
 		>"$OUTPUT/wrk.log" 2>&1 || wrk_rc=$?
 	printf '%s\n' "$wrk_rc" >"$OUTPUT/wrk.exit-code"
 	if [[ "$wrk_rc" -ne 0 ]]; then

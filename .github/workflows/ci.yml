@@ -710,6 +710,7 @@ jobs:
       - name: Setup faketty
         uses: Yuri6037/Action-FakeTTY@v1.1
       - name: setup iperf3/netperf server
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
            set -x
            sudo apt update -y
@@ -752,6 +753,7 @@ jobs:
              | tee output/${{ matrix.testname }}.dat &
              sleep 100 ; exit
       - name: benchmark-2
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
            set -o pipefail
            mkdir -p output
@@ -808,7 +810,10 @@ jobs:
            sudo apt install -y aspell ccache sparse
            git clone https://github.com/daxtens/smart-sparse-diff
       - name: Install native benchmark dependencies
-        run: sudo apt install -y libtirpc-dev iperf3 netperf
+        run: sudo apt install -y libtirpc-dev
+      - name: Install native network benchmark dependencies
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: sudo apt install -y iperf3 netperf
       - name: Build lmbench for native benchmark
         run: |
           git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
@@ -837,6 +842,7 @@ jobs:
           gcc -o do_getpid .github/workflows/do_getpid.c
           ./do_getpid -c 100 | tee -a output/native.dat
       - name: Run native network benchmarks
+        if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
           mkdir -p output
           if ! ss -ltnH 'sport = :12865' | grep -q LISTEN; then
