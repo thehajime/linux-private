@@ -253,7 +253,17 @@ reproducible kselftest build instructions in
   Determine whether Python and any native dependencies must be built with the
   SWMMU plugin; verify that hypothesis with a SWMMU-built Python package and
   record the exact failing component before treating either SAS LTP run as
-  valid.
+  valid. Runs `38005074759` and `38006360842` confirm that the SWMMU-built
+  `python3-nommu` package (Python 3.14.8) is installed in the SAS LTP image,
+  but zpoline still panics before the first test result. Both logs repeat
+  `addr=0x10027f40b0`, `ip=0x10004cd55d`, and nearly identical registers. The
+  `arch/um/kernel/trap.c` message identifies a kernel-context fault
+  (`is_user == 0`); a tentative runtime-offset mapping points into
+  `netdev_wait_allrefs_any()` at `net/core/dev.c:11718`, but the mapped PC is
+  inside an x86 instruction encoding, so validate the relocation/control flow
+  before treating that source location as definitive. Preserve the raw logs
+  under the corresponding Obsidian CI record. Run `38006360842` still needs
+  its SAS-seccomp outcome to establish whether both modes fail this way.
 - [ ] Investigate abnormal completion in both non-SAS NOMMU LTP profiles from
   run `37843548583`. Plain NOMMU ran 1,433 tests (6,755 passed, 73 failed,
   4 broken, 1,039 skipped), then panicked while Kirk's Python exited through
