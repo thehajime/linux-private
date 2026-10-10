@@ -40,6 +40,9 @@ jobs:
   build_nommu_apks:
     name: "Download signed NOMMU APKs from aports prerelease"
     runs-on: ubuntu-22.04
+    outputs:
+      kernel_sha: ${{ steps.download.outputs.kernel_sha }}
+      aports_sha: ${{ steps.download.outputs.aports_sha }}
     permissions:
       contents: read
     steps:
@@ -76,6 +79,8 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nommu-apks.tar.gz" -C "$RUNNER_TEMP/nommu-apks"
           test -s "$RUNNER_TEMP/nommu-apks/manifest.txt"
           printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'kernel_sha=%s\n' "$kernel_sha" >> "$GITHUB_OUTPUT"
+          printf 'aports_sha=%s\n' "$aports_sha" >> "$GITHUB_OUTPUT"
       - name: Upload signed NOMMU APK profiles and public key
         uses: actions/upload-artifact@v4
         with:
@@ -476,7 +481,7 @@ jobs:
   build_swmmu_nginx_rootfs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Build SWMMU nginx rootfs once
-    needs: [build_uml]
+    needs: [build_uml, build_nommu_apks]
     runs-on: ubuntu-22.04
     timeout-minutes: 180
     permissions:
@@ -484,18 +489,11 @@ jobs:
     steps:
       - name: Check out CI support files
         uses: actions/checkout@v6
-      - name: Checkout the selected SWMMU kernel source
-        uses: actions/checkout@v6
+      - name: Download the signed SWMMU APK package set
+        uses: actions/download-artifact@v4
         with:
-          repository: thehajime/linux-private
-          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
-          path: kernel-source
-      - name: Checkout the pinned SWMMU aports source
-        uses: actions/checkout@v6
-        with:
-          repository: thehajime/aports
-          ref: ${{ inputs.aports_ref || '2fa7f100befb14cb343a659446e539237c66366c' }}
-          path: aports-source
+          name: aports-nommu-apks
+          path: ${{ github.workspace }}/.swmmu-nginx/aport-artifacts
       - name: Download the built NOMMU-SAS UML image
         uses: actions/download-artifact@v4
         with:
@@ -512,33 +510,22 @@ jobs:
           docker rm "$cid" >/dev/null
           trap - EXIT
           chmod 0755 .swmmu-nginx/vmlinux
-      - name: Set up Alpine edge SWMMU toolchain
+      - name: Set up minimal Alpine rootfs tooling
         uses: jirutka/setup-alpine@v1
         with:
           branch: edge
           packages: >
-            alpine-sdk
-            doas
-            git
             bash
             ca-certificates
+            coreutils
             openssl
-            bc
-            bison
-            flex
-            perl
-            python3
-            rsync
-            gmp-dev
-            mpfr-dev
-            mpc1-dev
-            isl-dev
-            elfutils-dev
-      - name: Build signed SWMMU packages and one shared guest rootfs
+            tar
+      - name: Assemble one shared guest rootfs from signed SWMMU APKs
         shell: alpine.sh --root {0}
         env:
-          SWMMU_KERNEL_SRC: ${{ github.workspace }}/kernel-source
-          SWMMU_APORTS_SRC: ${{ github.workspace }}/aports-source
+          SWMMU_APK_DIR: ${{ github.workspace }}/.swmmu-nginx/aport-artifacts
+          SWMMU_KERNEL_SHA: ${{ needs.build_nommu_apks.outputs.kernel_sha }}
+          SWMMU_APORTS_SHA: ${{ needs.build_nommu_apks.outputs.aports_sha }}
           SWMMU_INIT_SCRIPT: ${{ github.workspace }}/.github/workflows/swmmu-nginx-init.sh
           SWMMU_WORK: ${{ github.workspace }}/.swmmu-nginx
         run: bash .github/workflows/build-swmmu-nginx-rootfs.sh
