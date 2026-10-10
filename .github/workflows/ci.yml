@@ -293,6 +293,11 @@ jobs:
             make ARCH=um O=build olddefconfig
             grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
             grep -q '^CONFIG_UML_NOMMU_SAS=y$' build/.config
+          elif [[ "${{ matrix.testname }}" == "um-mmu" ]]; then
+            scripts/config --file build/.config --enable SMP --set-val NR_CPUS 4
+            make ARCH=um O=build olddefconfig
+            grep -q '^CONFIG_SMP=y$' build/.config
+            grep -q '^CONFIG_NR_CPUS=4$' build/.config
           fi
           cat build/.config | sed "s/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/" > /tmp/a; mv /tmp/a build/.config
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
@@ -398,6 +403,11 @@ jobs:
             make ARCH=um olddefconfig
             grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
             grep -q '^CONFIG_UML_NOMMU_SAS=y$' .config
+          elif [[ "${{ matrix.testname }}" == "um-mmu" ]]; then
+            scripts/config --enable SMP --set-val NR_CPUS 4
+            make ARCH=um olddefconfig
+            grep -q '^CONFIG_SMP=y$' .config
+            grep -q '^CONFIG_NR_CPUS=4$' .config
           fi
           make -j8 ARCH=um ${{ matrix.add_configs }}
       - name: test-1
@@ -536,17 +546,46 @@ jobs:
           build_status=$?
           cat "$SWMMU_WORK/logs/rootfs-build.log"
           exit "$build_status"
+      - name: Assemble shared MMU and plain NOMMU nginx rootfses
+        shell: alpine.sh --root {0}
+        env:
+          NGINX_APK_DIR: ${{ github.workspace }}/.swmmu-nginx/aport-artifacts
+          NGINX_INIT_SCRIPT: ${{ github.workspace }}/.github/workflows/nginx-matrix-init.sh
+          NGINX_WORK: ${{ github.workspace }}/.nginx-rootfs
+          NGINX_KERNEL_SHA: ${{ needs.build_nommu_apks.outputs.kernel_sha }}
+          NGINX_APORTS_SHA: ${{ needs.build_nommu_apks.outputs.aports_sha }}
+        run: |
+          set -euo pipefail
+          for profile in mmu nommu; do
+            NGINX_PROFILE="$profile" NGINX_WORK="$NGINX_WORK/$profile" \
+              bash "$GITHUB_WORKSPACE/.github/workflows/build-generic-nginx-rootfs.sh"
+          done
       - name: Restore runner ownership of SWMMU rootfs files
         if: always()
         run: |
           if [ -d .swmmu-nginx ]; then
             sudo chown -R "$(id -u):$(id -g)" .swmmu-nginx
           fi
+          if [ -d .nginx-rootfs ]; then
+            sudo chown -R "$(id -u):$(id -g)" .nginx-rootfs
+          fi
       - name: Upload shared rootfs, signed APKs, and manifest
         uses: actions/upload-artifact@v4
         with:
           name: swmmu-nginx-rootfs
           path: .swmmu-nginx/artifact
+          if-no-files-found: error
+      - name: Upload shared MMU nginx rootfs
+        uses: actions/upload-artifact@v4
+        with:
+          name: nginx-rootfs-mmu
+          path: .nginx-rootfs/mmu/artifact
+          if-no-files-found: error
+      - name: Upload shared plain NOMMU nginx rootfs
+        uses: actions/upload-artifact@v4
+        with:
+          name: nginx-rootfs-nommu
+          path: .nginx-rootfs/nommu/artifact
           if-no-files-found: error
       - name: Upload rootfs build diagnostics
         if: always()
@@ -558,7 +597,7 @@ jobs:
 
   nginx_swmmu_benchmark:
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    name: "SWMMU nginx: workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
+    name: "nginx: ${{ matrix.profile }}, workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
     needs: [build_uml, build_swmmu_nginx_rootfs]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -570,33 +609,64 @@ jobs:
         workers: [1, 4]
         connections: [4, 16, 64]
         wrk_threads: [2]
+        include:
+          - profile: um-mmu
+            image_name: um-mmu
+            rootfs_artifact: nginx-rootfs-mmu
+            kernel_args: ncpus=4
+            needs_rawio: false
+          - profile: um-mmu-seccomp
+            image_name: um-mmu
+            rootfs_artifact: nginx-rootfs-mmu
+            kernel_args: ncpus=4 seccomp=on
+            needs_rawio: false
+          - profile: um-nommu
+            image_name: um-nommu
+            rootfs_artifact: nginx-rootfs-nommu
+            kernel_args: ""
+            needs_rawio: false
+          - profile: um-nommu-seccomp
+            image_name: um-nommu
+            rootfs_artifact: nginx-rootfs-nommu
+            kernel_args: seccomp=on
+            needs_rawio: false
+          - profile: um-nommu-sas-seccomp
+            image_name: um-nommu-sas
+            rootfs_artifact: swmmu-nginx-rootfs
+            kernel_args: zpoline=0
+            needs_rawio: false
+          - profile: um-nommu-sas-zpoline
+            image_name: um-nommu-sas
+            rootfs_artifact: swmmu-nginx-rootfs
+            kernel_args: zpoline=1
+            needs_rawio: true
     steps:
       - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
       - name: Create per-leg output directory
-        run: mkdir -p "output/w${{ matrix.workers }}-c${{ matrix.connections }}"
-      - name: Download the shared SWMMU rootfs and packages
+        run: mkdir -p "output/${{ matrix.profile }}/w${{ matrix.workers }}-c${{ matrix.connections }}"
+      - name: Download the shared profile rootfs
         uses: actions/download-artifact@v4
         with:
-          name: swmmu-nginx-rootfs
-          path: ${{ runner.temp }}/swmmu-nginx
+          name: ${{ matrix.rootfs_artifact }}
+          path: ${{ runner.temp }}/nginx-rootfs
       - name: Download the tested UML image
         uses: actions/download-artifact@v4
         with:
-          name: uml-docker-image-um-nommu-sas
+          name: uml-docker-image-${{ matrix.image_name }}
           path: ${{ runner.temp }}/uml-image
       - name: Extract rootfs and kernel
         run: |
           set -euo pipefail
           docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
-          cid=$(docker create uml-ci/alpine:edge-um-nommu-sas)
+          cid=$(docker create uml-ci/alpine:edge-${{ matrix.image_name }})
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
           docker rm "$cid" >/dev/null
           trap - EXIT
           chmod 0755 "$RUNNER_TEMP/vmlinux"
           mkdir -p rootfs
-          tar -xzf "$RUNNER_TEMP/swmmu-nginx/rootfs.tar.gz" -C rootfs
+          tar -xzf "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" -C rootfs
       - name: Install UML host networking and capability tools
         run: |
           sudo apt-get update
@@ -606,10 +676,14 @@ jobs:
           WORKERS: ${{ matrix.workers }}
           THREADS: ${{ matrix.wrk_threads }}
           CONNECTIONS: ${{ matrix.connections }}
+          PROFILE: ${{ matrix.profile }}
+          KERNEL_ARGS: ${{ matrix.kernel_args }}
+          NEEDS_RAWIO: ${{ matrix.needs_rawio }}
         run: |
-          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/swmmu-nginx/manifest.txt")
-          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/swmmu-nginx/manifest.txt")
-          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/swmmu-nginx/manifest.txt")
+          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
           .github/workflows/run-swmmu-nginx-benchmark.sh \
             --kernel "$RUNNER_TEMP/vmlinux" \
             --rootfs rootfs \
@@ -617,21 +691,25 @@ jobs:
             --threads "$THREADS" \
             --connections "$CONNECTIONS" \
             --duration 30 \
+            --profile "$PROFILE" \
+            --kernel-args "$KERNEL_ARGS" \
+            --needs-rawio "$NEEDS_RAWIO" \
             --kernel-sha "$kernel_sha" \
             --aports-sha "$aports_sha" \
             --gcc-version "$gcc_version" \
-            --output "output/w${WORKERS}-c${CONNECTIONS}"
+            --output "$out"
       - name: Ensure a structured result exists after setup failures
         if: always()
         env:
           WORKERS: ${{ matrix.workers }}
           THREADS: ${{ matrix.wrk_threads }}
           CONNECTIONS: ${{ matrix.connections }}
+          PROFILE: ${{ matrix.profile }}
         run: |
-          out="output/w${WORKERS}-c${CONNECTIONS}"
+          out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
           if [[ ! -s "$out/measurement.json" ]]; then
             mkdir -p "$out"
-            for file in capability.log host-sysctl.log tap.log kernel.log nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk.log nginx-swmmu.conf; do
+            for file in capability.log host-sysctl.log tap.log kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk.log nginx.conf; do
               touch "$out/$file"
             done
             printf 'FAIL\n' >"$out/harness.status"
@@ -641,14 +719,15 @@ jobs:
             python3 .github/workflows/parse-swmmu-nginx-measurement.py \
               --output "$out" --workers "$WORKERS" --threads "$THREADS" \
               --connections "$CONNECTIONS" --duration 30 \
+              --profile "$PROFILE" \
               --kernel-sha unknown --aports-sha unknown --gcc-version unknown || true
           fi
       - name: Upload this leg's raw logs and measurement JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: swmmu-nginx-w${{ matrix.workers }}-c${{ matrix.connections }}
-          path: output/w${{ matrix.workers }}-c${{ matrix.connections }}
+          name: nginx-${{ matrix.profile }}-w${{ matrix.workers }}-c${{ matrix.connections }}
+          path: output/${{ matrix.profile }}/w${{ matrix.workers }}-c${{ matrix.connections }}
           if-no-files-found: error
 
   benchmark:
@@ -1208,15 +1287,15 @@ jobs:
         with:
             path: output/kunit-results
             pattern: kunit-results-*
-      - name: Download SWMMU nginx matrix results
+      - name: Download UML nginx matrix results
         if: ${{ github.event_name == 'workflow_dispatch' }}
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          pattern: swmmu-nginx-w*-c*
-          path: ${{ runner.temp }}/swmmu-nginx-matrix
+          pattern: nginx-um-*-w*-c*
+          path: ${{ runner.temp }}/nginx-matrix
           merge-multiple: false
-      - name: Download SWMMU nginx rootfs diagnostics
+      - name: Download SWMMU rootfs diagnostics
         if: ${{ github.event_name == 'workflow_dispatch' }}
         continue-on-error: true
         uses: actions/download-artifact@v4
@@ -1228,17 +1307,20 @@ jobs:
       - name: Install packages
         if: ${{ needs.benchmark.result == 'success' || github.event_name == 'workflow_dispatch' }}
         run: sudo apt update -y && sudo apt install -y gnuplot jq
-      - name: Aggregate SWMMU nginx results
+      - name: Aggregate UML nginx results
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          mkdir -p output/swmmu-nginx
+          mkdir -p output/nginx
           python3 .github/workflows/aggregate-swmmu-nginx-results.py \
-            "$RUNNER_TEMP/swmmu-nginx-matrix" output/swmmu-nginx
-          if python3 - output/swmmu-nginx/throughput.csv <<'PY'
+            "$RUNNER_TEMP/nginx-matrix" output/nginx
+          plotted=0
+          for profile in um-mmu um-mmu-seccomp um-nommu um-nommu-seccomp \
+            um-nommu-sas-seccomp um-nommu-sas-zpoline; do
+            csv="output/nginx/throughput-${profile}.csv"
+            if python3 - "$csv" <<'PY'
           import csv
           import math
           import sys
-
           with open(sys.argv[1], newline="") as stream:
               for row in csv.DictReader(stream):
                   for field in ("workers_1", "workers_4"):
@@ -1249,22 +1331,31 @@ jobs:
                           pass
           sys.exit(1)
           PY
-          then
-            gnuplot -e "data_file='output/swmmu-nginx/throughput.csv'; output_file='output/swmmu-nginx/throughput.png'" \
-              .github/workflows/plot-swmmu-nginx.gnuplot
-          else
-            printf '%s\n' 'Plot omitted: no successful matrix measurements.' \
-              > output/swmmu-nginx/plot-status.txt
+            then
+              gnuplot -e "data_file='${csv}'; output_file='output/nginx/throughput-${profile}.png'; profile_label='${profile}'" \
+                .github/workflows/plot-swmmu-nginx.gnuplot
+              mkdir -p output/out
+              cp "output/nginx/throughput-${profile}.png" "output/out/nginx-${profile}.png"
+              printf '%s\n' 'Plot generated from available matrix measurements.' \
+                > "output/nginx/${profile}-plot-status.txt"
+              plotted=1
+            else
+              printf '%s\n' 'Plot omitted: no successful matrix measurements.' \
+                > "output/nginx/${profile}-plot-status.txt"
+            fi
+          done
+          if [ "$plotted" -eq 0 ]; then
+            printf '%s\n' 'No profile had any successful measurements.' > output/nginx/plot-status.txt
           fi
           if [ -d "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" ]; then
             cp -a "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" \
-              output/swmmu-nginx/rootfs-diagnostics
+              output/nginx/rootfs-diagnostics
           fi
       - uses: actions/upload-artifact@v4
         if: ${{ always() && github.event_name == 'workflow_dispatch' }}
         with:
-          name: swmmu-nginx-aggregate-plot
-          path: output/swmmu-nginx
+          name: nginx-aggregate-plot
+          path: output/nginx
           if-no-files-found: warn
       - name: bench data parse/out
         if: ${{ needs.benchmark.result == 'success' }}
@@ -1363,7 +1454,9 @@ jobs:
             else
               printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
             fi
-            for chart in lmbench.png iperf3.png tcp-stream.png; do
+            for chart in lmbench.png iperf3.png tcp-stream.png nginx-um-mmu.png \
+              nginx-um-mmu-seccomp.png nginx-um-nommu.png nginx-um-nommu-seccomp.png \
+              nginx-um-nommu-sas-seccomp.png nginx-um-nommu-sas-zpoline.png; do
               if [ -f "$RUNNER_TEMP/site/$chart" ]; then
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"

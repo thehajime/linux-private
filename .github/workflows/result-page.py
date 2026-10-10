@@ -32,7 +32,12 @@ def main():
     tested_ref = html.escape(snapshot.get("tested_ref", "unknown"))
     sha = html.escape(snapshot.get("workflow_sha", "unknown"))
     charts = []
-    for filename, title in CHARTS.items():
+    chart_files = list(CHARTS.items())
+    chart_files.extend(
+        (path.name, f"nginx throughput: {path.stem[len('nginx-'):]}")
+        for path in sorted(args.charts.glob("nginx-*.png"))
+    )
+    for filename, title in chart_files:
         source = args.charts / filename
         if not source.is_file():
             continue

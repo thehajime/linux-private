@@ -1,11 +1,26 @@
 #!/usr/bin/env python3
-"""Collect the six SWMMU nginx benchmark legs and prepare plot data."""
+"""Collect all UML nginx matrix legs into machine-readable tables."""
 
 import csv
 import json
 import math
 import sys
 from pathlib import Path
+
+PROFILES = (
+    "um-mmu",
+    "um-mmu-seccomp",
+    "um-nommu",
+    "um-nommu-seccomp",
+    "um-nommu-sas-seccomp",
+    "um-nommu-sas-zpoline",
+)
+WORKERS = (1, 4)
+CONNECTIONS = (4, 16, 64)
+
+
+def finite(value):
+    return isinstance(value, (int, float)) and math.isfinite(value)
 
 
 def main() -> int:
@@ -16,50 +31,64 @@ def main() -> int:
     output = Path(sys.argv[2])
     output.mkdir(parents=True, exist_ok=True)
     by_key = {}
-    for path in artifacts.glob("swmmu-nginx-w*-c*/measurement.json"):
+    for path in artifacts.glob("nginx-um-*-w*-c*/measurement.json"):
         try:
             item = json.loads(path.read_text())
-            key = (int(item["workers"]), int(item["connections"]))
-            by_key[key] = item
+            key = (item["profile"], int(item["workers"]), int(item["connections"]))
+            if key[0] in PROFILES:
+                by_key[key] = item
         except (OSError, ValueError, KeyError, TypeError) as exc:
             print(f"invalid measurement {path}: {exc}", file=sys.stderr)
 
     rows = []
-    for workers in (1, 4):
-        for connections in (4, 16, 64):
-            item = by_key.get((workers, connections))
-            if item is None:
-                item = {
-                    "status": "FAIL",
-                    "failures": ["matrix artifact or measurement.json is missing"],
-                    "workers": workers,
-                    "connections": connections,
-                    "requests_per_second": None,
-                    "average_latency_ms": None,
-                    "socket_errors": None,
-                }
-            rows.append(item)
+    for profile in PROFILES:
+        profile_rows = []
+        for workers in WORKERS:
+            for connections in CONNECTIONS:
+                item = by_key.get((profile, workers, connections))
+                if item is None:
+                    item = {
+                        "profile": profile,
+                        "status": "FAIL",
+                        "failures": ["matrix artifact or measurement.json is missing"],
+                        "workers": workers,
+                        "connections": connections,
+                        "requests_per_second": None,
+                        "average_latency_ms": None,
+                        "socket_errors": None,
+                    }
+                profile_rows.append(item)
+                rows.append(item)
+        (output / f"{profile}.json").write_text(
+            json.dumps({"schema_version": 1, "profile": profile, "matrix": profile_rows}, indent=2, sort_keys=True) + "\n"
+        )
+        with (output / f"throughput-{profile}.csv").open("w", newline="") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(("connections", "workers_1", "workers_4"))
+            for connections in CONNECTIONS:
+                values = []
+                for workers in WORKERS:
+                    item = by_key.get((profile, workers, connections))
+                    value = item.get("requests_per_second") if item and item.get("status") == "PASS" else None
+                    values.append(value if finite(value) else "NaN")
+                writer.writerow((connections, *values))
 
     (output / "aggregate.json").write_text(
-        json.dumps({"schema_version": 1, "matrix": rows}, indent=2, sort_keys=True) + "\n"
+        json.dumps({"schema_version": 1, "profiles": PROFILES, "matrix": rows}, indent=2, sort_keys=True) + "\n"
     )
     with (output / "throughput.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
-        writer.writerow(("connections", "workers_1", "workers_4"))
-        for connections in (4, 16, 64):
-            values = []
-            for workers in (1, 4):
-                item = by_key.get((workers, connections))
-                value = None
-                if item and item.get("status") == "PASS":
-                    value = item.get("requests_per_second")
-                values.append(value if isinstance(value, (int, float)) and math.isfinite(value) else "NaN")
-            writer.writerow((connections, *values))
-
+        writer.writerow(("profile", "workers", "connections", "status", "requests_per_second", "average_latency_ms", "socket_errors", "failures"))
+        for item in rows:
+            writer.writerow((
+                item["profile"], item["workers"], item["connections"], item["status"],
+                item.get("requests_per_second"), item.get("average_latency_ms"),
+                json.dumps(item.get("socket_errors")), "; ".join(item.get("failures", [])),
+            ))
     print(f"Wrote {len(rows)} matrix results to {output / 'aggregate.json'}")
     for item in rows:
         print(
-            f"workers={item['workers']} connections={item['connections']} "
+            f"profile={item['profile']} workers={item['workers']} connections={item['connections']} "
             f"status={item['status']} requests_per_second={item.get('requests_per_second')} "
             f"failures={'; '.join(item.get('failures', []))}"
         )

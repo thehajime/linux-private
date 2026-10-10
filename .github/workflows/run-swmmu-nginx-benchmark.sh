@@ -22,6 +22,9 @@ while (($#)); do
 	--kernel-sha) KERNEL_SHA=$2; shift 2;;
 	--aports-sha) APORTS_SHA=$2; shift 2;;
 	--gcc-version) GCC_VERSION=$2; shift 2;;
+	--profile) PROFILE=$2; shift 2;;
+	--kernel-args) KERNEL_ARGS_TEXT=$2; shift 2;;
+	--needs-rawio) NEEDS_RAWIO=$2; shift 2;;
 	*) echo "Unknown argument: $1" >&2; usage;;
 	esac
 done
@@ -40,6 +43,13 @@ ROOTFS=$(cd -- "$ROOTFS" && pwd -P) || {
 : "${KERNEL_SHA:?missing --kernel-sha}"
 : "${APORTS_SHA:?missing --aports-sha}"
 : "${GCC_VERSION:?missing --gcc-version}"
+: "${PROFILE:=um-nommu-sas-zpoline}"
+: "${KERNEL_ARGS_TEXT:=}"
+: "${NEEDS_RAWIO:=false}"
+KERNEL_ARGS=()
+if [[ -n "$KERNEL_ARGS_TEXT" ]]; then
+	read -r -a KERNEL_ARGS <<<"$KERNEL_ARGS_TEXT"
+fi
 
 mkdir -p "$OUTPUT"
 printf 'RUNNING\n' >"$OUTPUT/harness.status"
@@ -105,6 +115,7 @@ finish() {
 	python3 .github/workflows/parse-swmmu-nginx-measurement.py \
 		--output "$OUTPUT" --workers "$WORKERS" --threads "$THREADS" \
 		--connections "$CONNECTIONS" --duration "$DURATION" \
+		--profile "$PROFILE" \
 		--kernel-sha "$KERNEL_SHA" --aports-sha "$APORTS_SHA" \
 		--gcc-version "$GCC_VERSION"
 }
@@ -112,15 +123,21 @@ trap finish EXIT
 
 if [[ ! -x "$KERNEL" ]]; then
 	fail "UML kernel is missing or not executable"
-else
+elif [[ "$NEEDS_RAWIO" == true ]]; then
 	if ! sudo setcap cap_sys_rawio+ep "$KERNEL" 2>"$OUTPUT/capability.log" || \
 	   ! getcap "$KERNEL" | grep -q 'cap_sys_rawio=ep'; then
 		fail "could not grant and verify CAP_SYS_RAWIO on UML kernel"
 	fi
+else
+	: >"$OUTPUT/capability.log"
 fi
 
-if ! sudo sysctl -w vm.mmap_min_addr=0 >"$OUTPUT/host-sysctl.log" 2>&1; then
-	fail "could not set vm.mmap_min_addr for zpoline"
+if [[ "$NEEDS_RAWIO" == true ]]; then
+	if ! sudo sysctl -w vm.mmap_min_addr=0 >"$OUTPUT/host-sysctl.log" 2>&1; then
+		fail "could not set vm.mmap_min_addr for zpoline"
+	fi
+else
+	: >"$OUTPUT/host-sysctl.log"
 fi
 
 if ! sudo ip tuntap add dev tap100 mode tap user "$(id -un)" \
@@ -131,14 +148,18 @@ elif ! sudo ip address add 172.18.0.1/16 dev tap100 >>"$OUTPUT/tap.log" 2>&1 || 
 	fail "could not configure tap100 for the SWMMU guest"
 fi
 
-sed -i -E "s/^worker_processes[[:space:]]+[0-9]+;/worker_processes ${WORKERS};/" \
-	"$ROOTFS/etc/nginx/nginx-swmmu.conf"
-sed -i 's#error_log stderr notice;#error_log /tmp/nginx-error.log notice;#' \
-	"$ROOTFS/etc/nginx/nginx-swmmu.conf"
-cp "$ROOTFS/etc/nginx/nginx-swmmu.conf" "$OUTPUT/nginx-swmmu.conf" 2>/dev/null || \
+NGINX_CONF="$ROOTFS/etc/nginx/nginx-matrix.conf"
+GUEST_INIT=/sbin/nginx-matrix-init
+if [[ "$PROFILE" == um-nommu-sas-seccomp || "$PROFILE" == um-nommu-sas-zpoline ]]; then
+	NGINX_CONF="$ROOTFS/etc/nginx/nginx-swmmu.conf"
+	GUEST_INIT=/sbin/swmmu-nginx-init
+fi
+sed -i -E "s/^worker_processes[[:space:]]+[0-9]+;/worker_processes ${WORKERS};/" "$NGINX_CONF"
+sed -i 's#error_log stderr notice;#error_log /tmp/nginx-error.log notice;#' "$NGINX_CONF"
+cp "$NGINX_CONF" "$OUTPUT/nginx.conf" 2>/dev/null || \
 	fail "nginx SWMMU config is missing"
-if ! grep -q "^worker_processes ${WORKERS};$" "$OUTPUT/nginx-swmmu.conf" 2>/dev/null || \
-   ! grep -q '^error_log /tmp/nginx-error.log notice;$' "$OUTPUT/nginx-swmmu.conf" 2>/dev/null; then
+if ! grep -q "^worker_processes ${WORKERS};$" "$OUTPUT/nginx.conf" 2>/dev/null || \
+	! grep -q '^error_log /tmp/nginx-error.log notice;$' "$OUTPUT/nginx.conf" 2>/dev/null; then
 	fail "matrix worker count or nginx diagnostic log configuration was not applied"
 fi
 
@@ -146,12 +167,12 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	timeout --foreground --signal=TERM --kill-after=10s 600s \
 		"$KERNEL" vec0:transport=tap,ifname=tap100,depth=128,gro=1 \
 		root=/dev/root "rootflags=$ROOTFS" rootfstype=hostfs rw mem=2048m \
-		loglevel=8 console=tty zpoline=1 init=/sbin/swmmu-nginx-init \
+		loglevel=8 console=tty "${KERNEL_ARGS[@]}" "init=$GUEST_INIT" \
 		>"$OUTPUT/kernel.log" 2>&1 &
 	UML_PID=$!
 	ready=0
 	for _ in {1..120}; do
-		if grep -q 'SWMMU_NGINX_READY' "$OUTPUT/kernel.log"; then
+		if grep -Eq 'SWMMU_NGINX_READY|NGINX_MATRIX_READY' "$OUTPUT/kernel.log"; then
 			ready=1
 			break
 		fi
@@ -161,7 +182,16 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		sleep 1
 	done
 	if [[ "$ready" != 1 ]]; then
-		fail "UML guest did not report SWMMU_NGINX_READY within 120 seconds"
+		fail "UML guest did not report its nginx ready marker within 120 seconds"
+	else
+		if [[ -s "$ROOTFS/tmp/online-cpus.txt" ]]; then
+			cp "$ROOTFS/tmp/online-cpus.txt" "$OUTPUT/online-cpus.txt"
+		fi
+		if [[ " $KERNEL_ARGS_TEXT " == *" ncpus=4 "* ]]; then
+			if [[ "$(tr -d '\n' <"$ROOTFS/tmp/online-cpus.txt" 2>/dev/null)" != "0-3" ]]; then
+				fail "SMP UML did not report all four CPUs online"
+			fi
+		fi
 	fi
 fi
 

@@ -33,6 +33,7 @@ def main() -> int:
     parser.add_argument("--kernel-sha", required=True)
     parser.add_argument("--aports-sha", required=True)
     parser.add_argument("--gcc-version", required=True)
+    parser.add_argument("--profile", default="um-nommu-sas-zpoline")
     args = parser.parse_args()
 
     raw = read_text(args.output / "wrk.log")
@@ -91,6 +92,7 @@ def main() -> int:
         "schema_version": 1,
         "status": "FAIL" if failures else "PASS",
         "failures": failures,
+        "profile": args.profile,
         "workers": args.workers,
         "wrk_threads": args.threads,
         "connections": args.connections,
@@ -109,6 +111,7 @@ def main() -> int:
             "host-sysctl.log",
             "tap.log",
             "kernel.log",
+            "online-cpus.txt",
             "nginx.log",
             "client-setup.log",
             "client-container.log",
@@ -116,7 +119,7 @@ def main() -> int:
             "smoke-tls.log",
             "wrk-warmup.log",
             "wrk.log",
-            "nginx-swmmu.conf",
+            "nginx.conf",
         ],
     }
     (args.output / "measurement.json").write_text(

@@ -48,7 +48,25 @@ def write_rows(path, values):
     path.write_text("".join(f"{value if finite(value) else 'NaN'}\n" for value in values))
 
 
+def has_finite_measurement(files):
+    for path, _name, _color in files:
+        for line in path.read_text().splitlines():
+            try:
+                value = float(line)
+            except ValueError:
+                continue
+            if math.isfinite(value):
+                return True
+    return False
+
+
 def render_plot(out_dir, filename, title, ylabel, labels, files, *, logscale=False, netperf=False):
+    status_path = out_dir / f"{Path(filename).stem}-plot-status.txt"
+    if not has_finite_measurement(files):
+        status_path.write_text("Plot omitted: no finite measurements are available for this metric.\n")
+        print(f"{filename}: omitted because all measurements are unavailable")
+        return
+
     colors = [color for _target, _label, color in PROFILES]
     names = [label for _target, label, _color in PROFILES]
     width = 0.72 / len(PROFILES)
@@ -87,6 +105,7 @@ def render_plot(out_dir, filename, title, ylabel, labels, files, *, logscale=Fal
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))
     script.write_text("\n".join(commands) + "\n")
     subprocess.run(["gnuplot", str(script)], check=True)
+    status_path.write_text("Plot generated from available measurements.\n")
 
 
 def main():

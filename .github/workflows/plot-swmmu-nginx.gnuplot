@@ -1,10 +1,11 @@
 if (!exists("data_file")) data_file = "throughput.csv"
 if (!exists("output_file")) output_file = "throughput.png"
+if (!exists("profile_label")) profile_label = "UML profile"
 
 set terminal pngcairo size 1200, 720 enhanced font "Sans,12"
 set output output_file
 set datafile separator comma
-set title "SWMMU nginx throughput by worker count and wrk connections"
+set title sprintf("nginx throughput: %s", profile_label)
 set xlabel "wrk connections"
 set ylabel "Requests per second"
 set style data histograms

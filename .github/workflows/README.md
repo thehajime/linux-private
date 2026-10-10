@@ -50,20 +50,23 @@ push cannot change the default branch. The image tags used by
 `Documentation/virt/uml/nommu-uml.rst` should only be updated from a validated
 kernel and rootfs combination.
 
-The SWMMU nginx comparison runs only on a manual `ci.yml` dispatch; it adds no
+The UML nginx comparison runs only on a manual `ci.yml` dispatch; it adds no
 dispatch inputs and uses the selected kernel ref plus the pinned aports commit
-recorded in the workflow artifact manifest. It builds and signs the guest APKs
-once, shares the rootfs among six worker/connection matrix legs, and uses a
-separate wrk client container. Each leg uploads its raw logs and
-`measurement.json`; `bench-result` aggregates the matrix and uploads
-`swmmu-nginx-aggregate-plot` with the combined JSON, CSV, throughput plot, and
-rootfs diagnostics. HTTP and TLS smoke checks must pass, and a wrk timeout or
-socket error marks that leg failed. Manual diagnostic dispatch temporarily
-skips KUnit/LTP and the iperf3/netperf benchmark-2 jobs; the lmbench
-benchmark-1 remains enabled. Push-triggered CI retains its normal KUnit, LTP,
-and network benchmark jobs. The package/rootfs build runs as root in the Alpine
-chroot so it can create the unprivileged `abuild` user, then restores runner
-ownership before uploading diagnostics.
+recorded in each rootfs manifest. APKs are built once. MMU, plain NOMMU, and
+SWMMU rootfs artifacts are each prepared once and shared across six UML
+profiles (`um-mmu`, `um-mmu-seccomp`, `um-nommu`, `um-nommu-seccomp`, SAS with
+`zpoline=0`, and SAS with `zpoline=1`). Every profile runs worker counts 1/4
+and wrk connections 4/16/64 from a separate client container. MMU UML is built
+with SMP and four CPUs, and the run records the online CPU list. Each leg
+uploads raw logs and `measurement.json`; `bench-result` aggregates profile
+data and uploads `nginx-aggregate-plot` with JSON, CSV, profile plots, and
+SWMMU rootfs diagnostics. HTTP/TLS smoke checks must pass, and a wrk timeout
+or socket error fails the leg. Manual diagnostic dispatch temporarily skips
+KUnit/LTP and benchmark-2 iperf3/netperf jobs; lmbench benchmark-1 remains
+enabled. Push-triggered CI keeps normal KUnit, LTP, and network benchmark jobs.
+The SWMMU package/rootfs build runs as root in the Alpine chroot so it can
+create the unprivileged `abuild` user, then restores runner ownership before
+uploading diagnostics.
 
 ## Root filesystem package source
 
