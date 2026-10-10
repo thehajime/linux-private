@@ -619,7 +619,7 @@ jobs:
     env:
       NGINX_IMAGE_NAME: ${{ contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
       NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'swmmu-nginx-rootfs' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
-      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && 'ncpus=4' || matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
       NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers

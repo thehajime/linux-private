@@ -4,7 +4,7 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
-mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp /var/lib/nginx/logs
+busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp /var/lib/nginx/logs
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /var/lib/nginx/tmp
 
@@ -16,6 +16,9 @@ nginx -t -c /etc/nginx/nginx-swmmu.conf
 nginx -c /etc/nginx/nginx-swmmu.conf
 echo SWMMU_NGINX_READY
 
-while :; do
-	sleep 3600
+while [ ! -e /run/nginx-benchmark-stop ]; do
+	sleep 1
 done
+nginx -s quit -c /etc/nginx/nginx-swmmu.conf || true
+sleep 1
+busybox poweroff -f

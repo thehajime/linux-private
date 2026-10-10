@@ -34,7 +34,7 @@ else
 	[[ "$NGINX_PROFILE" == mmu ]] || { echo "unknown profile: $NGINX_PROFILE" >&2; exit 2; }
 	apk --root "$rootfs" --initdb --keys-dir "$keys" \
 		--repositories-file /etc/apk/repositories add --no-cache --no-scripts \
-		alpine-baselayout alpine-keys apk-tools ca-certificates-bundle nginx openssl \
+		alpine-baselayout alpine-keys apk-tools busybox ca-certificates-bundle nginx openssl \
 		2>&1 | tee "$NGINX_WORK/apk-install.log"
 fi
 

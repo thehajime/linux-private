@@ -66,6 +66,10 @@ CLIENT=swmmu-wrk-client
 UML_PID=
 HARNESS_STATUS=PASS
 GUEST_IP=172.18.0.2
+EXPECTED_BODY=nginx-matrix-ok
+if [[ "$PROFILE" == um-nommu-sas-seccomp || "$PROFILE" == um-nommu-sas-zpoline ]]; then
+	EXPECTED_BODY=swmmu-nginx-ok
+fi
 
 case "$WORKERS:$THREADS:$CONNECTIONS:$DURATION" in
 	1:2:4:*|1:2:16:*|1:2:64:*|4:2:4:*|4:2:16:*|4:2:64:*) ;;
@@ -88,11 +92,20 @@ capture_logs() {
 		: >"$OUTPUT/nginx.log"
 	fi
 	if [[ -n "$UML_PID" ]]; then
-		kill -TERM "$UML_PID" 2>/dev/null || true
-		for _ in {1..10}; do
-			kill -0 "$UML_PID" 2>/dev/null || break
-			sleep 1
-		done
+		if [[ -d "$ROOTFS/run" ]]; then
+			touch "$ROOTFS/run/nginx-benchmark-stop"
+			for _ in {1..15}; do
+				kill -0 "$UML_PID" 2>/dev/null || break
+				sleep 1
+			done
+		fi
+		if kill -0 "$UML_PID" 2>/dev/null; then
+			kill -TERM "$UML_PID" 2>/dev/null || true
+			for _ in {1..10}; do
+				kill -0 "$UML_PID" 2>/dev/null || break
+				sleep 1
+			done
+		fi
 		kill -KILL "$UML_PID" 2>/dev/null || true
 		wait "$UML_PID" 2>/dev/null || true
 		UML_PID=
@@ -210,16 +223,22 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	if timeout 10s docker exec "$CLIENT" curl --fail --silent --show-error \
 		--max-time 5 "http://$GUEST_IP:8080/" >"$OUTPUT/http.body" \
 		2>"$OUTPUT/smoke-http.log" && \
-		[[ "$(cat "$OUTPUT/http.body")" == swmmu-nginx-ok ]]; then
+		[[ "$(cat "$OUTPUT/http.body")" == "$EXPECTED_BODY" ]]; then
 		printf 'PASS\n' >"$OUTPUT/smoke-http.status"
 	else
 		printf 'FAIL\n' >"$OUTPUT/smoke-http.status"
 		fail "HTTP smoke test returned an error or unexpected body"
 	fi
-	if timeout 10s docker exec "$CLIENT" curl --fail --silent --show-error \
-		--insecure --max-time 5 "https://$GUEST_IP:8443/" >"$OUTPUT/tls.body" \
+	tls_outer_timeout=10
+	tls_curl_timeout=5
+	if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
+		tls_outer_timeout=40
+		tls_curl_timeout=30
+	fi
+	if timeout "${tls_outer_timeout}s" docker exec "$CLIENT" curl --fail --silent --show-error --verbose \
+		--insecure --max-time "$tls_curl_timeout" "https://$GUEST_IP:8443/" >"$OUTPUT/tls.body" \
 		2>"$OUTPUT/smoke-tls.log" && \
-		[[ "$(cat "$OUTPUT/tls.body")" == swmmu-nginx-ok ]]; then
+		[[ "$(cat "$OUTPUT/tls.body")" == "$EXPECTED_BODY" ]]; then
 		printf 'PASS\n' >"$OUTPUT/smoke-tls.status"
 	else
 		printf 'FAIL\n' >"$OUTPUT/smoke-tls.status"

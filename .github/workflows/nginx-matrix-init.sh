@@ -4,7 +4,7 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
-mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp
+busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /var/lib/nginx/tmp
 
@@ -17,6 +17,9 @@ nginx -c /etc/nginx/nginx-matrix.conf
 cat /sys/devices/system/cpu/online >/tmp/online-cpus.txt
 echo NGINX_MATRIX_READY
 
-while :; do
-	sleep 3600
+while [ ! -e /run/nginx-benchmark-stop ]; do
+	sleep 1
 done
+nginx -s quit -c /etc/nginx/nginx-matrix.conf || true
+sleep 1
+busybox poweroff -f
