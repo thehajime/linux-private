@@ -1,119 +1,67 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
-
 OUTPUT="$1"
-DIRS="read fill"
+mkdir -p "$OUTPUT/out"
 
-mkdir -p "$OUTPUT/out/"
+declare -A getpid forward reverse
+profiles=(native um-mmu um-mmu-seccomp um-nommu um-nommu-seccomp \
+          um-nommu-sas-seccomp um-nommu-sas-zpoline)
+mkdir -p "$OUTPUT/out"
 
-# parse outputs
-
-for f in `ls $OUTPUT/*.dat |grep -v iperf3 | grep -v ltp`
-do
-   cat $f | grep -a microsec | sed "s/.*:\(.*\)/\1/" | awk '{print $1}' \
-	> $OUTPUT/out/`basename $f .dat`-lmbench-out.dat
-
-   cat $f | grep -a average |grep -v time | awk '{print $2 $3}' \
-	> $OUTPUT/out/`basename $f .dat`-getpid-out.dat
+# Keep normalized legacy files for consumers that still read them.  Missing
+# measurements are represented in the report tables instead of gnuplot errors.
+for file in "$OUTPUT"/*.dat; do
+    [ -f "$file" ] || continue
+    name=$(basename "$file" .dat)
+    case "$name" in
+        *-iperf3|*ltp*) continue ;;
+    esac
+    awk '/microseconds/ { for (i=1; i<=NF; i++) if ($i == "microseconds") print $(i-1) }' \
+        "$file" > "$OUTPUT/out/$name-lmbench-out.dat"
+    getpid["$name"]=$(awk '/average/ && !/time/ {print $2; exit}' "$file")
+    if [ -n "${getpid[$name]}" ]; then
+        printf '%s\n' "${getpid[$name]}" > "$OUTPUT/out/$name-getpid-out.dat"
+    fi
 done
 
-# parse iperf3 result
-for f in `ls $OUTPUT/*-iperf3.dat`
-do
-    cat $f | grep receiver | awk '{print $7}' \
-	> $OUTPUT/out/`basename $f .dat`-out.dat
+for file in "$OUTPUT"/*-iperf3.dat; do
+    [ -f "$file" ] || continue
+    name=$(basename "$file" -iperf3.dat)
+    mapfile -t values < <(awk '/receiver/ {
+        value=$(NF-2); unit=$(NF-1)
+        if (unit == "Gbits/sec") value *= 1000
+        else if (unit == "Kbits/sec") value /= 1000
+        else if (unit == "bits/sec") value /= 1000000
+        print value
+    }' "$file")
+    forward["$name"]=${values[0]:-}
+    reverse["$name"]=${values[1]:-}
+    if [ -n "${forward[$name]}" ] || [ -n "${reverse[$name]}" ]; then
+        printf '%s\n' "${forward[$name]:-}" "${reverse[$name]:-}" \
+            > "$OUTPUT/out/$name-iperf3-out.dat"
+    fi
 done
 
-gnuplot  << EndGNUPLOT
-set terminal postscript eps lw 3 "Helvetica" 24
-set output "${OUTPUT}/out/lmbench.eps"
-#set xtics font "Helvetica,14"
-set pointsize 2
-set xzeroaxis
-set grid ytics
+value_or_na() {
+    [ -n "$1" ] && printf '%s' "$1" || printf 'N/A'
+}
 
-set boxwidth 0.2
-set style fill pattern
+printf '\n### do_getpid bench (nsec)\n\n'
+printf '| |'
+for profile in "${profiles[@]}"; do printf '%s|' "$profile"; done
+printf '\n|--|'
+for profile in "${profiles[@]}"; do printf -- '--|'; done
+printf '\n|getpid|'
+for profile in "${profiles[@]}"; do printf '%s|' "$(value_or_na "${getpid[$profile]:-}")"; done
+printf '\n'
 
-set size 1.0,0.8
-set key top left
-
-set xrange [-0.5:10]
-set xtics ('select-10' 0, 'select-100' 1, 'select-1000' 2, 'syscall' 3, 'read' 4, 'write' 5, 'stat' 6, 'open/close' 7, 'fork+sh' 8, 'fork+execve' 9)
-set xtics rotate by 45 right
-set yrange [0.01:100000]
-set ylabel "Latency (usec)"
-set logscale y
-
-plot \
-   '${OUTPUT}/out/native-lmbench-out.dat' usin (\$0-0.4):(\$1) w boxes fill patter 2 lt 1 lc rgb "red" title "native", \
-   '${OUTPUT}/out/um-mmu-lmbench-out.dat' usin (\$0-0.2):(\$1) w boxes fill patter 2 lt 1 lc rgb "green" title "um(mmu)" ,\
-   '${OUTPUT}/out/um-mmu-seccomp-lmbench-out.dat' usin (\$0-0):(\$1) w boxes fill patter 2 lt 1 lc rgb "dark-green" title "um(mmu(s))" ,\
-   '${OUTPUT}/out/um-nommu-lmbench-out.dat' usin (\$0+0.2):(\$1) w boxes fill patter 2 lt 1 lc rgb "royalblue" title "um(nommu)" ,\
-   '${OUTPUT}/out/um-nommu-seccomp-lmbench-out.dat' usin (\$0+0.4):(\$1) w boxes fill patter 2 lt 1 lc rgb "blue" title "um(nommu(s))"
-
-set terminal png lw 3 14 crop
-set output "${OUTPUT}/out/lmbench.png"
-replot
-
-EndGNUPLOT
-
-echo ""
-echo -e "### do_getpid bench (nsec)\n"
-for f in `ls $OUTPUT/*.dat |grep -v iperf3`
-do
- export $(basename $f .dat|sed "s/-/_/g")=`grep -a aver $f | grep -v time | awk '{print $2}'`
-done
-echo -e "||native|um|um-mmu(s)|um-nommu|um-nommu(s)|um-nommu(sas-s)|um-nommu(sas-z)|\n|--|--|--|--|--|--|--|--|"
-echo "|getpid | ${native} | ${um_mmu} | ${um_mmu_seccomp} | ${um_nommu}| ${um_nommu_seccomp}| ${um_nommu_sas_seccomp}|${um_nommu_sas_zpoline}|"
-
-
-# iperf result
-
-gnuplot  << EndGNUPLOT
-set terminal postscript eps lw 3 "Helvetica" 24
-set output "${OUTPUT}/out/iperf3.eps"
-#set xtics font "Helvetica,14"
-set pointsize 2
-set xzeroaxis
-
-set boxwidth 0.2
-set style fill pattern
-
-set size 1.0,0.8
-set key top left
-
-set xrange [-0.5:]
-set xtics ('iperf(f)' 0, 'iperf(r)' 1)
-#set xtics rotate by 45 right
-set yrange [:50]
-set ytics 10
-set ylabel "Goodput (Gbps)"
-
-plot \
-   '${OUTPUT}/out/native-iperf3-out.dat' usin (\$0-0.4):(\$1/1000) w boxes fill patter 2 lt 1 lc rgb "red" title "native",\
-   '${OUTPUT}/out/um-mmu-iperf3-out.dat' usin (\$0-0.2):(\$1/1000) w boxes fill patter 2 lt 1 lc rgb "green" title "um(mmu)" ,\
-   '${OUTPUT}/out/um-mmu-seccomp-iperf3-out.dat' usin (\$0-0):(\$1/1000) w boxes fill patter 2 lt 1 lc rgb "dark-green" title "um(mmu(s))" ,\
-   '${OUTPUT}/out/um-nommu-iperf3-out.dat' usin (\$0+0.2):(\$1/1000) w boxes fill patter 2 lt 1 lc rgb "royalblue" title "um(nommu)" ,\
-   '${OUTPUT}/out/um-nommu-seccomp-iperf3-out.dat' usin (\$0+0.4):(\$1/1000) w boxes fill patter 2 lt 1 lc rgb "blue" title "um(nommu(s))"
-
-
-set terminal png lw 3 14 crop
-set output "${OUTPUT}/out/iperf3.png"
-replot
-
-EndGNUPLOT
-
-echo ""
-echo -e "### iperf3 bench (Mbps)\n"
-for f in `ls $OUTPUT/out/*iperf3*.dat`
-do
- export $(basename $f .dat|sed "s/-/_/g" | sed "s/_iperf3_out/_f/")=`cat $f|awk NR==1`
- export $(basename $f .dat|sed "s/-/_/g" | sed "s/_iperf3_out/_r/")=`cat $f|awk NR==2`
-
-
-done
-echo -e "||native|um|um-mmu(s)|um-nommu|um-nommu(s)|um-nommu(sas-s)|um-nommu(sas-z)|\n|--|--|--|--|--|--|--|--|"
-echo "|iperf3(f) | ${native_f} | ${um_mmu_f} | ${um_mmu_seccomp_f} | ${um_nommu_f}| ${um_nommu_seccomp_f}|${um_nommu_sas_seccomp_f}|${um_nommu_sas_zpoline_f}|"
-echo "|iperf3(r) | ${native_r} | ${um_mmu_r} | ${um_mmu_seccomp_r} | ${um_nommu_r}| ${um_nommu_seccomp_r}|${um_nommu_sas_seccomp_r}|${um_nommu_sas_zpoline_r}|"
+printf '\n### iperf3 bench (Mbps)\n\n'
+printf '| |'
+for profile in "${profiles[@]}"; do printf '%s|' "$profile"; done
+printf '\n|--|'
+for profile in "${profiles[@]}"; do printf -- '--|'; done
+printf '\n|iperf3(f)|'
+for profile in "${profiles[@]}"; do printf '%s|' "$(value_or_na "${forward[$profile]:-}")"; done
+printf '\n|iperf3(r)|'
+for profile in "${profiles[@]}"; do printf '%s|' "$(value_or_na "${reverse[$profile]:-}")"; done
+printf '\n'

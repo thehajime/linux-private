@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 mount -t proc proc /proc

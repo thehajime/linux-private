@@ -31,9 +31,9 @@ LMBENCH_COLUMNS = (
     ("um-mmu", "um"),
     ("um-mmu-seccomp", "um-mmu(s)"),
     ("um-nommu", "um-nommu"),
+    ("um-nommu-seccomp", "um-nommu(s)"),
     ("um-nommu-sas-seccomp", "um-nommu(sas-s)"),
     ("um-nommu-sas-zpoline", "um-nommu(sas-z)"),
-    ("um-nommu-seccomp", "um-nommu(s)"),
 )
 LMBENCH_TABLE_ROWS = (
     ("select-10", "select-10"),
@@ -512,20 +512,57 @@ def render(snapshot, previous):
     if not previous:
         lines.extend(["This is the first report with a saved comparison snapshot. The next report will be compared with this run.", ""])
         return "\n".join(lines)
-    lines.append(f"Compared with [{previous.get('workflow_sha', 'previous run')[:12]}]({previous.get('run_url', '#')}) (tested ref `{previous.get('tested_ref', 'unknown')}`). Benchmark readings can vary with runner load; changes are measurements, not pass/fail thresholds.")
-    lines.append("")
-    lines.append("#### Benchmarks")
     metric_diff = compare_metrics(metric_index(previous.get("benchmark", [])),
                                   metric_index(snapshot.get("benchmark", [])))
+    metric_groups = {}
+    for row in metric_diff:
+        category = row[0].split("/", 1)[0]
+        metric_groups[category] = metric_groups.get(category, 0) + 1
+    test_changes = {}
+    for title, old, new, cases_key, counts_keys in (
+        ("KUnit", previous.get("kunit", {}).get("suites"), snapshot.get("kunit", {}).get("suites"), "cases", KUNIT_COUNTS),
+        ("kselftest", {"kselftest": previous.get("kselftest", {})}, {"kselftest": snapshot.get("kselftest", {})}, "cases", KSELFTEST_COUNTS),
+        ("LTP", previous.get("ltp", {}).get("targets"), snapshot.get("ltp", {}).get("targets"), "cases", LTP_COUNTS),
+    ):
+        old_suites = old or {}
+        new_suites = new or {}
+        changed = 0
+        for name in set(old_suites) | set(new_suites):
+            before = old_suites.get(name, {})
+            after = new_suites.get(name, {})
+            if before.get("state") != after.get("state"):
+                changed += 1
+            comparable = before.get("state") == after.get("state")
+            if title == "LTP":
+                comparable = before.get("state") == "complete" and after.get("state") == "complete"
+            elif title in ("KUnit", "kselftest"):
+                comparable = before.get("state") == "collected" and after.get("state") == "collected"
+            if comparable:
+                changed += bool(count_changes(before.get("counts"), after.get("counts"), counts_keys))
+                changed += bool(compare_cases(before.get(cases_key, {}), after.get(cases_key, {})))
+        test_changes[title] = changed
+    benchmark_summary = ", ".join(f"{name} {count}" for name, count in sorted(metric_groups.items())) or "none"
+    test_summary = ", ".join(f"{name} {count}" for name, count in test_changes.items())
+    lines.append(f"Compared with [{previous.get('workflow_sha', 'previous run')[:12]}]({previous.get('run_url', '#')}) (tested ref `{previous.get('tested_ref', 'unknown')}`). Benchmark readings can vary with runner load; changes are measurements, not pass/fail thresholds.")
+    lines.append("")
+    lines.extend([
+        f"<details><summary>Change details — benchmarks: {len(metric_diff)} ({benchmark_summary}); test categories: {test_summary}</summary>",
+        "",
+        "#### Benchmarks",
+    ])
     if metric_diff:
-        lines.extend(["| Metric | Previous | Current | Change |", "|---|---:|---:|---:|"])
-        lines.extend(f"| {name} | {before} | {after} | {change} |" for name, before, after, change in metric_diff)
+        for category in sorted({row[0].split("/", 1)[0] for row in metric_diff}):
+            lines.extend([f"##### {category}", "| Metric | Previous | Current | Change |", "|---|---:|---:|---:|"])
+            lines.extend(f"| {name} | {before} | {after} | {change} |"
+                         for name, before, after, change in metric_diff
+                         if name.split("/", 1)[0] == category)
     else:
         lines.append("No benchmark value changes (or no numeric samples in both reports).")
     lines.append("")
     lines.extend(render_section("KUnit", previous.get("kunit", {}).get("suites"), snapshot.get("kunit", {}).get("suites"), "cases", KUNIT_COUNTS))
     lines.extend(render_section("kselftest", {"kselftest": previous.get("kselftest", {})}, {"kselftest": snapshot.get("kselftest", {})}, "cases", KSELFTEST_COUNTS))
     lines.extend(render_section("LTP", previous.get("ltp", {}).get("targets"), snapshot.get("ltp", {}).get("targets"), "cases", LTP_COUNTS))
+    lines.extend(["</details>", ""])
     return "\n".join(lines)
 
 

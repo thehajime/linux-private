@@ -11,7 +11,30 @@ run_case() {
     shift
     start=$(date +%s)
     echo "netperf case start: $label epoch=$start"
-    "$@"
+    "$@" &
+    test_pid=$!
+    sample=0
+    while kill -0 "$test_pid" 2>/dev/null; do
+        sleep 5
+        kill -0 "$test_pid" 2>/dev/null || break
+        now=$(date +%s)
+        if [ -r "/proc/$test_pid/stat" ]; then
+            set -- $(awk '{print $3, $14, $15}' "/proc/$test_pid/stat")
+            state=$1 user_ticks=$2 system_ticks=$3
+        else
+            state=exited user_ticks=0 system_ticks=0
+        fi
+        [ "$state" = Z ] && break
+        wchan=$(cat "/proc/$test_pid/wchan" 2>/dev/null || echo unavailable)
+        counters=$(awk '/vec0:/ {printf "rx_bytes=%s rx_packets=%s rx_errors=%s rx_dropped=%s tx_bytes=%s tx_packets=%s tx_errors=%s tx_dropped=%s", $2, $3, $4, $5, $10, $11, $12, $13}' /proc/net/dev)
+        retransmits=$(awk '
+            $1 == "Tcp:" && !header { for (i = 2; i <= NF; i++) names[i] = $i; header = 1; next }
+            $1 == "Tcp:" && header { for (i = 2; i <= NF; i++) if (names[i] == "RetransSegs") { print $i; exit } }
+        ' /proc/net/snmp)
+        echo "netperf probe: $label sample=$sample epoch=$now pid=$test_pid state=$state user_ticks=$user_ticks system_ticks=$system_ticks wchan=$wchan tcp_retrans_segs=${retransmits:-unavailable} ${counters:-vec0=unavailable}"
+        sample=$((sample + 1))
+    done
+    wait "$test_pid"
     status=$?
     end=$(date +%s)
     echo "netperf case end: $label status=$status elapsed_seconds=$((end - start)) epoch=$end"

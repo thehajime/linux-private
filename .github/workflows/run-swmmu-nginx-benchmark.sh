@@ -146,7 +146,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	timeout --foreground --signal=TERM --kill-after=10s 600s \
 		"$KERNEL" vec0:transport=tap,ifname=tap100,depth=128,gro=1 \
 		root=/dev/root "rootflags=$ROOTFS" rootfstype=hostfs rw mem=2048m \
-		loglevel=8 console=tty zpoline=1 seccomp=on init=/sbin/swmmu-nginx-init \
+		loglevel=8 console=tty zpoline=1 init=/sbin/swmmu-nginx-init \
 		>"$OUTPUT/kernel.log" 2>&1 &
 	UML_PID=$!
 	ready=0
