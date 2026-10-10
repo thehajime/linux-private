@@ -17,8 +17,8 @@ nginx -c /etc/nginx/nginx-swmmu.conf
 echo SWMMU_NGINX_READY
 
 while [ ! -e /run/nginx-benchmark-stop ]; do
-	sleep 1
+	busybox sleep 1
 done
 nginx -s quit -c /etc/nginx/nginx-swmmu.conf || true
-sleep 1
+busybox sleep 1
 busybox poweroff -f
