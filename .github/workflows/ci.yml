@@ -494,7 +494,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: thehajime/aports
-          ref: 2fa7f100befb14cb343a659446e539237c66366c
+          ref: ${{ inputs.aports_ref || '2fa7f100befb14cb343a659446e539237c66366c' }}
           path: aports-source
       - name: Download the built NOMMU-SAS UML image
         uses: actions/download-artifact@v4
