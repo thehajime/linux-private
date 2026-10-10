@@ -28,6 +28,10 @@ done
 
 : "${KERNEL:?missing --kernel}"
 : "${ROOTFS:?missing --rootfs}"
+ROOTFS=$(cd -- "$ROOTFS" && pwd -P) || {
+	echo "rootfs directory not found" >&2
+	exit 1
+}
 : "${WORKERS:?missing --workers}"
 : "${THREADS:?missing --threads}"
 : "${CONNECTIONS:?missing --connections}"
