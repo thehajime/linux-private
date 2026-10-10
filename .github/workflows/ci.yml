@@ -174,6 +174,7 @@ jobs:
         with:
           ref: ci/uml-nommu
           path: ci-config
+          sparse-checkout: .github/workflows
       - name: Install canonical CI support files
         run: |
           mkdir -p .github/workflows
@@ -860,6 +861,7 @@ jobs:
       - name: Checkout
         with:
           fetch-depth: 0
+          filter: blob:none
         uses: actions/checkout@v6
       - uses: actions/cache@v5
         with:
