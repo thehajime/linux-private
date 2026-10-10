@@ -6,6 +6,7 @@ busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
 busybox mkdir -p /run
 busybox rm -f /run/nginx-benchmark-stop
+busybox rm -f /run/nginx-probe-start /run/nginx-probe-stop /run/nginx-runtime-probe.log
 busybox mkfifo /run/nginx-benchmark-stop
 busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp /var/lib/nginx/logs
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
@@ -18,6 +19,20 @@ busybox route add default gw 172.18.0.1 dev vec0
 nginx -t -c /etc/nginx/nginx-swmmu.conf
 nginx -c /etc/nginx/nginx-swmmu.conf
 echo SWMMU_NGINX_READY
+
+(
+	while [ ! -e /run/nginx-probe-start ]; do
+		busybox sleep 1
+	done
+	while [ ! -e /run/nginx-probe-stop ]; do
+		{
+			busybox date '+probe %Y-%m-%dT%H:%M:%S'
+			busybox ps || true
+			busybox cat /proc/net/dev || true
+		} >> /run/nginx-runtime-probe.log 2>&1
+		busybox sleep 5
+	done
+) &
 
 IFS= read -r _ < /run/nginx-benchmark-stop
 nginx -s quit -c /etc/nginx/nginx-swmmu.conf || true

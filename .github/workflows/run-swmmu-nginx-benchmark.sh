@@ -60,10 +60,13 @@ printf '%s\n' "$DURATION" >"$OUTPUT/duration.txt"
 printf '%s\n' "$KERNEL_SHA" >"$OUTPUT/kernel-sha.txt"
 printf '%s\n' "$APORTS_SHA" >"$OUTPUT/aports-sha.txt"
 printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
+: >"$OUTPUT/host-runtime-probe.log"
+: >"$OUTPUT/guest-runtime-probe.log"
 
 HARNESS_ERROR=
 CLIENT=swmmu-wrk-client
 UML_PID=
+HOST_PROBE_PID=
 HARNESS_STATUS=PASS
 GUEST_IP=172.18.0.2
 EXPECTED_BODY=nginx-matrix-ok
@@ -86,6 +89,11 @@ fail() {
 }
 
 capture_logs() {
+	if [[ -n "$HOST_PROBE_PID" ]]; then
+		kill "$HOST_PROBE_PID" 2>/dev/null || true
+		wait "$HOST_PROBE_PID" 2>/dev/null || true
+		HOST_PROBE_PID=
+	fi
 	if [[ -f "$ROOTFS/run/nginx-error.log" ]]; then
 		cp "$ROOTFS/run/nginx-error.log" "$OUTPUT/nginx.log"
 	else
@@ -116,10 +124,36 @@ capture_logs() {
 	if [[ -f "$ROOTFS/run/nginx-error.log" ]]; then
 		cp "$ROOTFS/run/nginx-error.log" "$OUTPUT/nginx.log"
 	fi
+	if [[ -f "$ROOTFS/run/nginx-runtime-probe.log" ]]; then
+		cp "$ROOTFS/run/nginx-runtime-probe.log" "$OUTPUT/guest-runtime-probe.log"
+	fi
 	if docker inspect "$CLIENT" >/dev/null 2>&1; then
 		docker logs "$CLIENT" >"$OUTPUT/client-container.log" 2>&1 || true
 		docker rm -f "$CLIENT" >/dev/null 2>&1 || true
 	fi
+}
+
+start_runtime_probes() {
+	case "$PROFILE" in
+		um-nommu-sas-seccomp|um-nommu-sas-zpoline) ;;
+		*) return 0 ;;
+	esac
+	(
+		while kill -0 "$UML_PID" 2>/dev/null; do
+			{
+				date -Ins
+				ps -eo pid,ppid,stat,pcpu,time,wchan:32,comm,args |
+					awk -v parent="$UML_PID" 'NR == 1 || $1 == parent || $2 == parent'
+				for child in $(ps -o pid= --ppid "$UML_PID" 2>/dev/null); do
+					ps -L -p "$child" -o pid,tid,stat,pcpu,time,wchan:32,comm 2>/dev/null || true
+				done
+				ip -s link show dev tap100 2>&1 || true
+			} >>"$OUTPUT/host-runtime-probe.log"
+			sleep 5
+		done
+	) &
+	HOST_PROBE_PID=$!
+	: >"$ROOTFS/run/nginx-probe-start"
 }
 
 finish() {
@@ -241,6 +275,10 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
+	start_runtime_probes
+fi
+
+if [[ "$HARNESS_STATUS" == PASS ]]; then
 	if timeout 10s docker exec "$CLIENT" curl --fail --silent --show-error \
 		--max-time 5 "http://$GUEST_IP:8080/" >"$OUTPUT/http.body" \
 		2>"$OUTPUT/smoke-http.log" && \
@@ -289,6 +327,10 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 else
 	printf '%s\n' "not run: harness setup failed" >"$OUTPUT/wrk.log"
 	printf '125\n' >"$OUTPUT/wrk.exit-code"
+fi
+
+if [[ -e "$ROOTFS/run/nginx-probe-start" ]]; then
+	: >"$ROOTFS/run/nginx-probe-stop"
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
