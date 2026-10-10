@@ -35,12 +35,12 @@ echo "iperf3 binary: $IPERF"
 sleep 5
 
 echo "===iperf3 forward==="
-"$IPERF" -4 -d -c "$SERVER" -fm
+"$IPERF" -4 -c "$SERVER" -fm
 IPERF_FORWARD_STATUS=$?
 echo "iperf3 measurement status: forward $IPERF_FORWARD_STATUS"
 
 echo "===iperf3 reverse==="
-"$IPERF" -4 -d -c "$SERVER" -R -fm
+"$IPERF" -4 -c "$SERVER" -R -fm
 IPERF_REVERSE_STATUS=$?
 echo "iperf3 measurement status: reverse $IPERF_REVERSE_STATUS"
 
