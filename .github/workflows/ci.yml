@@ -1298,22 +1298,28 @@ jobs:
           for profile in um-mmu um-mmu-seccomp um-nommu um-nommu-seccomp \
             um-nommu-sas-seccomp um-nommu-sas-zpoline; do
             csv="output/nginx/throughput-${profile}.csv"
-            if python3 - "$csv" <<'PY'
+            plot_workers_1=0
+            plot_workers_4=0
+            for field in workers_1 workers_4; do
+              if python3 - "$csv" "$field" <<'PY'
           import csv
           import math
           import sys
           with open(sys.argv[1], newline="") as stream:
               for row in csv.DictReader(stream):
-                  for field in ("workers_1", "workers_4"):
-                      try:
-                          if math.isfinite(float(row[field])):
-                              sys.exit(0)
-                      except (TypeError, ValueError):
-                          pass
+                  try:
+                      if math.isfinite(float(row[sys.argv[2]])):
+                          sys.exit(0)
+                  except (TypeError, ValueError):
+                      pass
           sys.exit(1)
           PY
-            then
-              gnuplot -e "data_file='${csv}'; output_file='output/nginx/throughput-${profile}.png'; profile_label='${profile}'" \
+              then
+                if [ "$field" = workers_1 ]; then plot_workers_1=1; else plot_workers_4=1; fi
+              fi
+            done
+            if [ "$plot_workers_1" -eq 1 ] || [ "$plot_workers_4" -eq 1 ]; then
+              gnuplot -e "data_file='${csv}'; output_file='output/nginx/throughput-${profile}.png'; profile_label='${profile}'; plot_workers_1=${plot_workers_1}; plot_workers_4=${plot_workers_4}" \
                 .github/workflows/plot-swmmu-nginx.gnuplot
               mkdir -p output/out
               cp "output/nginx/throughput-${profile}.png" "output/out/nginx-${profile}.png"

@@ -4,6 +4,7 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
+busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /tmp
 busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /var/lib/nginx/tmp
