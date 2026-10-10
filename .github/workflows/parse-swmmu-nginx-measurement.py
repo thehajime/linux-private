@@ -67,8 +67,14 @@ def main() -> int:
     if not latency:
         failures.append("wrk latency measurement is missing")
     if not socket_errors:
-        failures.append("wrk socket error summary is missing")
-        socket_counts = None
+        # wrk only prints this line when it saw at least one socket error.
+        # A successful run with a positive request count and no line therefore
+        # means every socket error counter is zero.
+        if wrk_exit == 0 and requests and float(requests.group(1)) > 0:
+            socket_counts = [0, 0, 0, 0]
+        else:
+            failures.append("wrk socket error summary is missing")
+            socket_counts = None
     else:
         socket_counts = [int(value) for value in socket_errors.groups()]
         if any(socket_counts):
@@ -89,6 +95,7 @@ def main() -> int:
         "wrk_threads": args.threads,
         "connections": args.connections,
         "duration_seconds": args.duration,
+        "wrk_timeout_seconds": 10,
         "kernel_sha": args.kernel_sha,
         "aports_sha": args.aports_sha,
         "gcc_version": args.gcc_version,
