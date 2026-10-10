@@ -22,7 +22,9 @@ if (plot_workers_1) {
     plot_cmd = sprintf("'%s' every ::1 using 0:2:xtic(1) with linespoints title 'worker processes 1'", data_file)
 }
 if (plot_workers_4) {
-    if (strlen(plot_cmd) > 0) plot_cmd = plot_cmd . ", "
+    if (strlen(plot_cmd) > 0) {
+        plot_cmd = plot_cmd . ", "
+    }
     if (strlen(plot_cmd) > 0) {
         plot_cmd = plot_cmd . "'' every ::1 using 0:3 with linespoints title 'worker processes 4'"
     } else {
