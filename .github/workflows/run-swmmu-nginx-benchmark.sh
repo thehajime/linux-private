@@ -93,7 +93,10 @@ capture_logs() {
 	fi
 	if [[ -n "$UML_PID" ]]; then
 		if [[ -d "$ROOTFS/run" ]]; then
-			touch "$ROOTFS/run/nginx-benchmark-stop"
+			if [[ -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
+				timeout --foreground 5s bash -c 'printf "stop\\n" > "$1"' _ \
+					"$ROOTFS/run/nginx-benchmark-stop" 2>/dev/null || true
+			fi
 			for _ in {1..15}; do
 				kill -0 "$UML_PID" 2>/dev/null || break
 				sleep 1

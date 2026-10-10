@@ -4,6 +4,9 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
+busybox mkdir -p /run
+busybox rm -f /run/nginx-benchmark-stop
+busybox mkfifo /run/nginx-benchmark-stop
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /tmp
 busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
@@ -22,9 +25,6 @@ else
 fi
 echo NGINX_MATRIX_READY
 
-while [ ! -e /run/nginx-benchmark-stop ]; do
-	busybox sleep 1
-done
+IFS= read -r _ < /run/nginx-benchmark-stop
 nginx -s quit -c /etc/nginx/nginx-matrix.conf || true
-busybox sleep 1
 busybox poweroff -f
