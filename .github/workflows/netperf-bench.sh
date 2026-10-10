@@ -11,7 +11,9 @@ run_case() {
     shift
     start=$(date +%s)
     echo "netperf case start: $label epoch=$start"
-    "$@" &
+    output_file="/tmp/netperf-case-${label}-$$.log"
+    rm -f "$output_file"
+    "$@" >"$output_file" 2>&1 &
     test_pid=$!
     sample=0
     while kill -0 "$test_pid" 2>/dev/null; do
@@ -36,6 +38,15 @@ run_case() {
     done
     wait "$test_pid"
     status=$?
+    cat "$output_file"
+    if grep -Eiq 'recv_response:|send_request:|connection (reset|refused)|no route to host|timed out|unable to connect' "$output_file"; then
+        echo "netperf case output contains a connection/protocol error: $label"
+        status=1
+    elif ! grep -Eq '^[[:space:]]*[0-9]+([.][0-9]+)?,' "$output_file"; then
+        echo "netperf case produced no machine-readable measurement row: $label"
+        status=1
+    fi
+    rm -f "$output_file"
     end=$(date +%s)
     echo "netperf case end: $label status=$status elapsed_seconds=$((end - start)) epoch=$end"
     if [ "$status" -ne 0 ]; then
