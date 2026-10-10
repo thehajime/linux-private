@@ -529,9 +529,13 @@ jobs:
           SWMMU_INIT_SCRIPT: ${{ github.workspace }}/.github/workflows/swmmu-nginx-init.sh
           SWMMU_WORK: ${{ github.workspace }}/.swmmu-nginx
         run: |
-          mkdir -p .swmmu-nginx/logs
-          bash .github/workflows/build-swmmu-nginx-rootfs.sh \
-            |& tee .swmmu-nginx/logs/rootfs-build.log
+          set +e
+          mkdir -p "$SWMMU_WORK/logs"
+          bash "$GITHUB_WORKSPACE/.github/workflows/build-swmmu-nginx-rootfs.sh" \
+            > "$SWMMU_WORK/logs/rootfs-build.log" 2>&1
+          build_status=$?
+          cat "$SWMMU_WORK/logs/rootfs-build.log"
+          exit "$build_status"
       - name: Restore runner ownership of SWMMU rootfs files
         if: always()
         run: |
