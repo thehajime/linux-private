@@ -25,7 +25,7 @@ echo SWMMU_NGINX_READY
 		busybox sleep 1
 	done
 	while [ ! -e /run/nginx-probe-stop ]; do
-		busybox date '+probe %Y-%m-%dT%H:%M:%S' >> /run/nginx-runtime-probe.log 2>&1
+		echo 'probe sample' >> /run/nginx-runtime-probe.log 2>&1
 		busybox ps >> /run/nginx-runtime-probe.log 2>&1
 		busybox cat /proc/net/dev >> /run/nginx-runtime-probe.log 2>&1
 		busybox sleep 5
