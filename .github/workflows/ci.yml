@@ -606,40 +606,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        profile:
+          - um-mmu
+          - um-mmu-seccomp
+          - um-nommu
+          - um-nommu-seccomp
+          - um-nommu-sas-seccomp
+          - um-nommu-sas-zpoline
         workers: [1, 4]
         connections: [4, 16, 64]
         wrk_threads: [2]
-        include:
-          - profile: um-mmu
-            image_name: um-mmu
-            rootfs_artifact: nginx-rootfs-mmu
-            kernel_args: ncpus=4
-            needs_rawio: false
-          - profile: um-mmu-seccomp
-            image_name: um-mmu
-            rootfs_artifact: nginx-rootfs-mmu
-            kernel_args: ncpus=4 seccomp=on
-            needs_rawio: false
-          - profile: um-nommu
-            image_name: um-nommu
-            rootfs_artifact: nginx-rootfs-nommu
-            kernel_args: ""
-            needs_rawio: false
-          - profile: um-nommu-seccomp
-            image_name: um-nommu
-            rootfs_artifact: nginx-rootfs-nommu
-            kernel_args: seccomp=on
-            needs_rawio: false
-          - profile: um-nommu-sas-seccomp
-            image_name: um-nommu-sas
-            rootfs_artifact: swmmu-nginx-rootfs
-            kernel_args: zpoline=0
-            needs_rawio: false
-          - profile: um-nommu-sas-zpoline
-            image_name: um-nommu-sas
-            rootfs_artifact: swmmu-nginx-rootfs
-            kernel_args: zpoline=1
-            needs_rawio: true
+    env:
+      NGINX_IMAGE_NAME: ${{ contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
+      NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'swmmu-nginx-rootfs' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
+      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && 'ncpus=4' || matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
@@ -648,18 +629,18 @@ jobs:
       - name: Download the shared profile rootfs
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.rootfs_artifact }}
+          name: ${{ env.NGINX_ROOTFS_ARTIFACT }}
           path: ${{ runner.temp }}/nginx-rootfs
       - name: Download the tested UML image
         uses: actions/download-artifact@v4
         with:
-          name: uml-docker-image-${{ matrix.image_name }}
+          name: uml-docker-image-${{ env.NGINX_IMAGE_NAME }}
           path: ${{ runner.temp }}/uml-image
       - name: Extract rootfs and kernel
         run: |
           set -euo pipefail
           docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
-          cid=$(docker create uml-ci/alpine:edge-${{ matrix.image_name }})
+          cid=$(docker create "uml-ci/alpine:edge-${NGINX_IMAGE_NAME}")
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
           docker rm "$cid" >/dev/null
@@ -677,8 +658,8 @@ jobs:
           THREADS: ${{ matrix.wrk_threads }}
           CONNECTIONS: ${{ matrix.connections }}
           PROFILE: ${{ matrix.profile }}
-          KERNEL_ARGS: ${{ matrix.kernel_args }}
-          NEEDS_RAWIO: ${{ matrix.needs_rawio }}
+          KERNEL_ARGS: ${{ env.NGINX_KERNEL_ARGS }}
+          NEEDS_RAWIO: ${{ env.NGINX_NEEDS_RAWIO }}
         run: |
           kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
           aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
