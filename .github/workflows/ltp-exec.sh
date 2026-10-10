@@ -8,6 +8,14 @@ mkdir -p /dev/pts
 mount -t devpts devpts /dev/pts
 mount -t tmpfs tmpfs /tmp
 
+# Capture guest process mappings before Kirk starts Python. A host-side monitor
+# cannot see UML guest task mappings; write snapshots through hostfs so they
+# remain available after the guest panics.
+if [ "${LTP_TESTNAME:-}" = um-nommu-sas-zpoline ]; then
+	/bin/sh /github/workspace/.github/workflows/capture-uml-python-maps.sh \
+		>/github/workspace/output/ltp/uml-python-debug/guest-monitor.log 2>&1 &
+fi
+
 export PATH=/home:/sbin:/usr/sbin:/bin:/usr/bin
 
 modprobe loop

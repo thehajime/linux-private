@@ -1,13 +1,13 @@
 #!/bin/sh
 
-# Sample UML's host-side process table while the SAS/zpoline LTP guest runs.
-# The Python guest process is represented by a traced host process in UML's
-# SKAS execution model. Keep the latest maps/status snapshot for each PID on
-# the workspace bind mount so it survives the UML panic.
+# Sample the UML guest's process table while the SAS/zpoline LTP guest runs.
+# This script is started by the guest init script: host-side /proc only shows
+# UML host processes, not guest tasks. The hostfs root exposes the workspace
+# at the same path, so snapshots survive a guest kernel panic.
 
 set -u
 
-base=/github/workspace/output/ltp/uml-python-debug/processes
+base=/github/workspace/output/ltp/uml-python-debug/guest-processes
 mkdir -p "$base"
 
 while :; do

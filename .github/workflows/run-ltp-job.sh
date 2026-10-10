@@ -25,6 +25,9 @@ else
 fi
 
 cp .github/workflows/ltp-skip /ltp-skip
+if [ "$LTP_TESTNAME" = um-nommu-sas-zpoline ]; then
+	mkdir -p output/ltp/uml-python-debug
+fi
 case "$LTP_TESTNAME" in
 	um-nommu)
 		echo epoll_wait01 >> /ltp-skip
@@ -85,10 +88,12 @@ else
 	mv /tmp/ltp-entrypoint.sh .github/workflows/ltp-entrypoint.sh
 	case "$LTP_TESTNAME" in
 		um-nommu*)
-			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4
+			run_faketty sh -x .github/workflows/ltp-entrypoint.sh \
+				LTP_SINGLE_FS_TYPE=ext4 LTP_TESTNAME="$LTP_TESTNAME"
 			;;
 		*)
 			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
+				LTP_TESTNAME="$LTP_TESTNAME" \
 				| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 			;;
 	esac
