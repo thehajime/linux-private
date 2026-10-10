@@ -320,6 +320,10 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		"$OUTPUT/wrk-warmup.log"; then
 		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
 		fail "wrk warmup reported socket errors"
+	elif ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
+		"$OUTPUT/wrk-warmup.log"; then
+		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
+		fail "wrk warmup completed without serving any requests"
 	else
 		printf 'PASS\n' >"$OUTPUT/wrk-warmup.status"
 	fi

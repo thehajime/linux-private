@@ -88,6 +88,11 @@ def main() -> int:
     if warmup_errors and any(int(value) for value in warmup_errors.groups()):
         warmup_counts = [int(value) for value in warmup_errors.groups()]
         failures.append(f"wrk warmup reported socket errors {warmup_counts}")
+    warmup_requests = re.search(r"Requests/sec:\s*([0-9.]+)", warmup)
+    if not warmup_requests:
+        failures.append("wrk warmup Requests/sec measurement is missing")
+    elif float(warmup_requests.group(1)) <= 0:
+        failures.append("wrk warmup completed without serving any requests")
 
     for label in ("http", "tls"):
         if read_text(args.output / f"smoke-{label}.status") != "PASS":
