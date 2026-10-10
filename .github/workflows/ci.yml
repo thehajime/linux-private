@@ -46,31 +46,20 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout selected kernel source
-        uses: actions/checkout@v6
-        with:
-          repository: thehajime/linux-private
-          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
-          path: kernel-source
-      - name: Checkout selected aports source revision
-        uses: actions/checkout@v6
-        with:
-          repository: thehajime/aports
-          ref: ${{ inputs.aports_ref || '3c77cb673f28eff8412759415f28a6983ff0e7de' }}
-          path: aports-source
-          sparse-checkout: |
-            main/busybox
-            main/musl
-            main/openssl
-            main/python3
-            scripts/swmmu-profile.sh
-            scripts/swmmu-cc
-            scripts/swmmu-prepare.sh
       - name: Download matching prerelease APK profiles
         id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KERNEL_REF: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+          APORTS_REF: ${{ inputs.aports_ref || '3c77cb673f28eff8412759415f28a6983ff0e7de' }}
         run: |
-          kernel_sha=$(git -C kernel-source rev-parse HEAD)
-          aports_sha=$(git -C aports-source rev-parse HEAD)
+          set -euo pipefail
+          kernel_sha=$(gh api repos/thehajime/linux-private/commits \
+            --method GET -f "sha=$KERNEL_REF" --jq '.[0].sha')
+          aports_sha=$(gh api repos/thehajime/aports/commits \
+            --method GET -f "sha=$APORTS_REF" --jq '.[0].sha')
+          [[ "$kernel_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$aports_sha" =~ ^[0-9a-f]{40}$ ]]
           release_tag="ci-nommu-${kernel_sha}-${aports_sha}"
           mkdir -p "$RUNNER_TEMP/nommu-apks"
           curl --fail --location --retry 3 \
