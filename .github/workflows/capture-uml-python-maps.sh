@@ -5,8 +5,6 @@
 # UML host processes, not guest tasks. The hostfs root exposes the workspace
 # at the same path, so snapshots survive a guest kernel panic.
 
-set -u
-
 base=/github/workspace/output/ltp/uml-python-debug/guest-processes
 mkdir -p "$base"
 
@@ -22,7 +20,7 @@ while :; do
 		pid=${proc#/proc/}
 		dir="$base/$pid"
 		mkdir -p "$dir"
-		for item in maps status; do
+		for item in maps status auxv stat; do
 			tmp="$dir/$item.tmp"
 			if cat "$proc/$item" > "$tmp" 2>/dev/null; then
 				mv "$tmp" "$dir/$item"
@@ -33,6 +31,7 @@ while :; do
 		tr '\000' ' ' < "$proc/cmdline" > "$dir/cmdline.tmp" 2>/dev/null &&
 			mv "$dir/cmdline.tmp" "$dir/cmdline"
 		readlink "$proc/exe" > "$dir/exe" 2>/dev/null || true
+		date -u '+%Y-%m-%dT%H:%M:%SZ' > "$dir/captured-at"
 	done
 	sleep 1
 done

@@ -1071,19 +1071,28 @@ jobs:
         run: |
           set +e
           diag=output/ltp/uml-python-debug
+          sudo chown -R "$(id -u):$(id -g)" "$diag" 2>/dev/null || true
           mkdir -p "$diag/elf"
+          : > "$diag/collection.log"
           find "$diag/guest-processes" -mindepth 2 -maxdepth 2 -type f \
             -print 2>/dev/null | sort > "$diag/captured-files.txt"
+          find "$diag/guest-processes" -name auxv -type f -print 2>/dev/null |
+          while read -r auxv; do
+            od -An -tx8 "$auxv" > "$auxv.hex" 2>> "$diag/collection.log"
+          done
           if ! find "$diag/guest-processes" -name maps -type f -print -quit \
               2>/dev/null | grep -q .; then
             echo 'No guest Python process maps captured' > "$diag/collection-status.txt"
           fi
           for path in /usr/bin/python3.14 /usr/lib/libpython3.14.so.1.0 \
                       /lib/ld-musl-x86_64.so.1; do
-            source=$(docker exec ltp-test readlink -f "$path" 2>/dev/null)
+            source=$(docker exec ltp-test readlink -f "$path" 2>> "$diag/collection.log")
             [ -n "$source" ] || continue
             name=$(basename "$path")
-            docker cp "ltp-test:$source" "$diag/elf/$name" 2>/dev/null
+            if ! docker cp "ltp-test:$source" "$diag/elf/$name" \
+                2>> "$diag/collection.log"; then
+              echo "Failed to copy $source" >> "$diag/collection.log"
+            fi
           done
           find "$diag/guest-processes" -name maps -type f -print 2>/dev/null |
           while read -r maps; do
@@ -1093,7 +1102,8 @@ jobs:
             path=${path%\ (deleted)}
             id=$(printf '%s' "$path" | sha256sum | cut -c1-12)
             name=$(basename "$path")
-            if docker cp "ltp-test:$path" "$diag/elf/$id-$name" 2>/dev/null; then
+            if docker cp "ltp-test:$path" "$diag/elf/$id-$name" \
+                2>> "$diag/collection.log"; then
               printf '%s\t%s\n' "$id-$name" "$path" >> "$diag/mapped-files.tsv"
             fi
           done
