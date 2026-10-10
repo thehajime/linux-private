@@ -1098,6 +1098,14 @@ jobs:
             readelf -n "$elf" >> "$diag/elf-metadata.txt" 2>&1
             readelf -l "$elf" >> "$diag/elf-metadata.txt" 2>&1
           done
+      - name: Upload SAS Python fault diagnostics
+        if: ${{ always() && matrix.testname == 'um-nommu-sas-zpoline' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sas-python-fault-debug
+          path: output/ltp/uml-python-debug/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Stop local test container
         if: always()
         run: docker rm -f ltp-test || true
