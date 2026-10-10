@@ -53,6 +53,7 @@ fi
 
 mkdir -p "$OUTPUT"
 printf 'RUNNING\n' >"$OUTPUT/harness.status"
+printf 'NOT_RUN\n' >"$OUTPUT/wrk-warmup.status"
 printf '%s\n' "$WORKERS" >"$OUTPUT/workers.txt"
 printf '%s\n' "$THREADS" >"$OUTPUT/threads.txt"
 printf '%s\n' "$CONNECTIONS" >"$OUTPUT/connections.txt"
@@ -309,9 +310,18 @@ else
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
-	if ! timeout 10s docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
-		-d5s "http://$GUEST_IP:8080/" >"$OUTPUT/wrk-warmup.log" 2>&1; then
-		fail "wrk warmup failed or timed out"
+	warmup_rc=0
+	timeout 40s docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
+		-T 30s -d5s "http://$GUEST_IP:8080/" >"$OUTPUT/wrk-warmup.log" 2>&1 || warmup_rc=$?
+	if [[ "$warmup_rc" -ne 0 ]]; then
+		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
+		fail "wrk warmup failed or timed out with exit status $warmup_rc"
+	elif grep -Eq 'Socket errors:.*(connect|read|write|timeout) [1-9][0-9]*' \
+		"$OUTPUT/wrk-warmup.log"; then
+		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
+		fail "wrk warmup reported socket errors"
+	else
+		printf 'PASS\n' >"$OUTPUT/wrk-warmup.status"
 	fi
 fi
 if [[ "$HARNESS_STATUS" == PASS ]]; then

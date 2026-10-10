@@ -63,7 +63,7 @@ def main() -> int:
                 "capability.log", "host-sysctl.log", "tap.log", "kernel.log",
                 "online-cpus.txt", "nginx.log", "client-setup.log",
                 "client-container.log", "smoke-http.log", "smoke-tls.log",
-                "wrk-warmup.log", "wrk.log", "nginx.conf",
+                "wrk-warmup.log", "wrk-warmup.status", "wrk.log", "nginx.conf",
                 "guest-runtime-probe.log", "host-runtime-probe.log",
             ],
         }
@@ -75,6 +75,19 @@ def main() -> int:
     if harness_status != "PASS":
         reason = read_text(args.output / "harness.error") or "benchmark harness did not complete"
         failures.append(reason)
+
+    warmup_status = read_text(args.output / "wrk-warmup.status")
+    if warmup_status != "PASS":
+        failures.append(f"wrk warmup status is {warmup_status or 'missing'}")
+    warmup = read_text(args.output / "wrk-warmup.log")
+    warmup_errors = re.search(
+        r"Socket errors:\s*connect\s+(\d+),\s*read\s+(\d+),\s*write\s+(\d+),\s*timeout\s+(\d+)",
+        warmup,
+        re.IGNORECASE,
+    )
+    if warmup_errors and any(int(value) for value in warmup_errors.groups()):
+        warmup_counts = [int(value) for value in warmup_errors.groups()]
+        failures.append(f"wrk warmup reported socket errors {warmup_counts}")
 
     for label in ("http", "tls"):
         if read_text(args.output / f"smoke-{label}.status") != "PASS":
@@ -151,6 +164,7 @@ def main() -> int:
             "smoke-http.log",
             "smoke-tls.log",
             "wrk-warmup.log",
+            "wrk-warmup.status",
             "wrk.log",
             "nginx.conf",
             "guest-runtime-probe.log",
