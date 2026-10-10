@@ -811,7 +811,7 @@ jobs:
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
               ${{ matrix.vmlinux_opt }} \
-              ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && 'netperf_only=1' || '' }} \
+              ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && github.ref_name != 'codex/netperf-focused' && 'netperf_only=1' || '' }} \
               init=/root/iperf3.sh \
              | tee output/${{ matrix.testname }}-iperf3.dat &
            bench_pid=$!
@@ -1244,7 +1244,7 @@ jobs:
           path: output/ltp/*
 
   bench-result:
-    if: ${{ always() }}
+    if: ${{ always() && github.ref_name != 'codex/netperf-focused' }}
     runs-on: ubuntu-22.04
     name: bench-result
     needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_swmmu_benchmark]
