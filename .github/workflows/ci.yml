@@ -500,6 +500,8 @@ jobs:
     steps:
       - name: Check out CI support files
         uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
       - name: Download the signed SWMMU APK package set
         uses: actions/download-artifact@v4
         with:
@@ -625,6 +627,8 @@ jobs:
     steps:
       - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
       - name: Create per-leg output directory
         run: mkdir -p "output/${{ matrix.profile }}/w${{ matrix.workers }}-c${{ matrix.connections }}"
       - name: Download the shared profile rootfs
@@ -1262,6 +1266,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
       - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
