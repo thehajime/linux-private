@@ -29,6 +29,14 @@ else
 fi
 cat /proc/mounts
 
+if grep -Eq '(^|[[:space:]])netperf_only=1([[:space:]]|$)' /proc/cmdline; then
+    echo "netperf-only diagnostic mode enabled"
+    sh /root/netperf-bench.sh
+    status=$?
+    /sbin/halt -f
+    exit "$status"
+fi
+
 IPERF=$(command -v iperf3)
 echo "iperf3 binary: $IPERF"
 "$IPERF" --version

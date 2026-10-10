@@ -249,7 +249,7 @@ jobs:
             CFLAGS="$lmbench_cflags"
           cd netperf
           sh autogen.sh
-          ./configure && make -C src CFLAGS="-fcommon -D_GNU_SOURCE -std=gnu17"
+          ./configure && make -C src CFLAGS="-O2 -fcommon -D_GNU_SOURCE -std=gnu17"
           cd ..
           make -C .github/workflows/ MASTER_CC=gcc
         shell: alpine.sh {0}
@@ -489,7 +489,7 @@ jobs:
           tags: ghcr.io/thehajime/alpine:${{ matrix.base_tag }}-${{ matrix.testname }}
 
   build_swmmu_nginx_rootfs:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/netperf-focused' }}
     name: Build SWMMU nginx rootfs once
     needs: [build_uml, build_nommu_apks]
     runs-on: ubuntu-22.04
@@ -596,7 +596,7 @@ jobs:
           if-no-files-found: warn
 
   nginx_swmmu_benchmark:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/netperf-focused' }}
     name: "nginx: ${{ matrix.profile }}, workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
     needs: [build_uml, build_swmmu_nginx_rootfs]
     runs-on: ubuntu-22.04
@@ -770,7 +770,7 @@ jobs:
       - name: Setup faketty
         uses: Yuri6037/Action-FakeTTY@v1.1
       - name: setup iperf3/netperf server
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || startsWith(matrix.testname, 'um-nommu-sas-') }}
         run: |
            set -x
            sudo apt update -y
@@ -799,6 +799,7 @@ jobs:
            cat /proc/sys/kernel/exec-shield || true
            echo 0 > /proc/sys/kernel/exec-shield || true
       - name: benchmark-1
+        if: ${{ github.event_name != 'workflow_dispatch' || github.ref_name != 'codex/netperf-focused' }}
         run: |
            mkdir -p output
            sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
@@ -813,7 +814,7 @@ jobs:
              | tee output/${{ matrix.testname }}.dat &
              sleep 100 ; exit
       - name: benchmark-2
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'workflow_dispatch' || startsWith(matrix.testname, 'um-nommu-sas-') }}
         run: |
            set -o pipefail
            mkdir -p output
@@ -832,6 +833,7 @@ jobs:
               vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
               ${{ matrix.vmlinux_opt }} \
+              ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && 'netperf_only=1' || '' }} \
               init=/root/iperf3.sh \
              | tee output/${{ matrix.testname }}-iperf3.dat
       - uses: actions/upload-artifact@v7
@@ -840,6 +842,7 @@ jobs:
           path: output/${{ matrix.testname }}*
 
   checkpatch:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref_name != 'codex/netperf-focused' }}
     runs-on: ubuntu-22.04
     name: checkpatch and co
     env:
