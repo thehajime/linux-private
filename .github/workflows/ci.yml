@@ -834,6 +834,7 @@ jobs:
            wait "$probe_pid" 2>/dev/null || true
            exit "$bench_status"
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: test-result-${{ matrix.testname }}
           path: output/${{ matrix.testname }}*
