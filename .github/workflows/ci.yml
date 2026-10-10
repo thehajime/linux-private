@@ -813,7 +813,26 @@ jobs:
               ${{ matrix.vmlinux_opt }} \
               ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && 'netperf_only=1' || '' }} \
               init=/root/iperf3.sh \
-             | tee output/${{ matrix.testname }}-iperf3.dat
+             | tee output/${{ matrix.testname }}-iperf3.dat &
+           bench_pid=$!
+           (
+             while kill -0 "$bench_pid" 2>/dev/null; do
+               date -Ins
+               cat /proc/loadavg
+               ps -eo pid,ppid,stat,pcpu,time,wchan:32,comm,args |
+                 grep -E '(^ *PID|vmlinux|netserver|netperf)' | grep -v grep || true
+               sleep 5
+             done
+           ) > "output/${{ matrix.testname }}-host-probe.log" 2>&1 &
+           probe_pid=$!
+           if wait "$bench_pid"; then
+             bench_status=0
+           else
+             bench_status=$?
+           fi
+           kill "$probe_pid" 2>/dev/null || true
+           wait "$probe_pid" 2>/dev/null || true
+           exit "$bench_status"
       - uses: actions/upload-artifact@v7
         with:
           name: test-result-${{ matrix.testname }}

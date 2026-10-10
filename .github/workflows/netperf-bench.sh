@@ -38,6 +38,9 @@ run_case() {
     done
     wait "$test_pid"
     status=$?
+    command_end=$(date +%s)
+    command_elapsed=$((command_end - start))
+    echo "netperf command end: $label status=$status measurement_elapsed_seconds=$command_elapsed epoch=$command_end"
     cat "$output_file"
     if grep -Eiq 'recv_response:|send_request:|connection (reset|refused)|no route to host|timed out|unable to connect' "$output_file"; then
         echo "netperf case output contains a connection/protocol error: $label"
@@ -48,7 +51,7 @@ run_case() {
     fi
     rm -f "$output_file"
     end=$(date +%s)
-    echo "netperf case end: $label status=$status elapsed_seconds=$((end - start)) epoch=$end"
+    echo "netperf case end: $label status=$status measurement_elapsed_seconds=$command_elapsed wrapper_elapsed_seconds=$((end - command_end)) elapsed_seconds=$((end - start)) epoch=$end"
     if [ "$status" -ne 0 ]; then
         FAILED=1
     fi
