@@ -47,6 +47,13 @@ case "$LTP_TESTNAME" in
 		echo perf_event_open03 >> /ltp-skip
 		echo "Skipping known perf_event_open03 failure for $LTP_TESTNAME"
 		;;
+	um-nommu-sas-zpoline)
+		# This LTP case deliberately dereferences a low address in the guest.
+		# On SAS NOMMU the kernel panics without exiting UML, leaving Kirk's
+		# docker exec blocked indefinitely and preventing diagnostics upload.
+		echo nullptr >> /ltp-skip
+		echo "Skipping nullptr: it panics and hangs the SAS NOMMU guest"
+		;;
 esac
 
 ltp_source=/ltp-source
