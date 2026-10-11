@@ -34,6 +34,10 @@ LATENCY_ROWS = (
     ("vfork-shell", "vfork+sh"),
 )
 PAYLOADS = (64, 128, 256, 512, 1024, 1500, 65507)
+BANDWIDTH_ROWS = (
+    ("bw_pipe_64k", "bw_pipe_64k"),
+    ("bw_mem_512k_rdwr", "bw_mem_512k_rdwr"),
+)
 
 
 def finite(value):
@@ -84,15 +88,18 @@ def render_plot(out_dir, filename, title, ylabel, labels, files, *, logscale=Fal
         )
     script = out_dir / f"{filename}.gnuplot"
     commands = [
-        "set terminal pngcairo size 1600,900 enhanced font 'Sans,12'",
+        "set terminal pngcairo size 2000,1200 enhanced font 'Sans,18'",
         f"set output {gnuplot_quote(out_dir / filename)}",
         f"set title {gnuplot_quote(title)}",
+        "set title font 'Sans,24'",
+        "set xlabel font 'Sans,20'",
         f"set ylabel {gnuplot_quote(ylabel)}",
+        "set ylabel font 'Sans,20'",
         "set grid ytics",
         "set style fill solid 0.75 border -1",
         f"set boxwidth {width * 0.9:.4f}",
-        "set key outside top center horizontal",
-        f"set xtics ({xtics}) rotate by 35 right",
+        "set key outside top center horizontal font 'Sans,16'",
+        f"set xtics ({xtics}) rotate by 35 right font 'Sans,15'",
         f"set xrange [-0.8:{(2 * len(labels) if netperf else len(labels)) - 0.2}]",
         "set auto y",
     ]
@@ -132,6 +139,21 @@ def main():
         [(label, index) for index, (_operation, label) in enumerate(LATENCY_ROWS)],
         lmbench_files,
         logscale=True,
+    )
+
+    bandwidth_files = []
+    for target, label, color in PROFILES:
+        path = out_dir / f"lmbench-bandwidth-{target}.dat"
+        values = [lmbench.get(target, {}).get(operation) for operation, _name in BANDWIDTH_ROWS]
+        write_rows(path, values)
+        bandwidth_files.append((path, label, color))
+    render_plot(
+        out_dir,
+        "lmbench-bandwidth.png",
+        "lmbench bandwidth",
+        "Bandwidth (MB/sec)",
+        [(label, index) for index, (_operation, label) in enumerate(BANDWIDTH_ROWS)],
+        bandwidth_files,
     )
 
     iperf_values = {target: {"forward": None, "reverse": None} for target, _label, _color in PROFILES}

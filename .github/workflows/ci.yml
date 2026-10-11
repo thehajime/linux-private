@@ -1548,7 +1548,7 @@ jobs:
             else
               printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
             fi
-            for chart in lmbench.png iperf3.png tcp-stream.png nginx-comparison.png; do
+            for chart in lmbench.png lmbench-bandwidth.png iperf3.png tcp-stream.png nginx-comparison.png; do
               if [ -f "$RUNNER_TEMP/site/$chart" ]; then
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"

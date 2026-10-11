@@ -10,6 +10,7 @@ from pathlib import Path
 
 CHARTS = {
     "lmbench.png": "lmbench latency",
+    "lmbench-bandwidth.png": "lmbench bandwidth",
     "iperf3.png": "iperf3 throughput",
     "tcp-stream.png": "netperf TCP throughput",
 }
