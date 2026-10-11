@@ -8,13 +8,12 @@ export PATH
 
 lmbench_tmpdir=${LMBENCH_TMPDIR:-/var/tmp/lmbench}
 mkdir -p "$lmbench_tmpdir"
+lmbench_file="$lmbench_tmpdir/lmbench-target"
+: >"$lmbench_file"
 if command -v hello >/dev/null 2>&1; then
 	cp "$(command -v hello)" "$lmbench_tmpdir/hello"
 	cp "$(command -v hello)" /tmp/hello
 fi
-
-mkdir -p /usr/include/sys || true
-touch /usr/include/sys/types.h || true
 
 process_method=${LMBENCH_PROCESS_METHOD:-auto}
 if [ "$process_method" = auto ]; then
@@ -50,8 +49,8 @@ run_measurement select-1000 env ENOUGH=10000 lat_select -n 1000 file
 run_measurement syscall env ENOUGH=100000 lat_syscall null
 run_measurement read env ENOUGH=100000 lat_syscall read
 run_measurement write env ENOUGH=100000 lat_syscall write
-run_measurement stat env ENOUGH=100000 lat_syscall stat
-run_measurement open-close env ENOUGH=100000 lat_syscall open
+run_measurement stat env ENOUGH=100000 lat_syscall stat "$lmbench_file"
+run_measurement open-close env ENOUGH=100000 lat_syscall open "$lmbench_file"
 
 for method in $process_methods; do
 	echo "lmbench process method: $method"
