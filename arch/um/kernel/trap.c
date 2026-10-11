@@ -38,11 +38,13 @@ static void show_segv_info(struct uml_pt_regs *regs)
 	printk(KERN_CONT "\n");
 }
 
+#ifndef CONFIG_UML_NOMMU_SAS
 static void bad_segv(struct faultinfo fi, unsigned long ip)
 {
 	current->thread.arch.faultinfo = fi;
 	force_sig_fault(SIGSEGV, SEGV_ACCERR, (void __user *) FAULT_ADDRESS(fi));
 }
+#endif
 
 void fatal_sigsegv(void)
 {
@@ -93,7 +95,17 @@ void segv_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs,
 
 	if (UPT_IS_USER(regs) && !SEGV_IS_FIXABLE(fi)) {
 		show_segv_info(regs);
+#ifdef CONFIG_UML_NOMMU_SAS
+		/*
+		 * This host fault cannot be fixed by UML. Relay it through the
+		 * NOMMU userspace trampoline so the guest process receives it.
+		 * Returning directly leaves the host context at the faulting
+		 * instruction and repeats the same SIGSEGV indefinitely.
+		 */
+		relay_signal(sig, unused_si, regs, mc);
+#else
 		bad_segv(*fi, UPT_IP(regs));
+#endif
 		return;
 	}
 	segv(*fi, UPT_IP(regs), UPT_IS_USER(regs), regs, mc);
