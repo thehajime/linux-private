@@ -27,6 +27,17 @@ def finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
+def quantile(sorted_values, fraction):
+    """Return a linearly interpolated quantile (the common type-7 method)."""
+    position = (len(sorted_values) - 1) * fraction
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return sorted_values[lower]
+    weight = position - lower
+    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit("usage: plot-nginx-comparison.py AGGREGATE_JSON OUTPUT_DIR")
@@ -61,19 +72,33 @@ def main():
         for workers in WORKERS:
             x = profile_index + (-0.18 if workers == 1 else 0.18)
             worker_data = out_dir / f"throughput-boxplot-{profile}-workers-{workers}.dat"
+            samples = []
+            for connections in CONNECTIONS:
+                value = values.get((profile, workers, connections))
+                if finite(value):
+                    samples.append(value)
+            samples.sort()
             with worker_data.open("w") as stream:
-                for connections in CONNECTIONS:
-                    value = values.get((profile, workers, connections))
-                    if finite(value):
-                        stream.write(f"{value}\n")
-            sample_count = sum(1 for _ in worker_data.open())
+                if len(samples) == len(CONNECTIONS):
+                    summary = (
+                        x,
+                        samples[0],
+                        quantile(samples, 0.25),
+                        quantile(samples, 0.5),
+                        quantile(samples, 0.75),
+                        samples[-1],
+                    )
+                    stream.write(" ".join(f"{value:.12g}" for value in summary) + "\n")
+            sample_count = len(samples)
             if sample_count >= 3:
                 title = f"title {quote(label)}" if workers == 1 else "notitle"
                 plot_items.append(
-                    f"{quote(worker_data)} using ({x:.2f}):1 with boxplot "
-                    f"fc rgb {quote(color)} "
+                    f"{quote(worker_data)} using 1:4:2:6 with yerrorbars "
+                    f"lc rgb {quote(color)} notitle, \\\n  {quote(worker_data)} using 1:4:($1-0.14):($1+0.14):3:5 "
+                    f"with boxxyerror fc rgb {quote(color)} "
                     f"fs {'solid 0.68' if workers == 1 else 'pattern 4'} "
-                    f"border lc rgb {quote(color)} {title}"
+                    f"border lc rgb {quote(color)} {title}, \\\n  {quote(worker_data)} using 1:4:(0.28):(0) with vectors nohead "
+                    f"lw 2 lc rgb {quote(color)} notitle"
                 )
             elif sample_count:
                 print(
@@ -104,15 +129,16 @@ def main():
         "set boxwidth 0.28 absolute",
         "set key outside top center horizontal font 'Sans,16'",
         "set style fill solid 0.68 border -1",
-        "set style boxplot outliers",
+        "set bars 0.25",
         "set tics out",
         "plot \\\n  " + ", \\\n  ".join(plot_items),
         "",
     )))
     subprocess.run(["gnuplot", str(script)], check=True)
     status_path.write_text(
-        "Combined boxplot generated from profile/worker groups with all 3 "
-        "connection measurements. Each connection setting contributes one sample.\n"
+        "Combined box-and-whisker plot generated from profile/worker groups "
+        "with all 3 connection measurements; boxes show Q1/median/Q3 and "
+        "whiskers show min/max.\n"
     )
     print(f"Generated {out_dir / 'nginx-comparison.png'}")
 
