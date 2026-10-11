@@ -733,6 +733,10 @@ jobs:
     name: "UML: bench (${{ matrix.testname }}) "
     timeout-minutes: 100
     steps:
+      - name: Check out CI benchmark helpers
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
       - name: Download tested UML image
         uses: actions/download-artifact@v4
         with:
