@@ -12,10 +12,10 @@ PROFILES = (
     ("native", "native", "#c0392b"),
     ("um-mmu", "um", "#27ae60"),
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu", "#2874a6"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#1f618d"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#d68910"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#7d3c98"),
+    ("um-nommu", "um-nommu", "#d68910"),
+    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#2874a6"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#1f618d"),
 )
 LATENCY_ROWS = (
     ("select-10", "select-10"),
@@ -98,8 +98,9 @@ def render_plot(out_dir, filename, title, ylabel, labels, files, *, logscale=Fal
         "set grid ytics",
         "set style fill solid 0.75 border -1",
         f"set boxwidth {width * 0.9:.4f}",
-        "set key outside top center horizontal font 'Sans,16'",
-        f"set xtics ({xtics}) rotate by 35 right font 'Sans,15'",
+        "set key outside top center horizontal font 'Sans,20'",
+        f"set xtics ({xtics}) rotate by 35 right font 'Sans,20'",
+        "set ytics font 'Sans,20'",
         f"set xrange [-0.8:{(2 * len(labels) if netperf else len(labels)) - 0.2}]",
         "set auto y",
     ]

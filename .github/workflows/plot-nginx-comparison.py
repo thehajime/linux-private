@@ -10,10 +10,10 @@ from pathlib import Path
 PROFILES = (
     ("um-mmu", "um", "#27ae60"),
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu", "#2874a6"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#1f618d"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#d68910"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#7d3c98"),
+    ("um-nommu", "um-nommu", "#d68910"),
+    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#2874a6"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#1f618d"),
 )
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
@@ -121,13 +121,14 @@ def main():
         "set title font 'Sans,24'",
         "set xlabel 'UML profile' font 'Sans,20'",
         "set ylabel 'Requests per second' font 'Sans,20'",
-        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by -18 font 'Sans,16'",
+        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by -18 font 'Sans,20'",
+        "set ytics font 'Sans,20'",
         "set xrange [0.5:6.5]",
         "set grid ytics",
         "set logscale y",
         "set yrange [1:*]",
         "set boxwidth 0.28 absolute",
-        "set key outside top center horizontal font 'Sans,16'",
+        "set key outside top center horizontal font 'Sans,20'",
         "set style fill solid 0.68 border -1",
         "set bars 0.25",
         "set tics out",
