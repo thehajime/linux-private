@@ -46,6 +46,17 @@ static void bad_segv(struct faultinfo fi, unsigned long ip)
 	force_sig_fault(SIGSEGV, SEGV_ACCERR, (void __user *) FAULT_ADDRESS(fi));
 }
 
+static bool nommu_user_ip(unsigned long ip)
+{
+	if (ip > uml_reserved && ip < high_physmem)
+		return true;
+#ifdef CONFIG_NOMMU_SWMMU
+	if (um_nommu_swmmu_address(ip) && ip < TASK_SIZE)
+		return true;
+#endif
+	return false;
+}
+
 void fatal_sigsegv(void)
 {
 	force_fatal_sig(SIGSEGV);
@@ -75,7 +86,7 @@ void segv_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs,
 
 	/* !MMU specific part; detection of userspace */
 	/* mark is_user=1 when the IP is from userspace code. */
-	if (UPT_IP(regs) > uml_reserved && UPT_IP(regs) < high_physmem)
+	if (nommu_user_ip(UPT_IP(regs)))
 		regs->is_user = 1;
 
 	if (UPT_IS_USER(regs) && !SEGV_IS_FIXABLE(fi)) {
@@ -164,7 +175,7 @@ void relay_signal(int sig, struct siginfo *si, struct uml_pt_regs *regs,
 
 	/* !MMU specific part; detection of userspace */
 	/* mark is_user=1 when the IP is from userspace code. */
-	if (UPT_IP(regs) > uml_reserved && UPT_IP(regs) < high_physmem)
+	if (nommu_user_ip(UPT_IP(regs)))
 		regs->is_user = 1;
 
 	if (!UPT_IS_USER(regs)) {
