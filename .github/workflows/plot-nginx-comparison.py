@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render all nginx profile/worker matrix measurements in one comparison plot."""
+"""Render nginx throughput distributions by UML profile and worker count."""
 
 import json
 import math
@@ -17,7 +17,7 @@ PROFILES = (
 )
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
-COLORS = ("#27ae60", "#145a32", "#2874a6", "#1f618d", "#d68910", "#7d3c98")
+WORKER_COLORS = {1: "#2874a6", 4: "#d68910"}
 
 
 def quote(value):
@@ -40,29 +40,39 @@ def main():
     }
     data = out_dir / "throughput-comparison.csv"
     with data.open("w") as stream:
-        stream.write("connections," + ",".join(
-            f"{profile}_{workers}" for profile, _label in PROFILES for workers in WORKERS
-        ) + "\n")
-        for connections in CONNECTIONS:
-            row = [str(connections)]
-            for profile, _label in PROFILES:
-                for workers in WORKERS:
+        stream.write("profile,workers,connections,status,requests_per_second,box_x\n")
+        for profile_index, (profile, _label) in enumerate(PROFILES, start=1):
+            for workers in WORKERS:
+                x = profile_index + (-0.18 if workers == 1 else 0.18)
+                for connections in CONNECTIONS:
                     value = values.get((profile, workers, connections))
-                    row.append(str(value) if finite(value) else "NaN")
-            stream.write(",".join(row) + "\n")
+                    status = "PASS" if finite(value) else next((
+                        row.get("status", "MISSING") for row in matrix
+                        if row.get("profile") == profile
+                        and row.get("workers") == workers
+                        and row.get("connections") == connections
+                    ), "MISSING")
+                    stream.write(
+                        f"{profile},{workers},{connections},{status},"
+                        f"{value if finite(value) else 'NaN'},{x:.2f}\n"
+                    )
 
     plot_items = []
-    column = 2
-    for profile_index, (_profile, label) in enumerate(PROFILES):
-        for workers in WORKERS:
-            if any(finite(values.get((PROFILES[profile_index][0], workers, connection)))
-                   for connection in CONNECTIONS):
-                plot_items.append(
-                    f"{quote(data)} using 1:{column} with linespoints lw 2 pt {workers + 4} "
-                    f"lc rgb {quote(COLORS[profile_index])} dt {1 if workers == 1 else 2} "
-                    f"title {quote(f'{label} workers={workers}')}"
-                )
-            column += 1
+    for workers in WORKERS:
+        worker_data = out_dir / f"throughput-boxplot-workers-{workers}.dat"
+        with worker_data.open("w") as stream:
+            for profile_index, (profile, _label) in enumerate(PROFILES, start=1):
+                x = profile_index + (-0.18 if workers == 1 else 0.18)
+                for connections in CONNECTIONS:
+                    value = values.get((profile, workers, connections))
+                    if finite(value):
+                        stream.write(f"{x:.2f} {value}\n")
+        if worker_data.stat().st_size:
+            plot_items.append(
+                f"{quote(worker_data)} using 1:2 with boxplot "
+                f"fc rgb {quote(WORKER_COLORS[workers])} "
+                f"title {quote(f'worker processes {workers}')}"
+            )
     status_path = out_dir / "plot-status.txt"
     if not plot_items:
         status_path.write_text("Plot omitted: no successful nginx measurements are available.\n")
@@ -72,16 +82,19 @@ def main():
     script.write_text("\n".join((
         "set terminal pngcairo size 1800,1000 enhanced font 'Sans,12'",
         f"set output {quote(out_dir / 'nginx-comparison.png')}",
-        "set datafile separator comma",
-        "set datafile missing 'NaN'",
-        "set title 'nginx throughput comparison'",
-        "set xlabel 'wrk connections'",
+        "set title 'nginx throughput by UML profile and worker count\\nBoxes summarize successful runs across wrk connections 4, 16, 64'",
+        "set xlabel 'UML profile'",
         "set ylabel 'Requests per second'",
-        "set xtics ('4' 4, '16' 16, '64' 64)",
-        "set xrange [0:68]",
+        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by -18",
+        "set xrange [0.5:6.5]",
         "set grid ytics",
-        "set yrange [0:*]",
-        "set key outside right center",
+        "set logscale y",
+        "set yrange [1:*]",
+        "set style fill solid 0.65 border -1",
+        "set style boxplot outliers",
+        "set boxwidth 0.28 absolute",
+        "set key outside top center horizontal",
+        "set tics out",
         "plot \\\n  " + ", \\\n  ".join(plot_items),
         "",
     )))
