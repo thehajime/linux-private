@@ -56,6 +56,19 @@ void fatal_sigsegv(void)
 	os_dump_core();
 }
 
+#ifdef CONFIG_UML_NOMMU_SAS
+static bool nommu_user_ip(unsigned long ip)
+{
+	if (ip > uml_reserved && ip < high_physmem)
+		return true;
+#ifdef CONFIG_NOMMU_SWMMU
+	if (um_nommu_swmmu_address(ip) && ip < TASK_SIZE)
+		return true;
+#endif
+	return false;
+}
+#endif
+
 /**
  * segv_handler() - the SIGSEGV handler
  * @sig:	the signal number
@@ -71,6 +84,12 @@ void segv_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs,
 		  void *mc)
 {
 	struct faultinfo * fi = UPT_FAULTINFO(regs);
+
+#ifdef CONFIG_UML_NOMMU_SAS
+	/* SWMMU user instructions may live above the normal NOMMU range. */
+	if (nommu_user_ip(UPT_IP(regs)))
+		regs->is_user = 1;
+#endif
 
 	if (UPT_IS_USER(regs) && !SEGV_IS_FIXABLE(fi)) {
 		show_segv_info(regs);
@@ -180,12 +199,12 @@ void relay_signal(int sig, struct siginfo *si, struct uml_pt_regs *regs,
 {
 	int code, err;
 
-	if (IS_ENABLED(CONFIG_UML_NOMMU_SAS)) {
-		/* !MMU specific part; detection of userspace */
-		/* mark is_user=1 when the IP is from userspace code. */
-		if (UPT_IP(regs) > uml_reserved && UPT_IP(regs) < high_physmem)
-			regs->is_user = 1;
-	}
+#ifdef CONFIG_UML_NOMMU_SAS
+	/* !MMU specific part; detection of userspace */
+	/* mark is_user=1 when the IP is from userspace code. */
+	if (nommu_user_ip(UPT_IP(regs)))
+		regs->is_user = 1;
+#endif
 
 	if (!UPT_IS_USER(regs)) {
 		if (sig == SIGBUS)
