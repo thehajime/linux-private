@@ -58,31 +58,42 @@ def main():
                     )
 
     plot_items = []
-    for workers in WORKERS:
-        worker_data = out_dir / f"throughput-boxplot-workers-{workers}.dat"
-        with worker_data.open("w") as stream:
-            for profile_index, (profile, _label) in enumerate(PROFILES, start=1):
-                x = profile_index + (-0.18 if workers == 1 else 0.18)
+    for profile_index, (profile, _label) in enumerate(PROFILES, start=1):
+        for workers in WORKERS:
+            x = profile_index + (-0.18 if workers == 1 else 0.18)
+            worker_data = out_dir / f"throughput-boxplot-{profile}-workers-{workers}.dat"
+            with worker_data.open("w") as stream:
                 for connections in CONNECTIONS:
                     value = values.get((profile, workers, connections))
                     if finite(value):
-                        stream.write(f"{x:.2f} {value}\n")
-        if worker_data.stat().st_size:
-            plot_items.append(
-                f"{quote(worker_data)} using 1:2 with boxplot "
-                f"fc rgb {quote(WORKER_COLORS[workers])} "
-                f"title {quote(f'worker processes {workers}')}"
-            )
+                        stream.write(f"{value}\n")
+            sample_count = sum(1 for _ in worker_data.open())
+            if sample_count >= 3:
+                title = (f"title {quote('worker processes ' + str(workers))}"
+                         if profile_index == 1 else "notitle")
+                plot_items.append(
+                    f"{quote(worker_data)} using ({x:.2f}):1 with boxplot "
+                    f"fc rgb {quote(WORKER_COLORS[workers])} "
+                    f"{title}"
+                )
+            elif sample_count:
+                print(
+                    f"Omitting incomplete boxplot for {profile}, workers={workers}: "
+                    f"only {sample_count} of 3 connection measurements passed",
+                    file=sys.stderr,
+                )
     status_path = out_dir / "plot-status.txt"
     if not plot_items:
-        status_path.write_text("Plot omitted: no successful nginx measurements are available.\n")
+        status_path.write_text(
+            "Plot omitted: no profile/worker group has all 3 connection measurements.\n"
+        )
         print(status_path.read_text().strip())
         return
     script = out_dir / "throughput-comparison.gnuplot"
     script.write_text("\n".join((
         "set terminal pngcairo size 1800,1000 enhanced font 'Sans,12'",
         f"set output {quote(out_dir / 'nginx-comparison.png')}",
-        "set title 'nginx throughput by UML profile and worker count\\nBoxes summarize successful runs across wrk connections 4, 16, 64'",
+        'set title "nginx throughput by UML profile and worker count\\nBoxes summarize successful runs across wrk connections 4, 16, 64"',
         "set xlabel 'UML profile'",
         "set ylabel 'Requests per second'",
         "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by -18",
@@ -99,7 +110,10 @@ def main():
         "",
     )))
     subprocess.run(["gnuplot", str(script)], check=True)
-    status_path.write_text("Combined plot generated from available nginx matrix measurements.\n")
+    status_path.write_text(
+        "Combined boxplot generated from profile/worker groups with all 3 "
+        "connection measurements. Each connection setting contributes one sample.\n"
+    )
     print(f"Generated {out_dir / 'nginx-comparison.png'}")
 
 
