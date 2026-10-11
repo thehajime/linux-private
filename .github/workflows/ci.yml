@@ -46,7 +46,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Download matching prerelease APK profiles
+      - name: Download matching or trap-compatible prerelease APK profiles
         id: download
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,13 +61,60 @@ jobs:
           [[ "$kernel_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$aports_sha" =~ ^[0-9a-f]{40}$ ]]
           release_tag="ci-nommu-${kernel_sha}-${aports_sha}"
+          used_release_tag=$release_tag
           mkdir -p "$RUNNER_TEMP/nommu-apks"
-          curl --fail --location --retry 3 \
+          archive="$RUNNER_TEMP/nommu-apks.tar.gz"
+          if ! curl --fail --location --retry 3 \
             "https://github.com/thehajime/aports/releases/download/${release_tag}/nommu-apks.tar.gz" \
-            --output "$RUNNER_TEMP/nommu-apks.tar.gz"
-          tar -xzf "$RUNNER_TEMP/nommu-apks.tar.gz" -C "$RUNNER_TEMP/nommu-apks"
+            --output "$archive"; then
+            rm -f "$archive"
+            echo "No APK release for tested kernel $kernel_sha; checking for a package-compatible release."
+            candidate_tags=$(gh release list --repo thehajime/aports --limit 100 \
+              --json tagName,isPrerelease \
+              --jq ".[] | select(.isPrerelease and (.tagName | endswith(\"-${aports_sha}\"))) | .tagName")
+            compatible_tag=
+            compatible_kernel_sha=
+            while IFS= read -r candidate_tag; do
+              [[ "$candidate_tag" =~ ^ci-nommu-([0-9a-f]{40})-${aports_sha}$ ]] || continue
+              candidate_kernel_sha=${BASH_REMATCH[1]}
+              candidate_manifest=$(gh api "repos/thehajime/aports/releases/tags/$candidate_tag" --jq .body)
+              manifest_kernel_sha=$(sed -n 's/^kernel_commit=//p' <<<"$candidate_manifest")
+              manifest_aports_sha=$(sed -n 's/^aports_commit=//p' <<<"$candidate_manifest")
+              [[ "$manifest_kernel_sha" == "$candidate_kernel_sha" ]] || continue
+              [[ "$manifest_aports_sha" == "$aports_sha" ]] || continue
+
+              compare=$(gh api "repos/thehajime/linux-private/compare/${candidate_kernel_sha}...${kernel_sha}")
+              if jq -e '
+                .status == "ahead" and
+                (.files | length > 0 and length < 300) and
+                all(.files[]; .filename == "arch/um/kernel/trap.c")
+              ' <<<"$compare" >/dev/null; then
+                compatible_tag=$candidate_tag
+                compatible_kernel_sha=$candidate_kernel_sha
+                break
+              fi
+            done <<<"$candidate_tags"
+
+            [[ -n "$compatible_tag" ]] || {
+              echo "No APK release with identical aports sources and trap.c-only kernel delta is available." >&2
+              exit 1
+            }
+            echo "Reusing $compatible_tag: only arch/um/kernel/trap.c differs in the kernel, and aports SHA is unchanged."
+            used_release_tag=$compatible_tag
+            mkdir -p "$RUNNER_TEMP/apk-reuse"
+            gh release download "$compatible_tag" --repo thehajime/aports \
+              --pattern nommu-apks.tar.gz --dir "$RUNNER_TEMP/apk-reuse"
+            mv "$RUNNER_TEMP/apk-reuse/nommu-apks.tar.gz" "$archive"
+          else
+            compatible_kernel_sha=$kernel_sha
+          fi
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nommu-apks"
           test -s "$RUNNER_TEMP/nommu-apks/manifest.txt"
-          printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          archived_kernel_sha=$(sed -n 's/^kernel_commit=//p' "$RUNNER_TEMP/nommu-apks/manifest.txt")
+          archived_aports_sha=$(sed -n 's/^aports_commit=//p' "$RUNNER_TEMP/nommu-apks/manifest.txt")
+          [[ "$archived_kernel_sha" == "$compatible_kernel_sha" ]]
+          [[ "$archived_aports_sha" == "$aports_sha" ]]
+          printf 'release_tag=%s\n' "$used_release_tag" >> "$GITHUB_OUTPUT"
           printf 'kernel_sha=%s\n' "$kernel_sha" >> "$GITHUB_OUTPUT"
           printf 'aports_sha=%s\n' "$aports_sha" >> "$GITHUB_OUTPUT"
       - name: Upload signed NOMMU APK profiles and public key
