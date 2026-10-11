@@ -3,7 +3,8 @@ set -eu
 set -o pipefail
 
 : "${SWMMU_APK_DIR:?Set SWMMU_APK_DIR to the downloaded NOMMU APK artifact}"
-: "${SWMMU_KERNEL_SHA:?Set SWMMU_KERNEL_SHA to the kernel commit in the APK manifest}"
+: "${SWMMU_KERNEL_SHA:?Set SWMMU_KERNEL_SHA to the kernel commit being tested}"
+: "${SWMMU_APK_KERNEL_SHA:?Set SWMMU_APK_KERNEL_SHA to the kernel commit in the APK manifest}"
 : "${SWMMU_APORTS_SHA:?Set SWMMU_APORTS_SHA to the aports commit in the APK manifest}"
 : "${SWMMU_INIT_SCRIPT:?Set SWMMU_INIT_SCRIPT to the nginx guest init script}"
 : "${SWMMU_WORK:?Set SWMMU_WORK to a writable workspace directory}"
@@ -21,16 +22,19 @@ mkdir -p "$SWMMU_WORK/logs" "$OUT/packages" "$OUT/tools" "$OUT/keys" "$ROOTFS"
 test -s "$MANIFEST"
 manifest_kernel_sha=$(sed -n 's/^kernel_commit=//p' "$MANIFEST")
 manifest_aports_sha=$(sed -n 's/^aports_commit=//p' "$MANIFEST")
-[ "$manifest_kernel_sha" = "$SWMMU_KERNEL_SHA" ] || {
-	echo "kernel SHA mismatch: APKs=$manifest_kernel_sha workflow=$SWMMU_KERNEL_SHA" >&2
-	exit 1
+[ "$manifest_kernel_sha" = "${SWMMU_APK_KERNEL_SHA}" ] || {
+    echo "APK kernel SHA mismatch: manifest=$manifest_kernel_sha expected=$SWMMU_APK_KERNEL_SHA" >&2
+    exit 1
 }
+[ "${SWMMU_KERNEL_SHA}" != "${SWMMU_APK_KERNEL_SHA}" ] &&
+	echo "Using APKs built for $SWMMU_APK_KERNEL_SHA to test kernel $SWMMU_KERNEL_SHA; workflow verified trap.c-only compatibility."
 [ "$manifest_aports_sha" = "$SWMMU_APORTS_SHA" ] || {
 	echo "aports SHA mismatch: APKs=$manifest_aports_sha workflow=$SWMMU_APORTS_SHA" >&2
 	exit 1
 }
 grep -q '^profiles=.*nommu-swmmu' "$MANIFEST"
-kernel_sha=$manifest_kernel_sha
+kernel_sha=$SWMMU_KERNEL_SHA
+apk_kernel_sha=$manifest_kernel_sha
 aports_sha=$manifest_aports_sha
 
 for package in musl-nommu busybox-nommu libcrypto3 libssl3 nginx-nommu coreutils-nommu; do
@@ -79,6 +83,7 @@ install -m 0755 "$SWMMU_INIT_SCRIPT" "$ROOTFS/sbin/swmmu-nginx-init"
 
 cat >"$OUT/manifest.txt" <<EOF
 kernel_sha=$kernel_sha
+apk_kernel_sha=$apk_kernel_sha
 aports_sha=$aports_sha
 gcc_version=$gcc_version
 profile=SWMMU

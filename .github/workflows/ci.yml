@@ -43,6 +43,7 @@ jobs:
     outputs:
       kernel_sha: ${{ steps.download.outputs.kernel_sha }}
       aports_sha: ${{ steps.download.outputs.aports_sha }}
+      apk_kernel_sha: ${{ steps.download.outputs.apk_kernel_sha }}
     permissions:
       contents: read
     steps:
@@ -117,6 +118,7 @@ jobs:
           printf 'release_tag=%s\n' "$used_release_tag" >> "$GITHUB_OUTPUT"
           printf 'kernel_sha=%s\n' "$kernel_sha" >> "$GITHUB_OUTPUT"
           printf 'aports_sha=%s\n' "$aports_sha" >> "$GITHUB_OUTPUT"
+          printf 'apk_kernel_sha=%s\n' "$archived_kernel_sha" >> "$GITHUB_OUTPUT"
       - name: Upload signed NOMMU APK profiles and public key
         uses: actions/upload-artifact@v4
         with:
@@ -558,6 +560,7 @@ jobs:
         env:
           SWMMU_APK_DIR: ${{ github.workspace }}/.swmmu-nginx/aport-artifacts
           SWMMU_KERNEL_SHA: ${{ needs.build_nommu_apks.outputs.kernel_sha }}
+          SWMMU_APK_KERNEL_SHA: ${{ needs.build_nommu_apks.outputs.apk_kernel_sha }}
           SWMMU_APORTS_SHA: ${{ needs.build_nommu_apks.outputs.aports_sha }}
           SWMMU_INIT_SCRIPT: ${{ github.workspace }}/.github/workflows/swmmu-nginx-init.sh
           SWMMU_WORK: ${{ github.workspace }}/.swmmu-nginx
