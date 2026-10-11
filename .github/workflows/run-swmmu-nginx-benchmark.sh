@@ -62,6 +62,7 @@ printf '%s\n' "$KERNEL_SHA" >"$OUTPUT/kernel-sha.txt"
 printf '%s\n' "$APORTS_SHA" >"$OUTPUT/aports-sha.txt"
 printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
 : >"$OUTPUT/host-runtime-probe.log"
+: >"$OUTPUT/host-vmlinux-backtrace.log"
 : >"$OUTPUT/guest-runtime-probe.log"
 : >"$OUTPUT/tap100-tcpdump.log"
 printf 'SKIP\n' >"$OUTPUT/tap100-pcap.status"
@@ -92,6 +93,36 @@ fail() {
 	fi
 	HARNESS_ERROR+="$*"
 	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
+}
+
+capture_host_vmlinux_backtrace() {
+	local timeout_pid=${UML_PID:-}
+	local pid=
+	local log="$OUTPUT/host-vmlinux-backtrace.log"
+	if [[ "$PROFILE" != um-nommu-sas-seccomp || "$WORKERS" != 4 || "$CONNECTIONS" != 64 ]]; then
+		return 0
+	fi
+	{
+		printf 'Host UML backtrace captured after failed wrk warmup.\n'
+		if [[ -z "$timeout_pid" ]] || ! kill -0 "$timeout_pid" 2>/dev/null; then
+			printf 'UML timeout wrapper is no longer running (pid=%s).\n' "${timeout_pid:-unknown}"
+			return 0
+		fi
+		pid=$(ps -eo pid=,ppid=,comm= | awk -v parent="$timeout_pid" '$2 == parent && $3 == "vmlinux" {print $1; exit}')
+		if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+			printf 'Could not find a live vmlinux child of timeout pid=%s.\n' "$timeout_pid"
+			ps -eo pid,ppid,stat,pcpu,time,wchan:32,comm,args
+			return 0
+		fi
+		printf 'pid=%s exe=%s\n' "$pid" "$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo unavailable)"
+		if ! command -v gdb >/dev/null 2>&1; then
+			printf 'gdb is unavailable on the runner.\n'
+			return 0
+		fi
+		sudo timeout --foreground --signal=TERM --kill-after=3s 20s \
+			gdb -q -batch -ex 'set pagination off' -ex 'set debuginfod enabled off' \
+			-ex 'info threads' -ex 'thread apply all bt 30' -ex detach -ex quit -p "$pid"
+	} >"$log" 2>&1 || printf 'GDB attach/backtrace failed (exit=%s).\n' "$?" >>"$log"
 }
 
 start_tap_capture() {
@@ -424,6 +455,9 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		fail "wrk warmup completed without serving any requests"
 	else
 		printf 'PASS\n' >"$OUTPUT/wrk-warmup.status"
+	fi
+	if [[ "$(cat "$OUTPUT/wrk-warmup.status")" == FAIL ]]; then
+		capture_host_vmlinux_backtrace
 	fi
 fi
 if [[ "$HARNESS_STATUS" == PASS ]]; then

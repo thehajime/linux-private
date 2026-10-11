@@ -67,6 +67,7 @@ def main() -> int:
                 "client-container.log", "smoke-http.log", "smoke-tls.log",
                 "wrk-warmup.log", "wrk-warmup.status", "wrk.log", "nginx.conf",
                 "guest-runtime-probe.log", "host-runtime-probe.log",
+                "host-vmlinux-backtrace.log",
             ],
         }
         (args.output / "measurement.json").write_text(
@@ -181,6 +182,7 @@ def main() -> int:
             "nginx.conf",
             "guest-runtime-probe.log",
             "host-runtime-probe.log",
+            "host-vmlinux-backtrace.log",
         ],
     }
     (args.output / "measurement.json").write_text(
