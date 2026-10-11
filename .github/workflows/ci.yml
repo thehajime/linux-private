@@ -778,19 +778,29 @@ jobs:
            echo 0 > /proc/sys/kernel/exec-shield || true
       - name: benchmark-1
         if: ${{ github.event_name != 'workflow_dispatch' || github.ref_name != 'codex/netperf-focused' }}
+        continue-on-error: true
         run: |
+           set -uo pipefail
            mkdir -p output
            sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
            docker_caps=()
            if [[ "${{ matrix.vmlinux_opt }}" == *zpoline=1* ]]; then
              docker_caps+=(--cap-add SYS_RAWIO)
            fi
-           faketty docker run "${docker_caps[@]}" -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm uml-ci/alpine:edge-${{ matrix.image_name }} \
-              mem=2G root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 ${{ matrix.vmlinux_opt }} \
-              init=/bench.sh \
-             | tee output/${{ matrix.testname }}.dat &
-             sleep 100 ; exit
+           container_name=uml-benchmark-1-${{ matrix.testname }}
+           if bash .github/workflows/run-uml-benchmark-container.sh \
+             "$container_name" "output/${{ matrix.testname }}.dat" \
+             faketty docker run "${docker_caps[@]}" --name "$container_name" --rm \
+               -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
+               uml-ci/alpine:edge-${{ matrix.image_name }} mem=2G \
+               root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
+               ${{ matrix.vmlinux_opt }} init=/bench.sh; then
+             benchmark1_status=0
+           else
+             benchmark1_status=$?
+           fi
+           printf '%s\n' "$benchmark1_status" > "output/${{ matrix.testname }}-benchmark-1.status"
+           exit "$benchmark1_status"
       - name: benchmark-2
         if: ${{ github.event_name != 'workflow_dispatch' || startsWith(matrix.testname, 'um-nommu-sas-') }}
         run: |
@@ -806,14 +816,17 @@ jobs:
            #  root=/dev/root rootflags=`pwd`/rootfs rootfstype=hostfs rw \
            #  loglevel=8 console=tty init=/root/iperf3.sh \
            #  | tee output/${{ matrix.testname }}-seccomp-iperf3.dat
-           faketty docker run "${docker_caps[@]}" -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
-              --rm uml-ci/alpine:edge-${{ matrix.image_name }} mem=2G \
-              vec0:transport=raw,ifname=eth0,depth=128,gro=1  \
-              root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
-              ${{ matrix.vmlinux_opt }} \
-              ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && github.ref_name != 'codex/netperf-focused' && 'netperf_only=1' || '' }} \
-              init=/root/iperf3.sh \
-             | tee output/${{ matrix.testname }}-iperf3.dat &
+           container_name=uml-benchmark-2-${{ matrix.testname }}
+           bash .github/workflows/run-uml-benchmark-container.sh \
+              "$container_name" "output/${{ matrix.testname }}-iperf3.dat" \
+              faketty docker run "${docker_caps[@]}" --name "$container_name" --rm \
+                -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
+                uml-ci/alpine:edge-${{ matrix.image_name }} mem=2G \
+                vec0:transport=raw,ifname=eth0,depth=128,gro=1 \
+                root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
+                ${{ matrix.vmlinux_opt }} \
+                ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && github.ref_name != 'codex/netperf-focused' && 'netperf_only=1' || '' }} \
+                init=/root/iperf3.sh &
            bench_pid=$!
            (
              while kill -0 "$bench_pid" 2>/dev/null; do
@@ -833,6 +846,19 @@ jobs:
            kill "$probe_pid" 2>/dev/null || true
            wait "$probe_pid" 2>/dev/null || true
            exit "$bench_status"
+      - name: Check benchmark-1 guest status
+        if: ${{ always() && github.ref_name != 'codex/netperf-focused' }}
+        run: |
+          status_file="output/${{ matrix.testname }}-benchmark-1.status"
+          if [[ ! -s "$status_file" ]]; then
+            echo "benchmark-1 status file is missing: $status_file" >&2
+            exit 1
+          fi
+          status=$(cat "$status_file")
+          if [[ "$status" != 0 ]]; then
+            echo "benchmark-1 guest failed with status $status" >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
