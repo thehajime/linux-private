@@ -888,8 +888,8 @@ jobs:
                    capture_launcher_pid=
                  fi
                  if [[ -s "$netperf_pcap" ]]; then
-                   if timeout --foreground 10s sudo tcpdump -nn -tttt -r "$netperf_pcap" >"$netperf_pcap_text" 2>>"$netperf_pcap_log"; then
-                     printf 'PASS\n' >"$netperf_pcap_status"
+                   if timeout --foreground 10s sudo tcpdump -nn -tttt -c 1000 -r "$netperf_pcap" >"$netperf_pcap_text" 2>>"$netperf_pcap_log"; then
+                     printf 'PASS: packet text limited to 1000; pcap capture capped at 1000000 packets\n' >"$netperf_pcap_status"
                    else
                      printf 'FAIL: could not decode pcap within 10s\n' >"$netperf_pcap_status"
                    fi
@@ -908,7 +908,7 @@ jobs:
                  capture_attempted=1
                  rm -f "$netperf_pcap_pid"
                  sudo bash -c 'printf "%s\\n" "$$" >"$1"; shift; exec "$@"' _ "$netperf_pcap_pid" \
-                   tcpdump -n -i any -U -s 128 -w "$netperf_pcap" 'tcp and host 172.17.0.1' \
+                   tcpdump -n -i any -U -s 128 -c 1000000 -w "$netperf_pcap" 'tcp and host 172.17.0.1' \
                    >"$netperf_pcap_log" 2>&1 &
                  capture_launcher_pid=$!
                  for _ in {1..50}; do
