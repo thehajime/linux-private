@@ -20,10 +20,10 @@ nginx -t -c /etc/nginx/nginx-swmmu.conf
 nginx -c /etc/nginx/nginx-swmmu.conf
 echo SWMMU_NGINX_READY
 
-exec 3<>/run/nginx-benchmark-stop
-while IFS= read -r command <&3; do
+while IFS= read -r command < /run/nginx-benchmark-stop; do
 	case "$command" in
 	probe*)
+		printf 'SWMMU_NGINX_GUEST_PROBE %s\n' "$command" >/dev/console 2>/dev/null || true
 		printf '%s\n' "$command" >> /run/nginx-runtime-probe.log
 		busybox ps -T -o pid,ppid,stat,time,comm,args >> /run/nginx-runtime-probe.log 2>&1
 		busybox cat /proc/net/dev >> /run/nginx-runtime-probe.log 2>&1

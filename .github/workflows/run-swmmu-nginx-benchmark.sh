@@ -151,9 +151,13 @@ start_runtime_probes() {
 				ip -s link show dev tap100 2>&1 || true
 			} >>"$OUTPUT/host-runtime-probe.log"
 			if [[ -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
-				timeout --foreground 5s bash -c \
+				if ! timeout --foreground 5s bash -c \
 					'printf "probe %s\\n" "$(date -Ins)" >"$1"' _ \
-					"$ROOTFS/run/nginx-benchmark-stop" || break
+					"$ROOTFS/run/nginx-benchmark-stop"; then
+					printf '%s guest probe FIFO request timed out\n' \
+						"$(date -Ins)" >>"$OUTPUT/host-runtime-probe.log"
+					break
+				fi
 			fi
 			sleep 5
 		done
