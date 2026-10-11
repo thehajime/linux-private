@@ -150,11 +150,15 @@ start_runtime_probes() {
 				done
 				ip -s link show dev tap100 2>&1 || true
 			} >>"$OUTPUT/host-runtime-probe.log"
+			if [[ -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
+				timeout --foreground 5s bash -c \
+					'printf "probe %s\\n" "$(date -Ins)" >"$1"' _ \
+					"$ROOTFS/run/nginx-benchmark-stop" || break
+			fi
 			sleep 5
 		done
 	) &
 	HOST_PROBE_PID=$!
-	: >"$ROOTFS/run/nginx-probe-start"
 }
 
 finish() {
@@ -239,7 +243,12 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		>"$OUTPUT/kernel.log" 2>&1 &
 	UML_PID=$!
 	ready=0
-	for _ in {1..120}; do
+	ready_timeout=120
+	if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
+		# This profile can take slightly longer to boot when the full matrix is busy.
+		ready_timeout=240
+	fi
+	for ((second = 0; second < ready_timeout; second++)); do
 		if grep -Eq 'SWMMU_NGINX_READY|NGINX_MATRIX_READY' "$OUTPUT/kernel.log"; then
 			ready=1
 			break
@@ -250,7 +259,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		sleep 1
 	done
 	if [[ "$ready" != 1 ]]; then
-		fail "UML guest did not report its nginx ready marker within 120 seconds"
+		fail "UML guest did not report its nginx ready marker within ${ready_timeout} seconds"
 	else
 		if [[ -s "$ROOTFS/run/online-cpus.txt" ]]; then
 			cp "$ROOTFS/run/online-cpus.txt" "$OUTPUT/online-cpus.txt"

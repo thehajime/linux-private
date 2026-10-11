@@ -6,7 +6,7 @@ busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
 busybox mkdir -p /run
 busybox rm -f /run/nginx-benchmark-stop
-busybox rm -f /run/nginx-probe-start /run/nginx-probe-stop /run/nginx-runtime-probe.log
+busybox rm -f /run/nginx-runtime-probe.log
 busybox mkfifo /run/nginx-benchmark-stop
 busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp /var/lib/nginx/logs
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
@@ -20,18 +20,18 @@ nginx -t -c /etc/nginx/nginx-swmmu.conf
 nginx -c /etc/nginx/nginx-swmmu.conf
 echo SWMMU_NGINX_READY
 
-(
-	while [ ! -e /run/nginx-probe-start ]; do
-		busybox sleep 1
-	done
-	while [ ! -e /run/nginx-probe-stop ]; do
-		echo 'probe sample' >> /run/nginx-runtime-probe.log 2>&1
-		busybox ps >> /run/nginx-runtime-probe.log 2>&1
+exec 3<>/run/nginx-benchmark-stop
+while IFS= read -r command <&3; do
+	case "$command" in
+	probe*)
+		printf '%s\n' "$command" >> /run/nginx-runtime-probe.log
+		busybox ps -T -o pid,ppid,stat,time,comm,args >> /run/nginx-runtime-probe.log 2>&1
 		busybox cat /proc/net/dev >> /run/nginx-runtime-probe.log 2>&1
-		busybox sleep 5
-	done
-) &
-
-IFS= read -r _ < /run/nginx-benchmark-stop
-nginx -s quit -c /etc/nginx/nginx-swmmu.conf || true
-busybox poweroff -f
+		;;
+	stop)
+		nginx -s quit -c /etc/nginx/nginx-swmmu.conf || true
+		busybox poweroff -f
+		break
+		;;
+	esac
+done
