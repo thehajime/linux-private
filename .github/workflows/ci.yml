@@ -1379,7 +1379,7 @@ jobs:
           path: output/nginx
           if-no-files-found: warn
       - name: bench data parse/out
-        if: ${{ needs.benchmark.result == 'success' }}
+        if: ${{ always() && needs.build_uml.result == 'success' && needs.benchmark.result != 'skipped' }}
         run: |
           bash .github/workflows/um-nommu-plot.sh output |& tee um-nommu.log
           bash .github/workflows/netperf-plot.sh output |& tee -a um-nommu.log
@@ -1427,14 +1427,14 @@ jobs:
             --benchmark-status "$BENCHMARK_STATUS" \
             --ltp-status "$LTP_STATUS"
       - name: Render comparison benchmark plots
-        if: ${{ needs.benchmark.result == 'success' }}
+        if: ${{ always() && needs.build_uml.result == 'success' && needs.benchmark.result != 'skipped' }}
         run: |
           python3 .github/workflows/plot-benchmark-results.py \
             --snapshot "$RUNNER_TEMP/result-snapshot.json" \
             --output output/out
       - name: Publish immutable benchmark chart assets
         id: publish_chart_assets
-        if: ${{ needs.benchmark.result == 'success' }}
+        if: ${{ always() && needs.build_uml.result == 'success' && needs.benchmark.result != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1442,7 +1442,7 @@ jobs:
           CHART_DIR: output/out
         run: bash .github/workflows/publish-chart-assets.sh
       - uses: actions/upload-artifact@v7
-        if: ${{ needs.benchmark.result == 'success' }}
+        if: ${{ always() && needs.build_uml.result == 'success' && needs.benchmark.result != 'skipped' }}
         with:
           name: test-result-all
           path: output/out/*
