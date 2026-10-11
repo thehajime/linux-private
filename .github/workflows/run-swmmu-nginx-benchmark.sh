@@ -63,11 +63,14 @@ printf '%s\n' "$APORTS_SHA" >"$OUTPUT/aports-sha.txt"
 printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
 : >"$OUTPUT/host-runtime-probe.log"
 : >"$OUTPUT/guest-runtime-probe.log"
+: >"$OUTPUT/tap100-tcpdump.log"
+printf 'SKIP\n' >"$OUTPUT/tap100-pcap.status"
 
 HARNESS_ERROR=
 CLIENT=swmmu-wrk-client
 UML_PID=
 HOST_PROBE_PID=
+TAP_CAPTURE_PID=
 HARNESS_STATUS=PASS
 GUEST_IP=172.18.0.2
 EXPECTED_BODY=nginx-matrix-ok
@@ -89,7 +92,51 @@ fail() {
 	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
 }
 
+start_tap_capture() {
+	if [[ "$PROFILE" != um-nommu-sas-seccomp || "$WORKERS" != 4 ]]; then
+		return 0
+	fi
+	if ! command -v tcpdump >/dev/null 2>&1; then
+		printf 'FAIL: tcpdump is unavailable\n' >"$OUTPUT/tap100-pcap.status"
+		return 0
+	fi
+	sudo tcpdump -n -i tap100 -U -s 128 \
+		-w "$OUTPUT/tap100.pcap" \
+		'tcp port 8080 or tcp port 8443' \
+		>"$OUTPUT/tap100-tcpdump.log" 2>&1 &
+	TAP_CAPTURE_PID=$!
+	sleep 1
+	if ! kill -0 "$TAP_CAPTURE_PID" 2>/dev/null; then
+		wait "$TAP_CAPTURE_PID" 2>/dev/null || true
+		TAP_CAPTURE_PID=
+		printf 'FAIL: could not start tcpdump\n' >"$OUTPUT/tap100-pcap.status"
+		return 0
+	fi
+	printf 'RUNNING\n' >"$OUTPUT/tap100-pcap.status"
+}
+
+stop_tap_capture() {
+	if [[ -z "$TAP_CAPTURE_PID" ]]; then
+		return 0
+	fi
+	sudo kill -INT "$TAP_CAPTURE_PID" 2>/dev/null || true
+	wait "$TAP_CAPTURE_PID" 2>/dev/null || true
+	TAP_CAPTURE_PID=
+	if [[ -s "$OUTPUT/tap100.pcap" ]]; then
+		if sudo tcpdump -nn -tttt -r "$OUTPUT/tap100.pcap" \
+			>"$OUTPUT/tap100-packets.txt" \
+			2>>"$OUTPUT/tap100-tcpdump.log"; then
+			printf 'PASS\n' >"$OUTPUT/tap100-pcap.status"
+		else
+			printf 'FAIL: could not decode pcap\n' >"$OUTPUT/tap100-pcap.status"
+		fi
+	else
+		printf 'FAIL: capture produced no pcap\n' >"$OUTPUT/tap100-pcap.status"
+	fi
+}
+
 capture_logs() {
+	stop_tap_capture
 	if [[ -n "$HOST_PROBE_PID" ]]; then
 		kill "$HOST_PROBE_PID" 2>/dev/null || true
 		wait "$HOST_PROBE_PID" 2>/dev/null || true
@@ -289,6 +336,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
+	start_tap_capture
 	start_runtime_probes
 fi
 

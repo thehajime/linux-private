@@ -627,9 +627,15 @@ jobs:
           mkdir -p rootfs
           tar -xzf "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" -C rootfs
       - name: Install UML host networking and capability tools
+        env:
+          PROFILE: ${{ matrix.profile }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends iproute2 libcap2-bin
+          host_tools=(iproute2 libcap2-bin)
+          if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
+            host_tools+=(tcpdump)
+          fi
+          sudo apt-get install -y --no-install-recommends "${host_tools[@]}"
       - name: Run HTTP/TLS smoke tests and wrk from a separate client container
         env:
           WORKERS: ${{ matrix.workers }}
@@ -668,7 +674,7 @@ jobs:
           out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
           if [[ ! -s "$out/measurement.json" ]]; then
             mkdir -p "$out"
-            for file in capability.log host-sysctl.log tap.log kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log; do
+            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log; do
               touch "$out/$file"
             done
             printf 'FAIL\n' >"$out/harness.status"
@@ -756,7 +762,7 @@ jobs:
         run: |
            set -x
            sudo apt update -y
-           sudo apt install -y iperf3 netperf
+           sudo apt install -y iperf3 netperf tcpdump
            if ! ss -ltnH 'sport = :12865' | grep -q LISTEN; then
              sudo service netperf start || true
            fi
@@ -810,6 +816,11 @@ jobs:
         run: |
            set -o pipefail
            mkdir -p output
+           netperf_log="output/${{ matrix.testname }}-iperf3.dat"
+           netperf_pcap="output/${{ matrix.testname }}-64-TCP_STREAM.pcap"
+           netperf_pcap_text="output/${{ matrix.testname }}-64-TCP_STREAM-packets.txt"
+           netperf_pcap_log="output/${{ matrix.testname }}-64-TCP_STREAM-tcpdump.log"
+           netperf_pcap_status="output/${{ matrix.testname }}-64-TCP_STREAM-pcap.status"
            ## dynamic build failed at iperf -R
            echo "===========================non-static build may fail...==========================="
            docker_caps=()
@@ -822,7 +833,7 @@ jobs:
            #  | tee output/${{ matrix.testname }}-seccomp-iperf3.dat
            container_name=uml-benchmark-2-${{ matrix.testname }}
            bash .github/workflows/run-uml-benchmark-container.sh \
-              "$container_name" "output/${{ matrix.testname }}-iperf3.dat" \
+              "$container_name" "$netperf_log" \
               faketty docker run "${docker_caps[@]}" --name "$container_name" --rm \
                 -it -v /dev/shm:/dev/shm --entrypoint /root/vmlinux \
                 uml-ci/alpine:edge-${{ matrix.image_name }} mem=2G \
@@ -832,6 +843,56 @@ jobs:
                 ${{ github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-') && github.ref_name != 'codex/netperf-focused' && 'netperf_only=1' || '' }} \
                 init=/root/iperf3.sh &
            bench_pid=$!
+           if [[ "${{ startsWith(matrix.testname, 'um-nommu-sas-') }}" == true ]]; then
+             printf 'WAITING_FOR_64_TCP_STREAM\n' >"$netperf_pcap_status"
+           else
+             printf 'SKIP\n' >"$netperf_pcap_status"
+           fi
+           (
+             capture_pid=
+             capture_attempted=0
+             stop_capture() {
+               if [[ -n "$capture_pid" ]]; then
+                 sudo kill -INT "$capture_pid" 2>/dev/null || true
+                 wait "$capture_pid" 2>/dev/null || true
+                 capture_pid=
+                 if [[ -s "$netperf_pcap" ]]; then
+                   sudo tcpdump -nn -tttt -r "$netperf_pcap" >"$netperf_pcap_text" 2>>"$netperf_pcap_log" || true
+                   printf 'PASS\n' >"$netperf_pcap_status"
+                 else
+                   printf 'FAIL: pcap file is empty\n' >"$netperf_pcap_status"
+                 fi
+               elif [[ "${{ startsWith(matrix.testname, 'um-nommu-sas-') }}" == true && \
+                       "$(cat "$netperf_pcap_status")" == WAITING_FOR_64_TCP_STREAM ]]; then
+                 printf 'SKIP: 64-byte TCP_STREAM did not start\n' >"$netperf_pcap_status"
+               fi
+             }
+             trap stop_capture EXIT
+             while kill -0 "$bench_pid" 2>/dev/null; do
+               if [[ "$capture_attempted" == 0 && "${{ startsWith(matrix.testname, 'um-nommu-sas-') }}" == true ]] && \
+                  grep -Fq 'netperf case start: 64-TCP_STREAM' "$netperf_log"; then
+                 capture_attempted=1
+                 sudo tcpdump -n -i any -U -s 128 -w "$netperf_pcap" \
+                   'tcp port 12865' >"$netperf_pcap_log" 2>&1 &
+                 capture_pid=$!
+                 sleep 1
+                 if ! kill -0 "$capture_pid" 2>/dev/null; then
+                   wait "$capture_pid" 2>/dev/null || true
+                   capture_pid=
+                   printf 'FAIL: could not start tcpdump\n' >"$netperf_pcap_status"
+                 else
+                   printf 'RUNNING\n' >"$netperf_pcap_status"
+                 fi
+               fi
+               if [[ -n "$capture_pid" ]] && \
+                  grep -Fq 'netperf case end: 64-TCP_STREAM' "$netperf_log"; then
+                 stop_capture
+               fi
+               sleep 1
+             done
+             stop_capture
+           ) >"output/${{ matrix.testname }}-pcap-monitor.log" 2>&1 &
+           capture_probe_pid=$!
            (
              while kill -0 "$bench_pid" 2>/dev/null; do
                date -Ins
@@ -851,6 +912,7 @@ jobs:
            fi
            kill "$probe_pid" 2>/dev/null || true
            wait "$probe_pid" 2>/dev/null || true
+           wait "$capture_probe_pid" 2>/dev/null || true
            exit "$bench_status"
       - name: Check benchmark-1 guest status
         if: ${{ always() && github.ref_name != 'codex/netperf-focused' }}
