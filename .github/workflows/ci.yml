@@ -674,7 +674,7 @@ jobs:
           out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
           if [[ ! -s "$out/measurement.json" ]]; then
             mkdir -p "$out"
-            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log; do
+            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log; do
               touch "$out/$file"
             done
             printf 'FAIL\n' >"$out/harness.status"
@@ -821,6 +821,7 @@ jobs:
            netperf_pcap_text="output/${{ matrix.testname }}-64-TCP_STREAM-packets.txt"
            netperf_pcap_log="output/${{ matrix.testname }}-64-TCP_STREAM-tcpdump.log"
            netperf_pcap_status="output/${{ matrix.testname }}-64-TCP_STREAM-pcap.status"
+           netperf_pcap_pid="output/${{ matrix.testname }}-64-TCP_STREAM-tcpdump.pid"
            ## dynamic build failed at iperf -R
            echo "===========================non-static build may fail...==========================="
            docker_caps=()
@@ -850,15 +851,47 @@ jobs:
            fi
            (
              capture_pid=
+             capture_launcher_pid=
              capture_attempted=0
              stop_capture() {
                if [[ -n "$capture_pid" ]]; then
                  sudo kill -INT "$capture_pid" 2>/dev/null || true
-                 wait "$capture_pid" 2>/dev/null || true
+                 for _ in {1..50}; do
+                   sudo kill -0 "$capture_pid" 2>/dev/null || break
+                   sleep 0.1
+                 done
+                 if sudo kill -0 "$capture_pid" 2>/dev/null; then
+                   printf 'FAIL: tcpdump did not stop after SIGINT; sending SIGTERM\n' >>"$netperf_pcap_log"
+                   sudo kill -TERM "$capture_pid" 2>/dev/null || true
+                   for _ in {1..20}; do
+                     sudo kill -0 "$capture_pid" 2>/dev/null || break
+                     sleep 0.1
+                   done
+                 fi
+                 if sudo kill -0 "$capture_pid" 2>/dev/null; then
+                   printf 'FAIL: tcpdump did not stop after SIGTERM; sending SIGKILL\n' >>"$netperf_pcap_log"
+                   sudo kill -KILL "$capture_pid" 2>/dev/null || true
+                 fi
                  capture_pid=
+                 if [[ -n "$capture_launcher_pid" ]]; then
+                   for _ in {1..20}; do
+                     kill -0 "$capture_launcher_pid" 2>/dev/null || break
+                     sleep 0.1
+                   done
+                   if ! kill -0 "$capture_launcher_pid" 2>/dev/null; then
+                     wait "$capture_launcher_pid" 2>/dev/null || true
+                   else
+                     kill "$capture_launcher_pid" 2>/dev/null || true
+                     printf 'FAIL: tcpdump launcher did not exit promptly\n' >>"$netperf_pcap_log"
+                   fi
+                   capture_launcher_pid=
+                 fi
                  if [[ -s "$netperf_pcap" ]]; then
-                   sudo tcpdump -nn -tttt -r "$netperf_pcap" >"$netperf_pcap_text" 2>>"$netperf_pcap_log" || true
-                   printf 'PASS\n' >"$netperf_pcap_status"
+                   if timeout --foreground 10s sudo tcpdump -nn -tttt -r "$netperf_pcap" >"$netperf_pcap_text" 2>>"$netperf_pcap_log"; then
+                     printf 'PASS\n' >"$netperf_pcap_status"
+                   else
+                     printf 'FAIL: could not decode pcap within 10s\n' >"$netperf_pcap_status"
+                   fi
                  else
                    printf 'FAIL: pcap file is empty\n' >"$netperf_pcap_status"
                  fi
@@ -872,12 +905,20 @@ jobs:
                if [[ "$capture_attempted" == 0 && "${{ startsWith(matrix.testname, 'um-nommu-sas-') }}" == true ]] && \
                   grep -Fq 'netperf case start: 64-TCP_STREAM' "$netperf_log"; then
                  capture_attempted=1
-                 sudo tcpdump -n -i any -U -s 128 -w "$netperf_pcap" \
-                   'tcp port 12865' >"$netperf_pcap_log" 2>&1 &
-                 capture_pid=$!
-                 sleep 1
-                 if ! kill -0 "$capture_pid" 2>/dev/null; then
-                   wait "$capture_pid" 2>/dev/null || true
+                 rm -f "$netperf_pcap_pid"
+                 sudo bash -c 'printf "%s\\n" "$$" >"$1"; shift; exec "$@"' _ "$netperf_pcap_pid" \
+                   tcpdump -n -i any -U -s 128 -w "$netperf_pcap" 'tcp port 12865' \
+                   >"$netperf_pcap_log" 2>&1 &
+                 capture_launcher_pid=$!
+                 for _ in {1..50}; do
+                   [[ -s "$netperf_pcap_pid" ]] && break
+                   kill -0 "$capture_launcher_pid" 2>/dev/null || break
+                   sleep 0.1
+                 done
+                 capture_pid=$(cat "$netperf_pcap_pid" 2>/dev/null || true)
+                 if [[ -z "$capture_pid" ]] || ! sudo kill -0 "$capture_pid" 2>/dev/null; then
+                   kill -KILL "$capture_launcher_pid" 2>/dev/null || true
+                   capture_launcher_pid=
                    capture_pid=
                    printf 'FAIL: could not start tcpdump\n' >"$netperf_pcap_status"
                  else

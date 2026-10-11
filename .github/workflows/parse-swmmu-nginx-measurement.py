@@ -61,7 +61,8 @@ def main() -> int:
             "smoke_tls": False,
             "raw_logs": [
                 "capability.log", "host-sysctl.log", "tap.log", "tap100.pcap",
-                "tap100-packets.txt", "tap100-tcpdump.log", "tap100-pcap.status", "kernel.log",
+                "tap100-packets.txt", "tap100-tcpdump.log", "tap100-tcpdump.pid",
+                "tap100-pcap.status", "kernel.log",
                 "online-cpus.txt", "nginx.log", "client-setup.log",
                 "client-container.log", "smoke-http.log", "smoke-tls.log",
                 "wrk-warmup.log", "wrk-warmup.status", "wrk.log", "nginx.conf",
@@ -165,6 +166,7 @@ def main() -> int:
             "tap100.pcap",
             "tap100-packets.txt",
             "tap100-tcpdump.log",
+            "tap100-tcpdump.pid",
             "tap100-pcap.status",
             "kernel.log",
             "online-cpus.txt",

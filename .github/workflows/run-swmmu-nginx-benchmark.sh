@@ -65,12 +65,14 @@ printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
 : >"$OUTPUT/guest-runtime-probe.log"
 : >"$OUTPUT/tap100-tcpdump.log"
 printf 'SKIP\n' >"$OUTPUT/tap100-pcap.status"
+TAP_CAPTURE_PID_FILE="$OUTPUT/tap100-tcpdump.pid"
 
 HARNESS_ERROR=
 CLIENT=swmmu-wrk-client
 UML_PID=
 HOST_PROBE_PID=
 TAP_CAPTURE_PID=
+TAP_CAPTURE_LAUNCHER_PID=
 HARNESS_STATUS=PASS
 GUEST_IP=172.18.0.2
 EXPECTED_BODY=nginx-matrix-ok
@@ -100,14 +102,21 @@ start_tap_capture() {
 		printf 'FAIL: tcpdump is unavailable\n' >"$OUTPUT/tap100-pcap.status"
 		return 0
 	fi
-	sudo tcpdump -n -i tap100 -U -s 128 \
-		-w "$OUTPUT/tap100.pcap" \
-		'tcp port 8080 or tcp port 8443' \
+	rm -f "$TAP_CAPTURE_PID_FILE"
+	sudo bash -c 'printf "%s\n" "$$" >"$1"; shift; exec "$@"' _ \
+		"$TAP_CAPTURE_PID_FILE" tcpdump -n -i tap100 -U -s 128 \
+		-w "$OUTPUT/tap100.pcap" 'tcp port 8080 or tcp port 8443' \
 		>"$OUTPUT/tap100-tcpdump.log" 2>&1 &
-	TAP_CAPTURE_PID=$!
-	sleep 1
-	if ! kill -0 "$TAP_CAPTURE_PID" 2>/dev/null; then
-		wait "$TAP_CAPTURE_PID" 2>/dev/null || true
+	TAP_CAPTURE_LAUNCHER_PID=$!
+	for _ in {1..50}; do
+		[[ -s "$TAP_CAPTURE_PID_FILE" ]] && break
+		kill -0 "$TAP_CAPTURE_LAUNCHER_PID" 2>/dev/null || break
+		sleep 0.1
+	done
+	TAP_CAPTURE_PID=$(cat "$TAP_CAPTURE_PID_FILE" 2>/dev/null || true)
+	if [[ -z "$TAP_CAPTURE_PID" ]] || ! sudo kill -0 "$TAP_CAPTURE_PID" 2>/dev/null; then
+		kill -KILL "$TAP_CAPTURE_LAUNCHER_PID" 2>/dev/null || true
+		TAP_CAPTURE_LAUNCHER_PID=
 		TAP_CAPTURE_PID=
 		printf 'FAIL: could not start tcpdump\n' >"$OUTPUT/tap100-pcap.status"
 		return 0
@@ -120,10 +129,38 @@ stop_tap_capture() {
 		return 0
 	fi
 	sudo kill -INT "$TAP_CAPTURE_PID" 2>/dev/null || true
-	wait "$TAP_CAPTURE_PID" 2>/dev/null || true
+	for _ in {1..50}; do
+		sudo kill -0 "$TAP_CAPTURE_PID" 2>/dev/null || break
+		sleep 0.1
+	done
+	if sudo kill -0 "$TAP_CAPTURE_PID" 2>/dev/null; then
+		printf 'tcpdump did not stop after SIGINT; sending SIGTERM\n' >>"$OUTPUT/tap100-tcpdump.log"
+		sudo kill -TERM "$TAP_CAPTURE_PID" 2>/dev/null || true
+		for _ in {1..20}; do
+			sudo kill -0 "$TAP_CAPTURE_PID" 2>/dev/null || break
+			sleep 0.1
+		done
+	fi
+	if sudo kill -0 "$TAP_CAPTURE_PID" 2>/dev/null; then
+		printf 'tcpdump did not stop after SIGTERM; sending SIGKILL\n' >>"$OUTPUT/tap100-tcpdump.log"
+		sudo kill -KILL "$TAP_CAPTURE_PID" 2>/dev/null || true
+	fi
 	TAP_CAPTURE_PID=
+	if [[ -n "$TAP_CAPTURE_LAUNCHER_PID" ]]; then
+		for _ in {1..20}; do
+			kill -0 "$TAP_CAPTURE_LAUNCHER_PID" 2>/dev/null || break
+			sleep 0.1
+		done
+		if ! kill -0 "$TAP_CAPTURE_LAUNCHER_PID" 2>/dev/null; then
+			wait "$TAP_CAPTURE_LAUNCHER_PID" 2>/dev/null || true
+		else
+			kill "$TAP_CAPTURE_LAUNCHER_PID" 2>/dev/null || true
+			printf 'tcpdump launcher did not exit promptly\n' >>"$OUTPUT/tap100-tcpdump.log"
+		fi
+		TAP_CAPTURE_LAUNCHER_PID=
+	fi
 	if [[ -s "$OUTPUT/tap100.pcap" ]]; then
-		if sudo tcpdump -nn -tttt -r "$OUTPUT/tap100.pcap" \
+		if timeout --foreground 10s sudo tcpdump -nn -tttt -r "$OUTPUT/tap100.pcap" \
 			>"$OUTPUT/tap100-packets.txt" \
 			2>>"$OUTPUT/tap100-tcpdump.log"; then
 			printf 'PASS\n' >"$OUTPUT/tap100-pcap.status"
