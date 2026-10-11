@@ -30,15 +30,25 @@ case "$process_method" in
 	*) echo "Unknown LMBENCH_PROCESS_METHOD: $process_method" >&2; exit 2 ;;
 esac
 echo "lmbench process methods: $process_methods"
+measurement_failed=0
 
 run_measurement() {
 	measurement=$1
 	shift
-	if "$@"; then
+	if [ -n "${LMBENCH_MEASUREMENT_TIMEOUT_SECONDS:-}" ]; then
+		if timeout --kill-after=5s "${LMBENCH_MEASUREMENT_TIMEOUT_SECONDS}s" "$@"; then
+			echo "lmbench measurement status: $measurement PASS"
+		else
+			status=$?
+			echo "lmbench measurement status: $measurement FAIL (exit $status)"
+			measurement_failed=1
+		fi
+	elif "$@"; then
 		echo "lmbench measurement status: $measurement PASS"
 	else
 		status=$?
 		echo "lmbench measurement status: $measurement FAIL (exit $status)"
+		measurement_failed=1
 	fi
 }
 
@@ -61,3 +71,5 @@ done
 
 run_measurement bw_pipe_64k env ENOUGH=10000 bw_pipe -m 64k -M 64k
 run_measurement bw_mem_512k_rdwr env ENOUGH=10000 bw_mem 512k rdwr
+
+exit "$measurement_failed"

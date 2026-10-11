@@ -812,7 +812,8 @@ jobs:
            printf '%s\n' "$benchmark1_status" > "output/${{ matrix.testname }}-benchmark-1.status"
            exit "$benchmark1_status"
       - name: benchmark-2
-        if: ${{ github.event_name != 'workflow_dispatch' || startsWith(matrix.testname, 'um-nommu-sas-') }}
+        # Preserve SAS network diagnostics in manual runs after the known benchmark-1 fault.
+        if: ${{ !cancelled() && ((success() && github.event_name != 'workflow_dispatch') || (github.event_name == 'workflow_dispatch' && startsWith(matrix.testname, 'um-nommu-sas-'))) }}
         run: |
            set -o pipefail
            mkdir -p output
@@ -907,7 +908,7 @@ jobs:
                  capture_attempted=1
                  rm -f "$netperf_pcap_pid"
                  sudo bash -c 'printf "%s\\n" "$$" >"$1"; shift; exec "$@"' _ "$netperf_pcap_pid" \
-                   tcpdump -n -i any -U -s 128 -w "$netperf_pcap" 'tcp port 12865' \
+                   tcpdump -n -i any -U -s 128 -w "$netperf_pcap" 'tcp and host 172.17.0.1' \
                    >"$netperf_pcap_log" 2>&1 &
                  capture_launcher_pid=$!
                  for _ in {1..50}; do
@@ -1034,6 +1035,7 @@ jobs:
         run: |
           mkdir -p output
           LMBENCH_BIN_DIR="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1" \
+            LMBENCH_MEASUREMENT_TIMEOUT_SECONDS=120 \
             LMBENCH_PROCESS_METHOD=both \
             sh .github/workflows/lmbench_run.sh |& tee output/native.dat
           gcc -o do_getpid .github/workflows/do_getpid.c
@@ -1433,45 +1435,11 @@ jobs:
           mkdir -p output/nginx
           python3 .github/workflows/aggregate-swmmu-nginx-results.py \
             "$RUNNER_TEMP/nginx-matrix" output/nginx
-          plotted=0
-          for profile in um-mmu um-mmu-seccomp um-nommu um-nommu-seccomp \
-            um-nommu-sas-seccomp um-nommu-sas-zpoline; do
-            csv="output/nginx/throughput-${profile}.csv"
-            plot_workers_1=0
-            plot_workers_4=0
-            for field in workers_1 workers_4; do
-              if python3 - "$csv" "$field" <<'PY'
-          import csv
-          import math
-          import sys
-          with open(sys.argv[1], newline="") as stream:
-              for row in csv.DictReader(stream):
-                  try:
-                      if math.isfinite(float(row[sys.argv[2]])):
-                          sys.exit(0)
-                  except (TypeError, ValueError):
-                      pass
-          sys.exit(1)
-          PY
-              then
-                if [ "$field" = workers_1 ]; then plot_workers_1=1; else plot_workers_4=1; fi
-              fi
-            done
-            if [ "$plot_workers_1" -eq 1 ] || [ "$plot_workers_4" -eq 1 ]; then
-              gnuplot -e "data_file='${csv}'; output_file='output/nginx/throughput-${profile}.png'; profile_label='${profile}'; plot_workers_1=${plot_workers_1}; plot_workers_4=${plot_workers_4}" \
-                .github/workflows/plot-swmmu-nginx.gnuplot
-              mkdir -p output/out
-              cp "output/nginx/throughput-${profile}.png" "output/out/nginx-${profile}.png"
-              printf '%s\n' 'Plot generated from available matrix measurements.' \
-                > "output/nginx/${profile}-plot-status.txt"
-              plotted=1
-            else
-              printf '%s\n' 'Plot omitted: no successful matrix measurements.' \
-                > "output/nginx/${profile}-plot-status.txt"
-            fi
-          done
-          if [ "$plotted" -eq 0 ]; then
-            printf '%s\n' 'No profile had any successful measurements.' > output/nginx/plot-status.txt
+          python3 .github/workflows/plot-nginx-comparison.py \
+            output/nginx/aggregate.json output/nginx
+          mkdir -p output/out
+          if [ -f output/nginx/nginx-comparison.png ]; then
+            cp output/nginx/nginx-comparison.png output/out/nginx-comparison.png
           fi
           if [ -d "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" ]; then
             cp -a "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" \
@@ -1580,9 +1548,7 @@ jobs:
             else
               printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
             fi
-            for chart in lmbench.png iperf3.png tcp-stream.png nginx-um-mmu.png \
-              nginx-um-mmu-seccomp.png nginx-um-nommu.png nginx-um-nommu-seccomp.png \
-              nginx-um-nommu-sas-seccomp.png nginx-um-nommu-sas-zpoline.png; do
+            for chart in lmbench.png iperf3.png tcp-stream.png nginx-comparison.png; do
               if [ -f "$RUNNER_TEMP/site/$chart" ]; then
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"
