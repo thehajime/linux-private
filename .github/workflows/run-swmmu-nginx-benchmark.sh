@@ -469,6 +469,16 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	printf '%s\n' "$wrk_rc" >"$OUTPUT/wrk.exit-code"
 	if [[ "$wrk_rc" -ne 0 ]]; then
 		fail "wrk failed or timed out with exit status $wrk_rc"
+	elif ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
+		"$OUTPUT/wrk.log"; then
+		fail "wrk completed without serving any requests"
+	fi
+	if [[ "$wrk_rc" -ne 0 ]] || \
+	   ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
+		"$OUTPUT/wrk.log" || \
+	   grep -Eq 'Socket errors:.*(connect|read|write|timeout) [1-9][0-9]*' \
+		"$OUTPUT/wrk.log"; then
+		capture_host_vmlinux_backtrace
 	fi
 else
 	printf '%s\n' "not run: harness setup failed" >"$OUTPUT/wrk.log"
