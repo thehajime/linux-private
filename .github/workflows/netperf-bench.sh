@@ -33,7 +33,9 @@ run_case() {
             $1 == "Tcp:" && !header { for (i = 2; i <= NF; i++) names[i] = $i; header = 1; next }
             $1 == "Tcp:" && header { for (i = 2; i <= NF; i++) if (names[i] == "RetransSegs") { print $i; exit } }
         ' /proc/net/snmp)
+        tcp_socket=$(awk 'NR > 1 && $3 ~ /:3241$/ { print }' /proc/net/tcp)
         echo "netperf probe: $label sample=$sample epoch=$now pid=$test_pid state=$state user_ticks=$user_ticks system_ticks=$system_ticks wchan=$wchan tcp_retrans_segs=${retransmits:-unavailable} ${counters:-vec0=unavailable}"
+        echo "netperf tcp socket: ${tcp_socket:-unavailable}"
         sample=$((sample + 1))
     done
     wait "$test_pid"

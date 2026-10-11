@@ -838,6 +838,8 @@ jobs:
                cat /proc/loadavg
                ps -eo pid,ppid,stat,pcpu,time,wchan:32,comm,args |
                  grep -E '(^ *PID|vmlinux|netserver|netperf)' | grep -v grep || true
+               echo "host netperf sockets:"
+               sudo ss -ntpi '( sport = :12865 or dport = :12865 )' 2>&1 || true
                sleep 5
              done
            ) > "output/${{ matrix.testname }}-host-probe.log" 2>&1 &
