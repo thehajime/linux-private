@@ -14,8 +14,8 @@ PROFILES = (
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
     ("um-nommu", "um-nommu", "#d68910"),
     ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#4169e1"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#0000ff"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#3f8fc5"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#172a83"),
 )
 LATENCY_ROWS = (
     ("select-10", "select-10"),
@@ -88,7 +88,7 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         plot_items.append(
             f"{gnuplot_quote(path)} using {xexpr}:1 with boxes "
             f"fc rgb {gnuplot_quote(color)} fs pattern 2 "
-            f"border lc rgb {gnuplot_quote(color)} lw 1 "
+            f"lt 1 lc rgb {gnuplot_quote(color)} lw 0.6 "
             f"title {gnuplot_quote(names[index])}"
         )
     script = out_dir / f"{filename}.gnuplot"
@@ -107,10 +107,11 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         "set style fill pattern 2",
         f"set boxwidth {width:.4f}",
         "set size 1.0,1.0",
+        *(["set rmargin 10"] if filename == "lmbench-bandwidth.png" else []),
         'set key font ",12"',
         "set key top left Left reverse",
         f"set xtics ({xtics}) rotate by 35 right",
-        f"set xrange [{-group_width / 2 - width / 2 - 0.1:.3f}:{((2 * len(labels) - 1) if netperf else len(labels) - 1) + group_width / 2 + width / 2 + 0.1:.3f}]",
+        f"set xrange [{-group_width / 2 - width / 2 - 0.1:.3f}:{((2 * len(labels) - 1) if netperf else len(labels) - 1) + group_width / 2 + width / 2 + (0.55 if filename == 'lmbench-bandwidth.png' else 0.1):.3f}]",
         "set auto y",
     ]
     if logscale:

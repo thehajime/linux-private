@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json, math, subprocess, sys
 from pathlib import Path
-PROFILES=(("um-mmu","um","#27ae60"),("um-mmu-seccomp","um-mmu(s)","#145a32"),("um-nommu","um-nommu","#d68910"),("um-nommu-seccomp","um-nommu(s)","#a04000"),("um-nommu-sas-seccomp","um-nommu(sas-s)","#4169e1"),("um-nommu-sas-zpoline","um-nommu(sas-z)","#0000ff"))
+PROFILES=(("um-mmu","um","#27ae60"),("um-mmu-seccomp","um-mmu(s)","#145a32"),("um-nommu","um-nommu","#d68910"),("um-nommu-seccomp","um-nommu(s)","#a04000"),("um-nommu-sas-seccomp","um-nommu(sas-s)","#3f8fc5"),("um-nommu-sas-zpoline","um-nommu(sas-z)","#172a83"))
 WORKERS=(1,4); CONNECTIONS=(4,16,64)
 def q(x): return "'"+str(x).replace("\\","\\\\").replace("'","\\'")+"'"
 def finite(x): return isinstance(x,(int,float)) and math.isfinite(x)
@@ -29,7 +29,7 @@ def main():
    if not rows: continue
    dat=out/f"throughput-{p}-workers-{w}.dat"; dat.write_text("".join(f"{x:.4f} {v:.12g}\n" for x,v in rows))
    fill="fs solid 0.75" if w==1 else "fs pattern 2"; title=f"title {q(label)}" if w==1 else "notitle"
-   items.append(f"{q(dat)} using 1:2 with boxes {fill} fc rgb {q(color)} border lc rgb {q(color)} lw 1 {title}")
+   items.append(f"{q(dat)} using 1:2 with boxes {fill} lc rgb {q(color)} lt 1 lw 0.6 {title}")
  status=out/"plot-status.txt"
  if not items: status.write_text("Plot omitted: no finite nginx measurements are available.\n"); return
  gp=out/"throughput-comparison.gnuplot"

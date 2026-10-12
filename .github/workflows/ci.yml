@@ -1512,6 +1512,7 @@ jobs:
           bash .github/workflows/um-nommu-plot.sh output |& tee um-nommu.log
           bash .github/workflows/netperf-plot.sh output |& tee -a um-nommu.log
       - name: Load previous result snapshot
+        if: ${{ always() }}
         uses: actions/github-script@v9
         env:
           SNAPSHOT_PATH: ${{ runner.temp }}/previous-results.json
@@ -1519,22 +1520,28 @@ jobs:
           script: |
             const fs = require('fs');
             const zlib = require('zlib');
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 4,
-              per_page: 100
-            });
             let snapshot = null;
-            for (const comment of comments.reverse()) {
-              const match = comment.body.match(/<!-- uml-ci-result-snapshot:v1\n([A-Za-z0-9+/=\r\n]+)\n-->/);
-              if (!match) continue;
-              snapshot = JSON.parse(zlib.gunzipSync(Buffer.from(match[1].replace(/\s/g, ''), 'base64')).toString());
-              break;
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: 4,
+                per_page: 100
+              });
+              for (const comment of comments.reverse()) {
+                const match = comment.body.match(/<!-- uml-ci-result-snapshot:v1\n([A-Za-z0-9+/=\r\n]+)\n-->/);
+                if (!match) continue;
+                snapshot = JSON.parse(zlib.gunzipSync(Buffer.from(match[1].replace(/\s/g, ''), 'base64')).toString());
+                break;
+              }
+            } catch (error) {
+              core.warning(`Could not load previous result snapshot: ${error.message}`);
             }
             fs.writeFileSync(process.env.SNAPSHOT_PATH, JSON.stringify(snapshot));
-            core.info(snapshot ? `Loaded baseline from ${snapshot.run_url}` : 'No prior report snapshot found');
+            core.info(snapshot ? `Loaded baseline from ${snapshot.run_url}` : 'No prior report snapshot found; writing null baseline');
       - name: Create comparison report
+        id: create_report
+        if: ${{ always() }}
         env:
           REPORT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPORT_SHA: ${{ github.sha }}
@@ -1575,6 +1582,7 @@ jobs:
           name: test-result-all
           path: output/out/*
       - name: Build GitHub Pages report
+        if: ${{ always() && steps.create_report.outcome == 'success' }}
         run: |
           python3 .github/workflows/result-page.py \
             --snapshot "$RUNNER_TEMP/result-snapshot.json" \
@@ -1582,16 +1590,20 @@ jobs:
             --charts output/out \
             --output "$RUNNER_TEMP/site"
       - name: Upload GitHub Pages artifact
+        id: upload_pages
+        if: ${{ always() && steps.create_report.outcome == 'success' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/site
       - name: Deploy report to GitHub Pages
         id: deployment
+        if: ${{ always() && steps.upload_pages.outcome == 'success' }}
         continue-on-error: true
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages
       - name: prepare action post
+        if: ${{ always() && steps.create_report.outcome == 'success' }}
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           ASSET_BASE_URL: ${{ steps.publish_chart_assets.outputs.asset_base_url }}
@@ -1628,6 +1640,7 @@ jobs:
             cat "$RUNNER_TEMP/comparison-report.md"
           } > "$RUNNER_TEMP/comment.md"
       - uses: actions/upload-artifact@v7
+        if: ${{ always() && steps.create_report.outcome == 'success' }}
         with:
           name: uml-ci-comparison-report
           path: |
@@ -1635,6 +1648,7 @@ jobs:
             ${{ runner.temp }}/result-snapshot.json
             ${{ runner.temp }}/site
       - uses: actions/github-script@v9
+        if: ${{ always() && steps.create_report.outcome == 'success' }}
         env:
           COMMENT_BODY_FILE: ${{ runner.temp }}/comment.md
         with:
