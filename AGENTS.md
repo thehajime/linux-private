@@ -556,3 +556,11 @@ have not been started.
   paths reach the netserver and complete the same cases. Preserve failed-case
   status in the report; the first run `38210297986` incorrectly reported
   success from the UML process exit status and was corrected in `38210659301`.
+
+### Task C — plain-NOMMU mremap Maple range candidate (2026-10-13)
+
+- [ ] Keep the historical `virt_to_slab()==NULL` teardown panic open. The Maple range update is a root-cause candidate for a confirmed Maple invariant violation, but has not yet been shown to prevent the historical panic under its reproduced 20-iteration workload.
+- On diagnostic source `86ee6de52c4a2cfe46f613cecda7a8888808cadd`, `do_mremap_nommu()` changed `vma->vm_end` without updating the Maple Tree range. A following shrink/unmap could leave a stale Maple entry after VMA teardown. `validate_mm()` probes exposed the inconsistency.
+- Candidate source change is tracked in [PR #13](https://github.com/thehajime/linux-private/pull/13), targeting `feature-swmmu-nommu`. It updates the Maple range on shrink and grow.
+- Focused probes for shrink then unmap, and shrink then re-expand then unmap, completed with no validator warnings. On the diagnostic image, a mixed `mmap|munmap|mremap|brk` LTP profile completed 2 iterations (38 pass, 8 fail, 0 broken, 46 skipped), with no panic and normal guest teardown. This is not proof against the historical reproducer, which required 20 iterations. A 20-iteration attempt was interrupted during the third `munmap04`, after two full iterations, so it provided no teardown result.
+- Next: build the candidate on the vector-enabled test image and run the full 20-iteration workload through teardown, retaining `validate_mm()` diagnostics. Close only after the panic is checked against that workload; if it still occurs, continue root-cause investigation.
