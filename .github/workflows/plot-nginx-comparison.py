@@ -91,14 +91,12 @@ def main():
                     stream.write(" ".join(f"{value:.12g}" for value in summary) + "\n")
             sample_count = len(samples)
             if sample_count >= 3:
-                title = f"title {quote(label)}" if workers == 1 else "notitle"
                 plot_items.append(
                     f"{quote(worker_data)} using 1:4:2:6 with yerrorbars "
-                    f"lc rgb {quote(color)} notitle, \\\n  {quote(worker_data)} using 1:4:($1-0.14):($1+0.14):3:5 "
+                    f"lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:($1-0.14):($1+0.14):3:5 "
                     f"with boxxyerror fc rgb {quote(color)} "
-                    f"fs {'solid 0.68' if workers == 1 else 'pattern 4'} "
-                    f"border lc rgb {quote(color)} {title}, \\\n  {quote(worker_data)} using 1:4:(0.28):(0) with vectors nohead "
-                    f"lw 2 lc rgb {quote(color)} notitle"
+                    f"border lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:(0.28):(0) with vectors nohead "
+                    f"lw 3 lc rgb {quote(color)} notitle"
                 )
             elif sample_count:
                 print(
@@ -115,21 +113,24 @@ def main():
         return
     script = out_dir / "throughput-comparison.gnuplot"
     script.write_text("\n".join((
-        "set terminal pngcairo size 2200,1300 enhanced font 'Sans,18'",
+        "set terminal pngcairo size 2000,1200 enhanced font 'Sans,18'",
         f"set output {quote(out_dir / 'nginx-comparison.png')}",
-        'set title "nginx throughput by UML profile and worker count\\nSolid: 1 worker; hatched: 4 workers; boxes summarize connections 4, 16, 64"',
-        "set title font 'Sans,24'",
         "set xlabel 'UML profile' font 'Sans,20'",
         "set ylabel 'Requests per second' font 'Sans,20'",
-        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by -18 font 'Sans,20'",
+        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by 35 right font 'Sans,20'",
         "set ytics font 'Sans,20'",
         "set xrange [0.5:6.5]",
         "set grid ytics",
         "set logscale y",
         "set yrange [1:*]",
-        "set boxwidth 0.28 absolute",
-        "set key outside top center horizontal font 'Sans,20'",
-        "set style fill solid 0.68 border -1",
+        "set boxwidth 0.24 absolute",
+        "set size 1.0,0.8",
+        "set lmargin 10",
+        "set rmargin 2",
+        "set bmargin 8",
+        "set tmargin 2",
+        "unset key",
+        "set style fill pattern 2 border -1",
         "set bars 0.25",
         "set tics out",
         "plot \\\n  " + ", \\\n  ".join(plot_items),

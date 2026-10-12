@@ -9,10 +9,14 @@ from pathlib import Path
 
 
 CHARTS = {
-    "lmbench.png": "lmbench latency",
-    "lmbench-bandwidth.png": "lmbench bandwidth",
-    "iperf3.png": "iperf3 throughput",
-    "tcp-stream.png": "netperf TCP throughput",
+    "lmbench.png": ("lmbench latency", "Latency measurements across the UML profiles."),
+    "lmbench-bandwidth.png": ("lmbench bandwidth", "Pipe and memory bandwidth measurements across the UML profiles."),
+    "iperf3.png": ("iperf3 throughput", "iperf3 throughput measurements across the UML profiles."),
+    "tcp-stream.png": ("netperf TCP throughput", "TCP stream and reverse throughput measurements across the UML profiles."),
+    "nginx-comparison.png": (
+        "",
+        "Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles, and whiskers show the minimum and maximum.",
+    ),
 }
 
 
@@ -27,7 +31,18 @@ def main():
     snapshot = json.loads(args.snapshot.read_text())
     args.output.mkdir(parents=True, exist_ok=True)
     shutil.copy2(args.snapshot, args.output / "result-snapshot.json")
-    shutil.copy2(args.report, args.output / "comparison-report.md")
+    report_copy = args.output / "comparison-report.md"
+    shutil.copy2(args.report, report_copy)
+    nginx_chart = args.charts / "nginx-comparison.png"
+    if nginx_chart.is_file():
+        with report_copy.open("a") as report_stream:
+            report_stream.write(
+                "\n### Nginx throughput\n\n"
+                "Requests per second by UML profile. Each pair compares one worker (left) "
+                "with four workers (right); each box summarizes measurements at 4, 16, "
+                "and 64 client connections. Boxes show the median and quartiles; "
+                "whiskers show the minimum and maximum.\n"
+            )
 
     run_url = html.escape(snapshot.get("run_url", ""), quote=True)
     tested_ref = html.escape(snapshot.get("tested_ref", "unknown"))
@@ -35,17 +50,21 @@ def main():
     charts = []
     chart_files = list(CHARTS.items())
     chart_files.extend(
-        (path.name, f"nginx throughput: {path.stem[len('nginx-'):]}")
+        (path.name, (f"nginx throughput: {path.stem[len('nginx-'):]}", ""))
         for path in sorted(args.charts.glob("nginx-*.png"))
+        if path.name not in CHARTS
     )
-    for filename, title in chart_files:
+    for filename, (title, description) in chart_files:
         source = args.charts / filename
         if not source.is_file():
             continue
         shutil.copy2(source, args.output / filename)
+        heading = f"<h2>{html.escape(title)}</h2>" if title else ""
+        caption = f"<figcaption>{html.escape(description)}</figcaption>" if description else ""
         charts.append(
-            f'<section><h2>{html.escape(title)}</h2>'
-            f'<a href="{filename}"><img src="{filename}" alt="{html.escape(title)}"></a></section>'
+            f'<section>{heading}<figure><a href="{filename}">'
+            f'<img src="{filename}" alt="{html.escape(title or description)}"></a>{caption}'
+            f'</figure></section>'
         )
     chart_html = "\n".join(charts) or "<p>No benchmark charts were generated for this run.</p>"
     content = f"""<!doctype html>

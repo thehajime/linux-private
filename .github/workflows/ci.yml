@@ -1605,6 +1605,9 @@ jobs:
             fi
             for chart in lmbench.png lmbench-bandwidth.png iperf3.png tcp-stream.png nginx-comparison.png; do
               if [ -f "$RUNNER_TEMP/site/$chart" ]; then
+                if [ "$chart" = nginx-comparison.png ]; then
+                  printf 'Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles; whiskers show the minimum and maximum.\n\n'
+                fi
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"
                 elif [ -n "$PAGE_URL" ]; then
