@@ -556,6 +556,3 @@ have not been started.
   paths reach the netserver and complete the same cases. Preserve failed-case
   status in the report; the first run `38210297986` incorrectly reported
   success from the UML process exit status and was corrected in `38210659301`.
-  The follow-up guest init reports network-unreachable and exits before bogus
-  timing cases when ping fails and neighbor resolution produced no entry; this
-  diagnostic does not resolve the underlying direct-host topology issue.
