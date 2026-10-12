@@ -80,7 +80,9 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
     plot_items = []
     for index, (path, _name, color) in enumerate(files):
         if netperf:
-            xexpr = f"($0*2+({offsets[index]:.4f}))"
+            # The normalized file interleaves forward/reverse rows, so adjacent
+            # points form one payload group centered on the half-step tick.
+            xexpr = f"($0*1+({offsets[index]:.4f}))"
         else:
             xexpr = f"($0+({offsets[index]:.4f}))"
         plot_items.append(
