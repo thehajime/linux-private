@@ -111,7 +111,8 @@ int os_map_memory(void *virt, int fd, unsigned long long off, unsigned long len,
 		  int r, int w, int x)
 {
 	return __os_map_memory(virt, fd, off, len, r, w, x,
-			       IS_ENABLED(CONFIG_UML_NOMMU_SAS));
+			       IS_ENABLED(CONFIG_UML_NOMMU_SAS) &&
+			       !IS_ENABLED(CONFIG_NOMMU_SWMMU));
 }
 
 int os_map_memory_file(void *virt, int fd, unsigned long long off,

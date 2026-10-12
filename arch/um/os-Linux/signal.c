@@ -224,7 +224,14 @@ hard_handler(int sig, siginfo_t *si, void *p)
 #if !defined(CONFIG_MMU) && defined(CONFIG_UML_NOMMU_SAS)
 	unsigned long interrupted_fs;
 
-	os_x86_arch_prctl(0, ARCH_GET_FS, (void *)&interrupted_fs);
+	/*
+	 * A SIGSYS handler redirects execution to the syscall trampoline. Keep
+	 * the host FS base for that trampoline; the guest FS is restored when
+	 * returning to userspace. In particular, do not query it here: the
+	 * interrupted guest FS is not valid for host libc TLS accesses.
+	 */
+	if (sig != SIGSYS)
+		os_x86_arch_prctl(0, ARCH_GET_FS, (void *)&interrupted_fs);
 	os_x86_set_hostfs();
 #endif
 
@@ -235,7 +242,8 @@ hard_handler(int sig, siginfo_t *si, void *p)
 	errno = save_errno;
 
 #if !defined(CONFIG_MMU) && defined(CONFIG_UML_NOMMU_SAS)
-	os_x86_arch_prctl(0, ARCH_SET_FS, (void *)interrupted_fs);
+	if (sig != SIGSYS)
+		os_x86_arch_prctl(0, ARCH_SET_FS, (void *)interrupted_fs);
 #endif
 }
 
