@@ -94,7 +94,7 @@ def main():
                 plot_items.append(
                     f"{quote(worker_data)} using 1:4:2:6 with yerrorbars "
                     f"lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:($1-0.14):($1+0.14):3:5 "
-                    f"with boxxyerror fc rgb {quote(color)} "
+                    f"with boxxyerror fc rgb {quote(color)} fs pattern 2 "
                     f"border lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:(0.28):(0) with vectors nohead "
                     f"lw 3 lc rgb {quote(color)} notitle"
                 )
