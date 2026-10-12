@@ -15,7 +15,7 @@ CHARTS = {
     "tcp-stream.png": ("netperf TCP throughput", "TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero."),
     "nginx-comparison.png": (
         "",
-        "Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles, and whiskers show the minimum and maximum.",
+        "Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. Each bar is one matrix measurement.",
     ),
 }
 
@@ -38,10 +38,9 @@ def main():
         with report_copy.open("a") as report_stream:
             report_stream.write(
                 "\n### Nginx throughput\n\n"
-                "Requests per second by UML profile. Each pair compares one worker (left) "
-                "with four workers (right); each box summarizes measurements at 4, 16, "
-                "and 64 client connections. Boxes show the median and quartiles; "
-                "whiskers show the minimum and maximum.\n"
+                "Nginx requests per second grouped by client count (4, 16, 64), with UML profiles "
+                "adjacent within each group. Color identifies the profile; solid fill is one "
+                "worker and patterned fill is four workers. Each bar is one matrix measurement.\n"
             )
 
     run_url = html.escape(snapshot.get("run_url", ""), quote=True)

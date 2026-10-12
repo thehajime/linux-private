@@ -1615,7 +1615,7 @@ jobs:
                   tcp-stream.png)
                     printf 'netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero.\n\n' ;;
                   nginx-comparison.png)
-                    printf 'Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles; whiskers show the minimum and maximum.\n\n' ;;
+                    printf 'Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. Each bar is one matrix measurement.\n\n' ;;
                 esac
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"

@@ -14,8 +14,8 @@ PROFILES = (
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
     ("um-nommu", "um-nommu", "#d68910"),
     ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#2874a6"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#1f618d"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#4169e1"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#0000ff"),
 )
 LATENCY_ROWS = (
     ("select-10", "select-10"),
@@ -88,12 +88,12 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         plot_items.append(
             f"{gnuplot_quote(path)} using {xexpr}:1 with boxes "
             f"fc rgb {gnuplot_quote(color)} fs pattern 2 "
-            f"border lc rgb {gnuplot_quote(color)} lw 3 "
+            f"border lc rgb {gnuplot_quote(color)} lw 1 "
             f"title {gnuplot_quote(names[index])}"
         )
     script = out_dir / f"{filename}.gnuplot"
     commands = [
-        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
+        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 1",
         f"set output {gnuplot_quote(out_dir / filename)}",
         "set pointsize 2",
         *([] if logscale else ["set xzeroaxis"]),
@@ -110,7 +110,7 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         'set key font ",12"',
         "set key top left Left reverse",
         f"set xtics ({xtics}) rotate by 35 right",
-        f"set xrange [-1:{(2 * len(labels) - 1) if netperf else len(labels) - 1}]",
+        f"set xrange [{-group_width / 2 - width / 2 - 0.1:.3f}:{((2 * len(labels) - 1) if netperf else len(labels) - 1) + group_width / 2 + width / 2 + 0.1:.3f}]",
         "set auto y",
     ]
     if logscale:

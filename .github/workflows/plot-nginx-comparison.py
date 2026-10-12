@@ -1,146 +1,40 @@
 #!/usr/bin/env python3
-"""Render nginx throughput distributions by UML profile and worker count."""
-
-import json
-import math
-import subprocess
-import sys
+import json, math, subprocess, sys
 from pathlib import Path
-
-PROFILES = (
-    ("um-mmu", "um", "#27ae60"),
-    ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu", "#d68910"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#2874a6"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#1f618d"),
-)
-WORKERS = (1, 4)
-CONNECTIONS = (4, 16, 64)
-
-
-def quote(value):
-    return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
-def finite(value):
-    return isinstance(value, (int, float)) and math.isfinite(value)
-
-
-def quantile(sorted_values, fraction):
-    """Return a linearly interpolated quantile (the common type-7 method)."""
-    position = (len(sorted_values) - 1) * fraction
-    lower = math.floor(position)
-    upper = math.ceil(position)
-    if lower == upper:
-        return sorted_values[lower]
-    weight = position - lower
-    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
-
-
+PROFILES=(("um-mmu","um","#27ae60"),("um-mmu-seccomp","um-mmu(s)","#145a32"),("um-nommu","um-nommu","#d68910"),("um-nommu-seccomp","um-nommu(s)","#a04000"),("um-nommu-sas-seccomp","um-nommu(sas-s)","#4169e1"),("um-nommu-sas-zpoline","um-nommu(sas-z)","#0000ff"))
+WORKERS=(1,4); CONNECTIONS=(4,16,64)
+def q(x): return "'"+str(x).replace("\\","\\\\").replace("'","\\'")+"'"
+def finite(x): return isinstance(x,(int,float)) and math.isfinite(x)
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("usage: plot-nginx-comparison.py AGGREGATE_JSON OUTPUT_DIR")
-    source, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
-    out_dir.mkdir(parents=True, exist_ok=True)
-    matrix = json.loads(source.read_text()).get("matrix", [])
-    values = {
-        (row.get("profile"), row.get("workers"), row.get("connections")): row.get("requests_per_second")
-        for row in matrix if row.get("status") == "PASS"
-    }
-    data = out_dir / "throughput-comparison.csv"
-    with data.open("w") as stream:
-        stream.write("profile,workers,connections,status,requests_per_second,box_x\n")
-        for profile_index, (profile, _label, _color) in enumerate(PROFILES, start=1):
-            for workers in WORKERS:
-                x = profile_index + (-0.18 if workers == 1 else 0.18)
-                for connections in CONNECTIONS:
-                    value = values.get((profile, workers, connections))
-                    status = "PASS" if finite(value) else next((
-                        row.get("status", "MISSING") for row in matrix
-                        if row.get("profile") == profile
-                        and row.get("workers") == workers
-                        and row.get("connections") == connections
-                    ), "MISSING")
-                    stream.write(
-                        f"{profile},{workers},{connections},{status},"
-                        f"{value if finite(value) else 'NaN'},{x:.2f}\n"
-                    )
-
-    plot_items = []
-    for profile_index, (profile, label, color) in enumerate(PROFILES, start=1):
-        for workers in WORKERS:
-            x = profile_index + (-0.18 if workers == 1 else 0.18)
-            worker_data = out_dir / f"throughput-boxplot-{profile}-workers-{workers}.dat"
-            samples = []
-            for connections in CONNECTIONS:
-                value = values.get((profile, workers, connections))
-                if finite(value):
-                    samples.append(value)
-            samples.sort()
-            with worker_data.open("w") as stream:
-                if len(samples) == len(CONNECTIONS):
-                    summary = (
-                        x,
-                        samples[0],
-                        quantile(samples, 0.25),
-                        quantile(samples, 0.5),
-                        quantile(samples, 0.75),
-                        samples[-1],
-                    )
-                    stream.write(" ".join(f"{value:.12g}" for value in summary) + "\n")
-            sample_count = len(samples)
-            if sample_count >= 3:
-                worker_fill = "fs solid 0.75" if workers == 1 else "fs pattern 2"
-                plot_items.append(
-                    f"{quote(worker_data)} using 1:4:2:6 with yerrorbars "
-                    f"lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:($1-0.14):($1+0.14):3:5 "
-                    f"with boxxyerror fc rgb {quote(color)} {worker_fill} "
-                    f"border lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:(0.28):(0) with vectors nohead "
-                    f"lw 3 lc rgb {quote(color)} notitle"
-                )
-            elif sample_count:
-                print(
-                    f"Omitting incomplete boxplot for {profile}, workers={workers}: "
-                    f"only {sample_count} of 3 connection measurements passed",
-                    file=sys.stderr,
-                )
-    status_path = out_dir / "plot-status.txt"
-    if not plot_items:
-        status_path.write_text(
-            "Plot omitted: no profile/worker group has all 3 connection measurements.\n"
-        )
-        print(status_path.read_text().strip())
-        return
-    script = out_dir / "throughput-comparison.gnuplot"
-    script.write_text("\n".join((
-        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
-        f"set output {quote(out_dir / 'nginx-comparison.png')}",
-        "set pointsize 2",
-        "set xlabel 'UML profile'",
-        "set ylabel 'Requests per second'",
-        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by 35 right",
-        "set xrange [0.5:6.5]",
-        "set grid ytics",
-        "set logscale y",
-        "set yrange [1:*]",
-        "set boxwidth 0.3 absolute",
-        "set size 1.0,1.0",
-        "unset key",
-        "set style fill pattern 2",
-        "set bars 0.25",
-        "set tics out",
-        "plot \\\n  " + ", \\\n  ".join(plot_items),
-        "",
-    )))
-    subprocess.run(["gnuplot", str(script)], check=True)
-    status_path.write_text(
-        "Combined box-and-whisker plot generated from profile/worker groups "
-        "with all 3 connection measurements; boxes show Q1/median/Q3 and "
-        "whiskers show min/max.\n"
-    )
-    print(f"Generated {out_dir / 'nginx-comparison.png'}")
-
-
-if __name__ == "__main__":
-    main()
+ if len(sys.argv)!=3: raise SystemExit("usage: plot-nginx-comparison.py AGGREGATE_JSON OUTPUT_DIR")
+ src,out=Path(sys.argv[1]),Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
+ matrix=json.loads(src.read_text()).get("matrix",[])
+ vals={(r.get("profile"),r.get("workers"),r.get("connections")):r.get("requests_per_second") for r in matrix if r.get("status")=="PASS"}
+ sts={(r.get("profile"),r.get("workers"),r.get("connections")):r.get("status","MISSING") for r in matrix}
+ n=len(PROFILES)*len(WORKERS); width=.84/n; series={}
+ with (out/"throughput-comparison.csv").open("w") as f:
+  f.write("profile,workers,connections,status,requests_per_second,plot_x\n")
+  for pi,(p,_l,_c) in enumerate(PROFILES):
+   for wi,w in enumerate(WORKERS):
+    off=(pi*len(WORKERS)+wi-(n-1)/2)*width; rows=[]
+    for ci,c in enumerate(CONNECTIONS,1):
+     x=ci+off; v=vals.get((p,w,c)); status="PASS" if finite(v) else sts.get((p,w,c),"MISSING")
+     f.write(f"{p},{w},{c},{status},{v if finite(v) else 'NaN'},{x:.4f}\n")
+     if finite(v): rows.append((x,v))
+    series[p,w]=rows
+ items=[]
+ for p,label,color in PROFILES:
+  for w in WORKERS:
+   rows=series[p,w]
+   if not rows: continue
+   dat=out/f"throughput-{p}-workers-{w}.dat"; dat.write_text("".join(f"{x:.4f} {v:.12g}\n" for x,v in rows))
+   fill="fs solid 0.75" if w==1 else "fs pattern 2"; title=f"title {q(label)}" if w==1 else "notitle"
+   items.append(f"{q(dat)} using 1:2 with boxes {fill} fc rgb {q(color)} border lc rgb {q(color)} lw 1 {title}")
+ status=out/"plot-status.txt"
+ if not items: status.write_text("Plot omitted: no finite nginx measurements are available.\n"); return
+ gp=out/"throughput-comparison.gnuplot"
+ gp.write_text("\n".join(("set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 1",f"set output {q(out/'nginx-comparison.png')}","set xlabel 'Client connections'","set ylabel 'Requests per second'","set xtics ('4' 1, '16' 2, '64' 3)","set xrange [0.45:3.55]","set grid ytics","set logscale y","set yrange [1:*]",f"set boxwidth {width*.9:.5f} absolute","set size 1.0,1.0","set key top left Left reverse font ',12'","set style fill pattern 2","set tics out","plot "+", ".join(items),"")))
+ subprocess.run(["gnuplot",str(gp)],check=True)
+ status.write_text("Grouped throughput bars: client connections on x-axis; color is UML profile, solid fill is one worker and pattern fill is four workers. Missing measurements are omitted.\n")
+ print(f"Generated {out/'nginx-comparison.png'}")
+if __name__=="__main__": main()
