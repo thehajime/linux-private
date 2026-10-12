@@ -124,7 +124,7 @@ def main():
         "set logscale y",
         "set yrange [1:*]",
         "set boxwidth 0.24 absolute",
-        "set size 1.0,0.8",
+        "set size 1.0,1.0",
         "set lmargin 10",
         "set rmargin 2",
         "set bmargin 8",
