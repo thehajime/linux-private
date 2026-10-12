@@ -537,3 +537,22 @@ have not been started.
 - `feature-swmmu-nommu:tools/testing/selftests/mm/nommu` — SWMMU/NOMMU
   selftests.
 - `aports`, branch `nommu-uml` — planned broader instrumented Alpine profile.
+
+#### Task B netperf-only CI comparison (2026-10-12)
+
+- [x] Add a focused workflow that runs the same UML kernel image, hostfs
+  rootfs, netserver, and 12 netperf cases in a Docker-entrypoint process. The
+  corrected CI run `38210659301` passed all 12 Docker guest cases (TCP_STREAM
+  and TCP_MAERTS, 64-byte messages, 1- and 10-second durations, 3 repetitions).
+  The 10-second cases each reported about 10 seconds elapsed. The workflow and
+  guest init are in `.github/workflows/task-b-netperf-only.yml` and
+  `.github/workflows/scripts/task-b-netperf-guest-init.sh`.
+- [ ] Investigate the direct-host run, which failed all 12 cases with netperf
+  status 255. The guest showed a route via `172.17.0.1`, but the host-launched
+  control could not ping that address and had no neighbor entry. Determine why
+  the direct-host UML network path is unreachable, then make a fair comparison
+  with the Docker case using the same guest-visible network topology and
+  instrumentation. Do not attribute a speed difference to Docker until both
+  paths reach the netserver and complete the same cases. Preserve failed-case
+  status in the report; the first run `38210297986` incorrectly reported
+  success from the UML process exit status and was corrected in `38210659301`.
