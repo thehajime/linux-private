@@ -1,4 +1,4 @@
-name: Task B netperf hostfs comparison
+name: Task B Docker UML fast-case netperf
 
 on:
   workflow_dispatch:
@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  netperf-only:
-    name: Host UML process versus Docker UML process
+  docker-fast-case:
+    name: Docker UML direct entrypoint on hostfs
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     steps:
@@ -79,7 +79,7 @@ jobs:
           } > output/manifest.txt
           cat output/manifest.txt
 
-      - name: Run identical guest netperf cases directly and in Docker
+      - name: Run the confirmed Docker UML fast case
         env:
           REPETITIONS: ${{ inputs.repetitions }}
         run: |
@@ -108,27 +108,6 @@ jobs:
             echo $!
           }
 
-          run_direct() {
-            local rc pid monitor process_rc guest_rc
-            date -Ins > output/direct-start.txt
-            direct_cmd="sudo timeout --foreground --signal=TERM 300s $kernel mem=2G vec0:transport=raw,ifname=docker0,depth=128,gro=1 root=/dev/root rootflags=$rootfs rootfstype=hostfs rw loglevel=7 zpoline=0 netperf_only=1 runner_mode=direct init=/root/iperf3.sh"
-            script -q -e -c "$direct_cmd" /dev/null > output/direct-uml.log 2>&1 &
-            pid=$!
-            monitor=$(start_monitor direct "$pid")
-            wait "$pid"; rc=$?
-            process_rc=$rc
-            kill "$monitor" 2>/dev/null || true
-            wait "$monitor" 2>/dev/null || true
-            if grep -q '^TASK_B_NETPERF_END status=0 ' output/direct-uml.log; then
-              guest_rc=0
-            else
-              guest_rc=1
-            fi
-            echo "mode=host_direct process_status=$process_rc guest_status=$guest_rc end=$(date -Ins)" | tee output/direct-status.txt
-            [ "$guest_rc" -eq 0 ] || rc=1
-            return "$rc"
-          }
-
           run_docker() {
             local rc pid monitor process_rc guest_rc
             date -Ins > output/docker-start.txt
@@ -151,26 +130,22 @@ jobs:
           }
 
           echo "NETSERVER_IP=$NETSERVER_IP repetitions=$REPETITIONS durations=1,10 tests=TCP_STREAM,TCP_MAERTS size=64"
-          # Repeat each mode on the same runner, UML binary, rootfs, guest client,
-          # host server and test order. The raw-vector host interface is docker0
-          # for the direct host process and eth0 for the Docker process.
+          # Re-run only the previously successful mode: start UML directly as
+          # the Docker container entrypoint with the hostfs root mounted in it.
           sed -e "s/@SERVER_IP@/$NETSERVER_IP/g" -e "s/@REPETITIONS@/$REPETITIONS/g" \
             .github/workflows/scripts/task-b-netperf-guest-init.sh > "$rootfs/root/iperf3.sh"
           chmod 0755 "$rootfs/root/iperf3.sh"
-          direct_rc=0; docker_rc=0
-          run_direct || direct_rc=$?
+          docker_rc=0
           run_docker || docker_rc=$?
-          echo "host_direct_status=$direct_rc docker_status=$docker_rc" > output/summary.txt
+          echo "docker_status=$docker_rc" > output/summary.txt
           cat output/summary.txt
-          # The host-direct path is retained as a diagnostic control; success of
-          # the requested Docker-hostfs measurement determines the workflow result.
           test "$docker_rc" -eq 0
 
-      - name: Upload netperf-only comparison
+      - name: Upload Docker fast-case netperf results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: task-b-netperf-only-${{ github.run_id }}
+          name: task-b-netperf-docker-fast-${{ github.run_id }}
           path: output/
           if-no-files-found: error
           retention-days: 30
