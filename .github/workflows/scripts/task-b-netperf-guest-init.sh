@@ -11,6 +11,11 @@ export PATH
 /bin/busybox ip addr add 172.17.0.2/16 dev vec0
 /bin/busybox ip route add default via "$SERVER" dev vec0
 echo "TASK_B_NETPERF_BEGIN mode=$(cat /proc/cmdline) server=$SERVER repetitions=$REPETITIONS epoch=$(/bin/busybox date +%s)"
+/bin/busybox ip -details addr show dev vec0
+/bin/busybox ip route
+/bin/busybox ip neigh show dev vec0
+/bin/busybox ping -c 1 -W 2 "$SERVER"
+echo "PREFLIGHT_PING_STATUS=$?"
 /root/netperf -V
 failed=0
 

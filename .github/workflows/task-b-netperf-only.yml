@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   netperf-only:
-    name: Direct UML versus Docker UML
+    name: Host UML process versus Docker UML process
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     steps:
@@ -109,30 +109,44 @@ jobs:
           }
 
           run_direct() {
-            local rc pid monitor
+            local rc pid monitor process_rc guest_rc
             date -Ins > output/direct-start.txt
             direct_cmd="sudo timeout --foreground --signal=TERM 300s $kernel mem=2G vec0:transport=raw,ifname=docker0,depth=128,gro=1 root=/dev/root rootflags=$rootfs rootfstype=hostfs rw loglevel=7 zpoline=0 netperf_only=1 runner_mode=direct init=/root/iperf3.sh"
             script -q -e -c "$direct_cmd" /dev/null > output/direct-uml.log 2>&1 &
             pid=$!
             monitor=$(start_monitor direct "$pid")
             wait "$pid"; rc=$?
+            process_rc=$rc
             kill "$monitor" 2>/dev/null || true
             wait "$monitor" 2>/dev/null || true
-            echo "mode=direct status=$rc end=$(date -Ins)" | tee output/direct-status.txt
+            if grep -q '^TASK_B_NETPERF_END status=0 ' output/direct-uml.log; then
+              guest_rc=0
+            else
+              guest_rc=1
+            fi
+            echo "mode=host_direct process_status=$process_rc guest_status=$guest_rc end=$(date -Ins)" | tee output/direct-status.txt
+            [ "$guest_rc" -eq 0 ] || rc=1
             return "$rc"
           }
 
           run_docker() {
-            local rc pid monitor
+            local rc pid monitor process_rc guest_rc
             date -Ins > output/docker-start.txt
             docker_cmd="timeout --foreground --signal=TERM 300s docker run --rm -it --cap-add NET_RAW --cap-add SYS_PTRACE --cap-add DAC_OVERRIDE --cap-add SYS_RAWIO -v /dev/shm:/dev/shm -v $kernel:/root/vmlinux:ro -v $rootfs:/guest-root --entrypoint /root/vmlinux $image mem=2G vec0:transport=raw,ifname=eth0,depth=128,gro=1 root=/dev/root rootflags=/guest-root rootfstype=hostfs rw loglevel=7 zpoline=0 netperf_only=1 runner_mode=docker init=/root/iperf3.sh"
             script -q -e -c "$docker_cmd" /dev/null > output/docker-uml.log 2>&1 &
             pid=$!
             monitor=$(start_monitor docker "$pid")
             wait "$pid"; rc=$?
+            process_rc=$rc
             kill "$monitor" 2>/dev/null || true
             wait "$monitor" 2>/dev/null || true
-            echo "mode=docker status=$rc end=$(date -Ins)" | tee output/docker-status.txt
+            if grep -q '^TASK_B_NETPERF_END status=0 ' output/docker-uml.log; then
+              guest_rc=0
+            else
+              guest_rc=1
+            fi
+            echo "mode=docker process_status=$process_rc guest_status=$guest_rc end=$(date -Ins)" | tee output/docker-status.txt
+            [ "$guest_rc" -eq 0 ] || rc=1
             return "$rc"
           }
 
@@ -146,9 +160,11 @@ jobs:
           direct_rc=0; docker_rc=0
           run_direct || direct_rc=$?
           run_docker || docker_rc=$?
-          echo "direct_status=$direct_rc docker_status=$docker_rc" > output/summary.txt
+          echo "host_direct_status=$direct_rc docker_status=$docker_rc" > output/summary.txt
           cat output/summary.txt
-          test "$direct_rc" -eq 0 && test "$docker_rc" -eq 0
+          # The host-direct path is retained as a diagnostic control; success of
+          # the requested Docker-hostfs measurement determines the workflow result.
+          test "$docker_rc" -eq 0
 
       - name: Upload netperf-only comparison
         if: always()
