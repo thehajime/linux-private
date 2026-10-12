@@ -15,7 +15,16 @@ echo "TASK_B_NETPERF_BEGIN mode=$(cat /proc/cmdline) server=$SERVER repetitions=
 /bin/busybox ip route
 /bin/busybox ip neigh show dev vec0
 /bin/busybox ping -c 1 -W 2 "$SERVER"
-echo "PREFLIGHT_PING_STATUS=$?"
+ping_status=$?
+echo "PREFLIGHT_PING_STATUS=$ping_status"
+neighbors=$(/bin/busybox ip neigh show dev vec0)
+echo "PREFLIGHT_NEIGHBORS_AFTER_PING=$neighbors"
+if [ "$ping_status" -ne 0 ] && [ -z "$neighbors" ]; then
+  echo "TASK_B_NETPERF_NETWORK_UNREACHABLE server=$SERVER ping_status=$ping_status"
+  echo "TASK_B_NETPERF_END status=1 reason=network-unreachable epoch=$(/bin/busybox date +%s)"
+  /bin/busybox halt -f
+  exit 1
+fi
 /root/netperf -V
 failed=0
 
