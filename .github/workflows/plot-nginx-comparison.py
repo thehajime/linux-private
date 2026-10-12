@@ -91,10 +91,11 @@ def main():
                     stream.write(" ".join(f"{value:.12g}" for value in summary) + "\n")
             sample_count = len(samples)
             if sample_count >= 3:
+                worker_fill = "fs solid 0.75" if workers == 1 else "fs pattern 2"
                 plot_items.append(
                     f"{quote(worker_data)} using 1:4:2:6 with yerrorbars "
                     f"lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:($1-0.14):($1+0.14):3:5 "
-                    f"with boxxyerror fc rgb {quote(color)} fs pattern 2 "
+                    f"with boxxyerror fc rgb {quote(color)} {worker_fill} "
                     f"border lc rgb {quote(color)} lw 3 notitle, \\\n  {quote(worker_data)} using 1:4:(0.28):(0) with vectors nohead "
                     f"lw 3 lc rgb {quote(color)} notitle"
                 )
@@ -113,24 +114,20 @@ def main():
         return
     script = out_dir / "throughput-comparison.gnuplot"
     script.write_text("\n".join((
-        "set terminal pngcairo size 2000,1200 enhanced font 'Sans,18'",
+        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
         f"set output {quote(out_dir / 'nginx-comparison.png')}",
-        "set xlabel 'UML profile' font 'Sans,20'",
-        "set ylabel 'Requests per second' font 'Sans,20'",
-        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by 35 right font 'Sans,20'",
-        "set ytics font 'Sans,20'",
+        "set pointsize 2",
+        "set xlabel 'UML profile'",
+        "set ylabel 'Requests per second'",
+        "set xtics ('um' 1, 'um-mmu(s)' 2, 'um-nommu' 3, 'um-nommu(s)' 4, 'um-nommu(sas-s)' 5, 'um-nommu(sas-z)' 6) rotate by 35 right",
         "set xrange [0.5:6.5]",
         "set grid ytics",
         "set logscale y",
         "set yrange [1:*]",
-        "set boxwidth 0.24 absolute",
+        "set boxwidth 0.3 absolute",
         "set size 1.0,1.0",
-        "set lmargin 10",
-        "set rmargin 2",
-        "set bmargin 8",
-        "set tmargin 2",
         "unset key",
-        "set style fill pattern 2 border -1",
+        "set style fill pattern 2",
         "set bars 0.25",
         "set tics out",
         "plot \\\n  " + ", \\\n  ".join(plot_items),

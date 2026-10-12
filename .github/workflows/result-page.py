@@ -11,8 +11,8 @@ from pathlib import Path
 CHARTS = {
     "lmbench.png": ("lmbench latency", "Latency measurements across the UML profiles."),
     "lmbench-bandwidth.png": ("lmbench bandwidth", "Pipe and memory bandwidth measurements across the UML profiles."),
-    "iperf3.png": ("iperf3 throughput", "iperf3 throughput measurements across the UML profiles."),
-    "tcp-stream.png": ("netperf TCP throughput", "TCP stream and reverse throughput measurements across the UML profiles."),
+    "iperf3.png": ("iperf3 throughput", "Forward and reverse iperf3 goodput by UML profile, in Gbit/s."),
+    "tcp-stream.png": ("netperf TCP throughput", "TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero."),
     "nginx-comparison.png": (
         "",
         "Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles, and whiskers show the minimum and maximum.",

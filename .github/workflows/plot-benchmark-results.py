@@ -64,7 +64,7 @@ def has_finite_measurement(files):
     return False
 
 
-def render_plot(out_dir, filename, title, ylabel, labels, files, *, logscale=False, netperf=False):
+def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, netperf=False):
     status_path = out_dir / f"{Path(filename).stem}-plot-status.txt"
     if not has_finite_measurement(files):
         status_path.write_text("Plot omitted: no finite measurements are available for this metric.\n")
@@ -73,43 +73,48 @@ def render_plot(out_dir, filename, title, ylabel, labels, files, *, logscale=Fal
 
     colors = [color for _target, _label, color in PROFILES]
     names = [label for _target, label, _color in PROFILES]
-    width = 0.72 / len(PROFILES)
-    offsets = [(index - (len(PROFILES) - 1) / 2) * width for index in range(len(PROFILES))]
+    group_width = 1.5 if netperf else 0.9
+    width = group_width / len(files)
+    offsets = [(index - (len(files) - 1) / 2) * width for index in range(len(files))]
     xtics = ", ".join(f"{gnuplot_quote(label)} {position}" for label, position in labels)
     plot_items = []
     for index, (path, _name, color) in enumerate(files):
         if netperf:
-            xexpr = f"($0*1+({offsets[index]:.4f}))"
+            xexpr = f"($0*2+({offsets[index]:.4f}))"
         else:
             xexpr = f"($0+({offsets[index]:.4f}))"
         plot_items.append(
             f"{gnuplot_quote(path)} using {xexpr}:1 with boxes "
-            f"lc rgb {gnuplot_quote(color)} title {gnuplot_quote(names[index])}"
+            f"lc rgb {gnuplot_quote(color)} fs pattern 2 "
+            f"border lc rgb {gnuplot_quote(color)} lw 3 "
+            f"title {gnuplot_quote(names[index])}"
         )
     script = out_dir / f"{filename}.gnuplot"
     commands = [
-        "set terminal pngcairo size 2000,1200 enhanced font 'Sans,18'",
+        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
         f"set output {gnuplot_quote(out_dir / filename)}",
-        f"set title {gnuplot_quote(title)}",
-        "set title font 'Sans,24'",
-        "set xlabel font 'Sans,20'",
+        "set pointsize 2",
+        *([] if logscale else ["set xzeroaxis"]),
+        (
+            "set xlabel 'Payload size (bytes)'" if netperf
+            else "set xlabel 'Direction'" if filename == "iperf3.png"
+            else "set xlabel 'Benchmark'"
+        ),
         f"set ylabel {gnuplot_quote(ylabel)}",
-        "set ylabel font 'Sans,20'",
         "set grid ytics",
-        "set style fill solid 0.75 border -1",
-        f"set boxwidth {width * 0.9:.4f}",
-        "set key outside top center horizontal font 'Sans,20'",
-        f"set xtics ({xtics}) rotate by 35 right font 'Sans,20'",
-        "set ytics font 'Sans,20'",
-        f"set xrange [-0.8:{(2 * len(labels) if netperf else len(labels)) - 0.2}]",
+        "set style fill pattern 2",
+        f"set boxwidth {width:.4f}",
+        "set size 1.0,1.0",
+        'set key font ",12"',
+        "set key top left Left reverse",
+        f"set xtics ({xtics}) rotate by 35 right",
+        f"set xrange [-1:{(2 * len(labels) - 1) if netperf else len(labels) - 1}]",
         "set auto y",
     ]
     if logscale:
         commands.extend(["set logscale y", "set yrange [0.01:*]"])
     else:
         commands.append("unset logscale y")
-    if netperf:
-        commands.append('set label 1 "TCP_MAERTS bars are negative" at graph 0.01,0.98')
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))
     script.write_text("\n".join(commands) + "\n")
     subprocess.run(["gnuplot", str(script)], check=True)
@@ -135,7 +140,6 @@ def main():
     render_plot(
         out_dir,
         "lmbench.png",
-        "lmbench latency",
         "Latency (usec)",
         [(label, index) for index, (_operation, label) in enumerate(LATENCY_ROWS)],
         lmbench_files,
@@ -151,7 +155,6 @@ def main():
     render_plot(
         out_dir,
         "lmbench-bandwidth.png",
-        "lmbench bandwidth",
         "Bandwidth (MB/sec)",
         [(label, index) for index, (_operation, label) in enumerate(BANDWIDTH_ROWS)],
         bandwidth_files,
@@ -189,7 +192,6 @@ def main():
     render_plot(
         out_dir,
         "iperf3.png",
-        "iperf3 throughput",
         "Goodput (Gbps)",
         [("forward", 0), ("reverse", 1)],
         iperf_files,
@@ -214,7 +216,6 @@ def main():
     render_plot(
         out_dir,
         "tcp-stream.png",
-        "netperf TCP throughput",
         "Goodput (Gbps; TCP_MAERTS shown negative)",
         [(str(size), 2 * index + 0.5) for index, size in enumerate(PAYLOADS)],
         interleaved,

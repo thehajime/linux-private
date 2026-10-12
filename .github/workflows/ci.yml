@@ -1605,9 +1605,18 @@ jobs:
             fi
             for chart in lmbench.png lmbench-bandwidth.png iperf3.png tcp-stream.png nginx-comparison.png; do
               if [ -f "$RUNNER_TEMP/site/$chart" ]; then
-                if [ "$chart" = nginx-comparison.png ]; then
-                  printf 'Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles; whiskers show the minimum and maximum.\n\n'
-                fi
+                case "$chart" in
+                  lmbench.png)
+                    printf 'lmbench operation latency by UML profile; the logarithmic vertical axis uses microseconds.\n\n' ;;
+                  lmbench-bandwidth.png)
+                    printf 'lmbench pipe and memory bandwidth by UML profile, in MB/s.\n\n' ;;
+                  iperf3.png)
+                    printf 'iperf3 forward and reverse goodput by UML profile, in Gbit/s.\n\n' ;;
+                  tcp-stream.png)
+                    printf 'netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero.\n\n' ;;
+                  nginx-comparison.png)
+                    printf 'Nginx requests per second by UML profile. Each pair compares one worker (left) with four workers (right); each box summarizes measurements at 4, 16, and 64 client connections. Boxes show the median and quartiles; whiskers show the minimum and maximum.\n\n' ;;
+                esac
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"
                 elif [ -n "$PAGE_URL" ]; then
