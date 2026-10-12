@@ -1612,6 +1612,8 @@ unsigned long do_mremap_nommu(unsigned long addr,
 			unsigned long flags, unsigned long new_addr)
 {
 	struct vm_area_struct *vma;
+	VMA_ITERATOR(vmi, current->mm, addr);
+	unsigned long old_end, new_end;
 
 	/* insanity checks first */
 	old_len = PAGE_ALIGN(old_len);
@@ -1638,8 +1640,21 @@ unsigned long do_mremap_nommu(unsigned long addr,
 	if (new_len > vma->vm_region->vm_end - vma->vm_region->vm_start)
 		return (unsigned long) -ENOMEM;
 
-	/* all checks complete - do it */
-	vma->vm_end = vma->vm_start + new_len;
+	/* all checks complete - update the VMA and its Maple range together */
+	old_end = vma->vm_end;
+	new_end = vma->vm_start + new_len;
+	if (new_end < old_end) {
+		if (vma_iter_clear_gfp(&vmi, new_end, old_end, GFP_KERNEL))
+			return (unsigned long) -ENOMEM;
+	} else if (new_end > old_end) {
+		vma_iter_config(&vmi, vma->vm_start, new_end);
+		if (vma_iter_prealloc(&vmi, vma))
+			return (unsigned long) -ENOMEM;
+	}
+
+	vma->vm_end = new_end;
+	if (new_end > old_end)
+		vma_iter_store_overwrite(&vmi, vma);
 	return vma->vm_start;
 }
 
