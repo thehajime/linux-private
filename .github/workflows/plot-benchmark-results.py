@@ -85,7 +85,7 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
             xexpr = f"($0+({offsets[index]:.4f}))"
         plot_items.append(
             f"{gnuplot_quote(path)} using {xexpr}:1 with boxes "
-            f"lc rgb {gnuplot_quote(color)} fs pattern 2 "
+            f"fc rgb {gnuplot_quote(color)} fs pattern 2 "
             f"border lc rgb {gnuplot_quote(color)} lw 3 "
             f"title {gnuplot_quote(names[index])}"
         )
