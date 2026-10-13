@@ -87,11 +87,26 @@ jobs:
                   (.files | length > 0 and length < 300) and
                   all(.files[]; .filename == "arch/um/kernel/trap.c")
                 or
-                  (.files | length == 4) and
-                  all(.files[];
-                    .status == "renamed" and
-                    (.filename | startswith("tools/testing/selftests/nommu/")) and
-                    (.previous_filename | startswith("tools/testing/selftests/mm/nommu/"))
+                  (
+                    (.files | length == 4) and
+                    all(.files[];
+                      .status == "renamed" and
+                      (.filename | startswith("tools/testing/selftests/nommu/")) and
+                      (.previous_filename | startswith("tools/testing/selftests/mm/nommu/"))
+                    )
+                  )
+                or
+                  (
+                    (.files | length == 5) and
+                    ([.files[] | select(
+                      .status == "renamed" and
+                      (.filename | startswith("tools/testing/selftests/nommu/")) and
+                      (.previous_filename | startswith("tools/testing/selftests/mm/nommu/"))
+                    )] | length == 4) and
+                    ([.files[] | select(
+                      .status == "modified" and
+                      .filename == "arch/um/nommu/os-Linux/seccomp.c"
+                    )] | length == 1)
                   )
                 )
               ' <<<"$compare" >/dev/null; then
@@ -105,7 +120,7 @@ jobs:
               echo "No APK release with identical aports sources and a package-compatible kernel delta is available." >&2
               exit 1
             }
-            echo "Reusing $compatible_tag: kernel delta is limited to trap.c or the SWMMU selftest directory move, and aports SHA is unchanged."
+            echo "Reusing $compatible_tag: kernel delta is limited to trap.c, the SWMMU seccomp bound fix, or the selftest directory move, and aports SHA is unchanged."
             used_release_tag=$compatible_tag
             mkdir -p "$RUNNER_TEMP/apk-reuse"
             gh release download "$compatible_tag" --repo thehajime/aports \
