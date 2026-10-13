@@ -620,6 +620,12 @@ does not close broad application validation. OpenSSL has not been started.
   not compare a shortened manual run to the complete run.
 - [ ] Verify in the Actions web log that nginx UML console output streams while
   the guest runs, including its boot/readiness and HTTP/TLS/wrk milestones.
+- [x] Diagnose run `38350772429`: all 36 nginx matrix legs failed before the
+  guest or benchmark started. The workflow executed `run-nginx-benchmark.sh`
+  directly even though it is stored as mode `100644`, producing exit 126
+  (`Permission denied`). The step now invokes it through `bash`.
+- [ ] Repeat the full CI after this harness fix. The nginx measurements and
+  plots from run `38350772429` are invalid; do not use them for comparison.
 
 ### CI, rootfs, and plot follow-up (2026-10-13)
 

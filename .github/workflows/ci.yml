@@ -694,7 +694,7 @@ jobs:
           aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
           gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
           out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
-          .github/workflows/run-nginx-benchmark.sh \
+          bash .github/workflows/run-nginx-benchmark.sh \
             --kernel "$RUNNER_TEMP/vmlinux" \
             --rootfs rootfs \
             --workers "$WORKERS" \
