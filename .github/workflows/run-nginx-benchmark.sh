@@ -101,7 +101,7 @@ capture_host_vmlinux_backtrace() {
 	local timeout_pid=${UML_PID:-}
 	local pid=
 	local log="$OUTPUT/host-vmlinux-backtrace.log"
-	if [[ "$PROFILE" != um-nommu-sas-seccomp || "$WORKERS" != 4 || "$CONNECTIONS" != 64 ]]; then
+	if [[ "$PROFILE" != um-nommu-sas-seccomp || "$WORKERS" != 4 ]]; then
 		return 0
 	fi
 	{

@@ -676,7 +676,7 @@ jobs:
           host_tools=(iproute2 libcap2-bin)
           if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
             host_tools+=(tcpdump)
-            if [[ "$WORKERS" == 4 && "$CONNECTIONS" == 64 ]]; then
+            if [[ "$WORKERS" == 4 ]]; then
               host_tools+=(gdb)
             fi
           fi
