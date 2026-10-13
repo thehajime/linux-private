@@ -1621,7 +1621,7 @@ jobs:
           name: test-result-all
           path: output/out/*
       - name: Build GitHub Pages report
-        if: ${{ always() && steps.create_report.outcome == 'success' }}
+        if: ${{ always() && steps.create_report.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
         run: |
           python3 .github/workflows/result-page.py \
             --snapshot "$RUNNER_TEMP/result-snapshot.json" \
@@ -1630,19 +1630,19 @@ jobs:
             --output "$RUNNER_TEMP/site"
       - name: Upload GitHub Pages artifact
         id: upload_pages
-        if: ${{ always() && steps.create_report.outcome == 'success' }}
+        if: ${{ always() && steps.create_report.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: ${{ runner.temp }}/site
       - name: Deploy report to GitHub Pages
         id: deployment
-        if: ${{ always() && steps.upload_pages.outcome == 'success' }}
+        if: ${{ always() && steps.upload_pages.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
         continue-on-error: true
         uses: actions/deploy-pages@v4
         with:
           artifact_name: github-pages
       - name: prepare action post
-        if: ${{ always() && steps.create_report.outcome == 'success' }}
+        if: ${{ always() && steps.create_report.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           ASSET_BASE_URL: ${{ steps.publish_chart_assets.outputs.asset_base_url }}
@@ -1687,7 +1687,7 @@ jobs:
             ${{ runner.temp }}/result-snapshot.json
             ${{ runner.temp }}/site
       - uses: actions/github-script@v9
-        if: ${{ always() && steps.create_report.outcome == 'success' }}
+        if: ${{ always() && steps.create_report.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
         env:
           COMMENT_BODY_FILE: ${{ runner.temp }}/comment.md
         with:
