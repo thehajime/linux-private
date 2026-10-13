@@ -3210,7 +3210,7 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 		u64 __user *, result,
 		unsigned int, flags)
 {
-	u64 value;
+	u64 value = 0;
 	int ret;
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
