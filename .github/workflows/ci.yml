@@ -518,7 +518,7 @@ jobs:
           tags: ghcr.io/thehajime/alpine:${{ matrix.base_tag }}-${{ matrix.testname }}
 
   build_nginx_rootfs:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/netperf-focused' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Build shared nginx rootfs images once
     needs: [build_nommu_apks]
     runs-on: ubuntu-22.04
@@ -612,7 +612,7 @@ jobs:
           if-no-files-found: warn
 
   nginx_benchmark:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/netperf-focused' }}
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     name: "nginx: ${{ matrix.profile }}, workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
     needs: [build_uml, build_nginx_rootfs]
     runs-on: ubuntu-22.04
@@ -871,7 +871,6 @@ jobs:
            cat /proc/sys/kernel/exec-shield || true
            echo 0 > /proc/sys/kernel/exec-shield || true
       - name: benchmark-1
-        if: ${{ github.event_name != 'workflow_dispatch' || github.ref_name != 'codex/netperf-focused' }}
         continue-on-error: true
         run: |
            set -uo pipefail
@@ -1040,7 +1039,7 @@ jobs:
            wait "$capture_probe_pid" 2>/dev/null || true
            exit "$bench_status"
       - name: Check benchmark-1 guest status
-        if: ${{ always() && github.ref_name != 'codex/netperf-focused' }}
+        if: ${{ always() }}
         run: |
           status_file="output/${{ matrix.testname }}-benchmark-1.status"
           if [[ ! -s "$status_file" ]]; then
@@ -1059,7 +1058,6 @@ jobs:
           path: output/${{ matrix.testname }}*
 
   checkpatch:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.ref_name != 'codex/netperf-focused' }}
     runs-on: ubuntu-22.04
     name: checkpatch and co
     env:
@@ -1451,7 +1449,7 @@ jobs:
           path: output/ltp/*
 
   bench-result:
-    if: ${{ always() && github.ref_name != 'codex/netperf-focused' }}
+    if: ${{ always() }}
     runs-on: ubuntu-22.04
     name: bench-result
     needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_benchmark]
