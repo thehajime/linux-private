@@ -83,8 +83,17 @@ jobs:
               compare=$(gh api "repos/thehajime/linux-private/compare/${candidate_kernel_sha}...${kernel_sha}")
               if jq -e '
                 .status == "ahead" and
-                (.files | length > 0 and length < 300) and
-                all(.files[]; .filename == "arch/um/kernel/trap.c")
+                (
+                  (.files | length > 0 and length < 300) and
+                  all(.files[]; .filename == "arch/um/kernel/trap.c")
+                or
+                  (.files | length == 4) and
+                  all(.files[];
+                    .status == "renamed" and
+                    (.filename | startswith("tools/testing/selftests/nommu/")) and
+                    (.previous_filename | startswith("tools/testing/selftests/mm/nommu/"))
+                  )
+                )
               ' <<<"$compare" >/dev/null; then
                 compatible_tag=$candidate_tag
                 compatible_kernel_sha=$candidate_kernel_sha
@@ -93,10 +102,10 @@ jobs:
             done <<<"$candidate_tags"
 
             [[ -n "$compatible_tag" ]] || {
-              echo "No APK release with identical aports sources and trap.c-only kernel delta is available." >&2
+              echo "No APK release with identical aports sources and a package-compatible kernel delta is available." >&2
               exit 1
             }
-            echo "Reusing $compatible_tag: only arch/um/kernel/trap.c differs in the kernel, and aports SHA is unchanged."
+            echo "Reusing $compatible_tag: kernel delta is limited to trap.c or the SWMMU selftest directory move, and aports SHA is unchanged."
             used_release_tag=$compatible_tag
             mkdir -p "$RUNNER_TEMP/apk-reuse"
             gh release download "$compatible_tag" --repo thehajime/aports \
