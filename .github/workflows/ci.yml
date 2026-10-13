@@ -28,10 +28,6 @@ on:
         required: false
         type: boolean
         default: false
-      debug_enabled:
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
-        required: false
-        default: true
 
 env:
   LMBENCH_REF: ${{ inputs.lmbench_ref || 'codex/lmbench-process-method' }}
@@ -190,11 +186,6 @@ jobs:
          shell: ${{ matrix.shell }}
 
     steps:
-#      - name: Setup tmate session
-#        uses: mxschmitt/action-tmate@v3
-#        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
-#        with:
-#          detached: true
       - name: Set env
         shell: bash
         run: |
@@ -230,7 +221,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt update -y
-          sudo apt install -y ccache iperf3 netperf gdb valgrind libcap-dev libcap-ng-dev libmnl-dev libmbedtls-dev liburing-dev libnuma-dev
+          sudo apt install -y ccache iperf3 netperf libcap-dev libcap-ng-dev libmnl-dev libmbedtls-dev liburing-dev libnuma-dev
       - name: Verify compiler cache wrapper
         run: |
           compiler=$(command -v gcc)
@@ -301,7 +292,6 @@ jobs:
            sudo ip tuntap add dev tap100 mode tap user ${USER}
            sudo ip add add 192.168.122.1/24 dev tap100
            sudo ip link set up dev tap100
-           cp .github/workflows/gdbinit ~/.gdbinit
            iperf3 -s &
       - name: (FIXME) defconfig rewrite for nommu
         if: matrix.testname == 'um-nommu'
@@ -850,11 +840,6 @@ jobs:
           path: ${{ runner.temp }}/uml-image
       - name: Load tested UML image
         run: docker load -i "$RUNNER_TEMP/uml-image/uml-image.tar"
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
-        with:
-          detached: true
       - name: Setup faketty
         uses: Yuri6037/Action-FakeTTY@v1.1
       - name: setup iperf3/netperf server
@@ -1166,10 +1151,6 @@ jobs:
           name: test-result-native
           path: output/native*.dat
           if-no-files-found: warn
-      #- name: Setup tmate session
-      #  uses: mxschmitt/action-tmate@v3
-      #  with:
-      #    detached: true
       - name: Fetch UML next for range checks
         run: |
            git remote add uml git://git.kernel.org/pub/scm/linux/kernel/git/uml/linux.git
@@ -1355,11 +1336,6 @@ jobs:
           mkdir -p output/ltp/uml-python-debug
           docker exec -d ltp-test /bin/sh \
             /github/workspace/.github/workflows/capture-uml-python-maps.sh host
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
-        with:
-          detached: true
       - name: Extract test programs and run LTP
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
