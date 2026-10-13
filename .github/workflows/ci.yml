@@ -22,7 +22,7 @@ on:
         description: 'Pinned master/edge aports source commit used by the temporary NOMMU APK release'
         required: false
         type: string
-        default: 3c77cb673f28eff8412759415f28a6983ff0e7de
+        default: 7f2f585c62743e790bdfd2bfee295c36cd377fb0
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
