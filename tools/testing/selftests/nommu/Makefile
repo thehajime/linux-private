@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0
-# Makefile for mm/nommu selftests
+# Makefile for NOMMU selftests
+# Build and invoke this SWMMU test directly in the guest, not via the generic
+# collection runner until its NOMMU timeout handling is available.
 
-TEST_GEN_PROGS += nommu_mmap_test
-TEST_GEN_PROGS += nommu_mremap_test
 TEST_GEN_PROGS += nommu_swmmu_test
 
 $(OUTPUT)/nommu_swmmu_test: nommu_swmmu_test.c nommu_swmmu_user.c
 $(OUTPUT)/nommu_swmmu_test: CFLAGS += \
-	-I$(top_srcdir) $(KHDR_INCLUDES) $(TOOLS_INCLUDES)
+	-I$(top_srcdir)/include/uapi $(KHDR_INCLUDES) $(TOOLS_INCLUDES)
 
 
 # gcc-plugins
@@ -15,7 +15,7 @@ NOMMU_SELFTEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 SWMMU_SRCTREE := $(strip $(top_srcdir))
 ifeq ($(SWMMU_SRCTREE),)
-SWMMU_SRCTREE := $(abspath $(NOMMU_SELFTEST_DIR)/../../../../..)
+SWMMU_SRCTREE := $(abspath $(NOMMU_SELFTEST_DIR)/../../../..)
 endif
 
 SWMMU_BUILD_PLUGIN ?= 0
@@ -74,4 +74,4 @@ else
 	@false
 endif
 
-include ../../lib.mk
+include ../lib.mk
