@@ -4,7 +4,14 @@ set -euo pipefail
 chart_dir=${CHART_DIR:-output/out}
 asset_branch=${ASSET_BRANCH:-uml-ci-report-assets}
 run_path="runs/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-charts=(lmbench.png lmbench-bandwidth.png iperf3.png tcp-stream.png nginx-comparison.png)
+charts=(
+	lmbench.png
+	lmbench-bandwidth.png
+	iperf3.png
+	tcp-stream.png
+	nginx-workers-1.png
+	nginx-workers-4.png
+)
 available=()
 
 for chart in "${charts[@]}"; do

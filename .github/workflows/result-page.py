@@ -13,11 +13,17 @@ CHARTS = {
     "lmbench-bandwidth.png": ("lmbench bandwidth", "Pipe and memory bandwidth measurements across the UML profiles."),
     "iperf3.png": ("iperf3 throughput", "Forward and reverse iperf3 goodput by UML profile, in Gbit/s."),
     "tcp-stream.png": ("netperf TCP throughput", "TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero."),
-    "nginx-comparison.png": (
-        "",
-        "Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. SMP=y means CONFIG_SMP=y; SMP=n means CONFIG_SMP=n. Each bar is one matrix measurement.",
-    ),
 }
+NGINX_CHARTS = (
+    (
+        "nginx-workers-1.png",
+        "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+    ),
+    (
+        "nginx-workers-4.png",
+        "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+    ),
+)
 
 
 def main():
@@ -33,14 +39,13 @@ def main():
     shutil.copy2(args.snapshot, args.output / "result-snapshot.json")
     report_copy = args.output / "comparison-report.md"
     shutil.copy2(args.report, report_copy)
-    nginx_chart = args.charts / "nginx-comparison.png"
-    if nginx_chart.is_file():
+    for nginx_chart, description in NGINX_CHARTS:
+        if not (args.charts / nginx_chart).is_file():
+            continue
         with report_copy.open("a") as report_stream:
             report_stream.write(
-                "\n### Nginx throughput\n\n"
-                "Nginx requests per second grouped by client count (4, 16, 64), with UML profiles "
-                "adjacent within each group. Color identifies the profile; solid fill is one "
-                "worker and patterned fill is four workers. SMP=y means CONFIG_SMP=y; SMP=n means CONFIG_SMP=n. Each bar is one matrix measurement.\n"
+                f"\n### Nginx throughput: {nginx_chart.removesuffix('.png')}\n\n"
+                f"{description}\n"
             )
 
     run_url = html.escape(snapshot.get("run_url", ""), quote=True)
@@ -49,9 +54,8 @@ def main():
     charts = []
     chart_files = list(CHARTS.items())
     chart_files.extend(
-        (path.name, (f"nginx throughput: {path.stem[len('nginx-'):]}", ""))
-        for path in sorted(args.charts.glob("nginx-*.png"))
-        if path.name not in CHARTS
+        (filename, (f"nginx throughput: {filename.removesuffix('.png')}", description))
+        for filename, description in NGINX_CHARTS
     )
     for filename, (title, description) in chart_files:
         source = args.charts / filename
