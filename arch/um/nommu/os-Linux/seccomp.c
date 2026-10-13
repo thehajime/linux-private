@@ -13,6 +13,8 @@
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 
+extern unsigned long task_size;
+
 int __init os_setup_seccomp(void)
 {
 	int err;
@@ -20,8 +22,14 @@ int __init os_setup_seccomp(void)
 	unsigned long __userspace_start = uml_reserved,
 		__userspace_end = high_physmem;
 #else
+	/*
+	 * NOMMU SWMMU mappings start at the shared user VA base and can
+	 * extend to the runtime task-size limit. Keep syscall interception
+	 * aligned with that actual address-space bound instead of a fixed
+	 * window that can exclude the interpreter or shared libraries.
+	 */
 	unsigned long __userspace_start = 0x1000000000ULL,
-		__userspace_end = 0x1000000000ULL + 1024 * 4096;
+		__userspace_end = task_size;
 #endif
 	struct sock_filter filter[] = {
 		/* if (IP_high > __userspace_end) allow; */
