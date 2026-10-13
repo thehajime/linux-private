@@ -60,6 +60,14 @@ reproducible kselftest build instructions in
   established fact.
 - [ ] Continue cleanup as small, reviewable changes before adding features.
 
+### TODO: Recheck the x86-64 GOTPCRELX linker relaxation workaround
+
+`scripts/swmmu-cc` passes `-Wl,--no-relax` to SWMMU guest links. With GNU ld 2.44, a CPython link changed a relaxable indirect call through a GOT slot into a direct call to `_Py_NoneStruct`, causing SIGSEGV; the same Python objects and runtime linked with `--no-relax` printed its success marker and exited 0 under both `zpoline=0` and `zpoline=1`. The conversion is in GNU ld and was also reproduced without the GCC plugin. The relevant conversion code is still present in the official Binutils 2.46.1 release and upstream master checked on 2026-10-13, so keep the workaround until an upstream change is identified and tested.
+
+- Track the upstream Binutils fix and identify its first released version; do not infer that a newer version is fixed from its version number alone.
+- Once fixed, rerun the same CPython link and guest test with normal relaxation and `--no-relax`, under both zpoline modes. Remove the wrapper workaround only if normal relaxation passes and produces correct code.
+- The workaround disables linker relaxation for SWMMU links and may increase code size or affect link optimization; quantify this before removing or narrowing it.
+
 ### Deferred investigations: compiler stack probes and plain NOMMU SMP
 
 - [x] Handed off to a separate task; investigation remains pending there.
