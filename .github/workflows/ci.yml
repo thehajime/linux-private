@@ -486,7 +486,7 @@ jobs:
             SWMMU_HOSTCXX=g++ \
             KHDR_INCLUDES="-isystem $GITHUB_WORKSPACE/build/kselftest/uapi/include" \
             USERCFLAGS="-O2 -fPIE -include sys/prctl.h" \
-            USERLDFLAGS="-static-pie" \
+            USERLDFLAGS="-static-pie -Wl,--no-relax" \
             all
       - name: Stage direct SWMMU kselftest init and binary
         if: matrix.testname == 'um-nommu-sas'
