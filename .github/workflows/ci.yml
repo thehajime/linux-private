@@ -120,6 +120,22 @@ jobs:
                       .filename == "tools/testing/selftests/nommu/Makefile"
                     )] | length == 1)
                   )
+                or
+                  (
+                    (.files | length == 3) and
+                    ([.files[] | select(
+                      .status == "modified" and
+                      .filename == "arch/um/nommu/os-Linux/seccomp.c"
+                    )] | length == 1) and
+                    ([.files[] | select(
+                      .status == "modified" and
+                      .filename == "tools/testing/selftests/nommu/Makefile"
+                    )] | length == 1) and
+                    ([.files[] | select(
+                      .status == "modified" and
+                      .filename == "mm/nommu_swmmu.c"
+                    )] | length == 1)
+                  )
                 )
               ' <<<"$compare" >/dev/null; then
                 compatible_tag=$candidate_tag
