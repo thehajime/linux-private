@@ -557,6 +557,40 @@ have not been started.
   status in the report; the first run `38210297986` incorrectly reported
   success from the UML process exit status and was corrected in `38210659301`.
 
+#### Task B TCP buffer delay follow-up (2026-10-13)
+
+- [x] Remove enlarged `tcp_wmem` and `tcp_rmem` values from netperf runs.
+  Netperf-only runs leave guest defaults untouched; combined runs keep the
+  existing enlarged values for iperf3 and restore the guest's boot-time values
+  before starting netperf. `.github/workflows/netperf-bench.sh` logs the
+  effective values. Local
+  matched runs with kernel `86ee6de52c4a2cfe46f613cecda7a8888808cadd`, the
+  cached SAS rootfs, and `seccomp=on` showed default-buffer 10s/1500B timings
+  of 17s STREAM / 29s MAERTS; setting `tcp_wmem` alone took 64s / 27s, and
+  setting `tcp_rmem` alone took 17s / 128s. With both settings, the 64-byte
+  1s/10s cases took 60s/63s STREAM and 110s/138s MAERTS; defaults took
+  9s/18s STREAM and 20s/29s MAERTS. The exact local matrix and logs are in
+  the Obsidian record `2026-10-13_090657+0900-netperf-seccomp-buffer-isolation`.
+  The matched comparison shows that these enlarged values cause direction-
+  specific wall-time delays in this local setup. The mechanism behind the
+  extra UML CPU time is still unknown and needs investigation.
+- [ ] In the next Actions run, confirm `tcp_wmem` and `tcp_rmem` remain at the
+  guest defaults during netperf, then compare per-case wall time with netperf's
+  reported measurement duration and preserve the complete job logs.
+- [ ] Diagnose why the enlarged `tcp_wmem` setting delays TCP_STREAM and the
+  enlarged `tcp_rmem` setting delays TCP_MAERTS outside netperf's reported
+  measurement interval. Record guest/UML CPU use, relevant syscall and vector
+  network counters, and compare setup, transfer, and teardown phases. Confirm
+  which work accounts for the 100+ second local cases before proposing a
+  further buffer change.
+- [ ] Evaluate whether a different UML network device or supported backend
+  can avoid the vector/raw transport overhead. Inventory the drivers/backends
+  available in the hosted runner and their required capabilities, then compare
+  a reachable host `netserver` workload under the same kernel, rootfs, payload,
+  duration, and buffer defaults. Adopt an alternative only if the same cases
+  complete reliably and improve wall time; record unsupported runner features
+  and any topology differences.
+
 ### Task C — plain-NOMMU mremap Maple range candidate (2026-10-13)
 
 - [ ] Keep the historical `virt_to_slab()==NULL` teardown panic open. The Maple range update is a root-cause candidate for a confirmed Maple invariant violation, but has not yet been shown to prevent the historical panic under its reproduced 20-iteration workload.

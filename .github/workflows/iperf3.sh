@@ -10,8 +10,17 @@ echo "nameserver 8.8.8.8" > /etc/resolv.conf
 /sbin/ifconfig "$NIC" 172.17.0.2 up
 /sbin/ip route add default via "$SERVER" dev "$NIC"
 
-/sbin/sysctl -w net.ipv4.tcp_wmem="40960 873800 1677721600"
-/sbin/sysctl -w net.ipv4.tcp_rmem="40960 873800 1677721600"
+DEFAULT_TCP_WMEM=$(cat /proc/sys/net/ipv4/tcp_wmem)
+DEFAULT_TCP_RMEM=$(cat /proc/sys/net/ipv4/tcp_rmem)
+if grep -Eq '(^|[[:space:]])netperf_only=1([[:space:]]|$)' /proc/cmdline; then
+    NETPERF_ONLY=1
+else
+    NETPERF_ONLY=0
+    # Keep the existing enlarged buffers for iperf3. Netperf runs with the
+    # guest defaults because the enlarged values caused severe local delays.
+    /sbin/sysctl -w net.ipv4.tcp_wmem="40960 873800 1677721600"
+    /sbin/sysctl -w net.ipv4.tcp_rmem="40960 873800 1677721600"
+fi
 
 echo "=== iperf3 diagnostic: interface and route ==="
 /sbin/ip -details address show dev "$NIC" || true
@@ -29,7 +38,7 @@ else
 fi
 cat /proc/mounts
 
-if grep -Eq '(^|[[:space:]])netperf_only=1([[:space:]]|$)' /proc/cmdline; then
+if [ "$NETPERF_ONLY" -eq 1 ]; then
     echo "netperf-only diagnostic mode enabled"
     sh /root/netperf-bench.sh
     status=$?
@@ -51,6 +60,10 @@ echo "===iperf3 reverse==="
 "$IPERF" -4 -c "$SERVER" -R -fm
 IPERF_REVERSE_STATUS=$?
 echo "iperf3 measurement status: reverse $IPERF_REVERSE_STATUS"
+
+# Restore the values present at guest boot before starting netperf.
+/sbin/sysctl -w "net.ipv4.tcp_wmem=$DEFAULT_TCP_WMEM"
+/sbin/sysctl -w "net.ipv4.tcp_rmem=$DEFAULT_TCP_RMEM"
 
 sh /root/netperf-bench.sh
 
