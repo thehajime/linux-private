@@ -51,7 +51,9 @@ $(SWMMU_PLUGIN): $(SWMMU_PLUGIN_SOURCE) $(SWMMU_PLUGIN_HEADERS)
 		-o "$@" \
 		"$(SWMMU_PLUGIN_SOURCE)"
 
-$(OUTPUT)/nommu_swmmu_test: $(SWMMU_PLUGIN)
+# Build the plugin first without adding the shared object to $^; lib.mk passes
+# $^ to the linker, where the compiler plugin is not a link input.
+$(OUTPUT)/nommu_swmmu_test: | $(SWMMU_PLUGIN)
 
 endif
 
