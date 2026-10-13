@@ -645,7 +645,7 @@ jobs:
     env:
       NGINX_IMAGE_NAME: ${{ contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
       NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
-      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && 'ncpus=4' || matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
       NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers
@@ -1672,7 +1672,7 @@ jobs:
                   tcp-stream.png)
                     printf 'netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero. The vertical range is symmetric and includes native values when available.\n\n' ;;
                   nginx-comparison.png)
-                    printf 'Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. SMP4 means CONFIG_SMP=y with four CPUs online; UP means CONFIG_SMP=n. Each bar is one matrix measurement.\n\n' ;;
+                    printf 'Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. SMP=y means CONFIG_SMP=y; SMP=n means CONFIG_SMP=n. Each bar is one matrix measurement.\n\n' ;;
                 esac
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"

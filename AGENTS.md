@@ -618,11 +618,12 @@ does not close broad application validation. OpenSSL has not been started.
 - [x] Restore the historical plot palette and key placement, keep the image
   title out of the charts, use a symmetric netperf y-range rounded up from the
   largest available value (including native whenever the run has native
-  network data), and add the SMP marker to nginx profile labels. Run
+  network data), and add explicit CONFIG_SMP=y/n markers to nginx profile labels. Only the seccomp UML profile is started with four CPUs: ptrace userspace reports that it does not support SMP. Run
   `38329251963` did not contain native netperf measurements; its largest
   available magnitude was about 12.64 Gbps, giving a symmetric +/-15 Gbps
   range. The generated chart still needs visual review after the next Actions
   run.
+- [x] Diagnose and correct the first follow-up run `38332277476`: the PTRACE `um-mmu` profile cannot start with `ncpus=4` (`SMP is not supported with PTRACE userspace`). Cancelled that run, removed the explicit CPU count from PTRACE UML, retained four CPUs only for seccomp UML, and changed the legend to show kernel `CONFIG_SMP=y/n` rather than online CPU count. Re-run validation is pending.
 - [ ] Resolve the failed nginx warmup in run `38329251963`, profile
   `um-nommu-sas-seccomp`, workers 4, connections 64. HTTP/TLS smoke tests
   passed, but `wrk` reported zero requests during its five-second warmup. The
