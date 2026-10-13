@@ -38,15 +38,21 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     shutil.copy2(args.snapshot, args.output / "result-snapshot.json")
     report_copy = args.output / "comparison-report.md"
-    shutil.copy2(args.report, report_copy)
-    for nginx_chart, description in NGINX_CHARTS:
-        if not (args.charts / nginx_chart).is_file():
+    report = args.report.read_text()
+    chart_descriptions = {
+        filename: description for filename, (_title, description) in CHARTS.items()
+    }
+    chart_descriptions.update(NGINX_CHARTS)
+    for filename, description in chart_descriptions.items():
+        marker = f"<!-- report-chart:{filename} -->"
+        if marker not in report:
             continue
-        with report_copy.open("a") as report_stream:
-            report_stream.write(
-                f"\n### Nginx throughput: {nginx_chart.removesuffix('.png')}\n\n"
-                f"{description}\n"
-            )
+        if (args.charts / filename).is_file():
+            replacement = f"{description}\n\n![{filename.removesuffix('.png')}]({filename})"
+        else:
+            replacement = ""
+        report = report.replace(marker, replacement)
+    report_copy.write_text(report)
 
     run_url = html.escape(snapshot.get("run_url", ""), quote=True)
     tested_ref = html.escape(snapshot.get("tested_ref", "unknown"))

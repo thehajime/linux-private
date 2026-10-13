@@ -333,24 +333,78 @@ def collect_ltp(root):
 
 def collect_kselftest(root):
     cases = {}
-    for path in sorted((root / "kselftest").rglob("*")) if (root / "kselftest").exists() else []:
-        if not path.is_file() or path.suffix not in (".tap", ".log", ".txt"):
-            continue
-        for line in path.read_text(errors="replace").splitlines():
-            match = re.match(r"^\s*(not )?ok(?:\s+\d+)?(?:\s+-\s+(.+?))?\s*(?:#\s*(SKIP|TODO).*)?$", line)
+    artifact_root = root / "kselftest-artifact"
+    if not artifact_root.exists():
+        artifact_root = root / "kselftest"
+    tap_paths = sorted(artifact_root.rglob("*.tap")) if artifact_root.exists() else []
+    totals = None
+    selected_tap = None
+    for path in tap_paths:
+        text = path.read_text(errors="replace")
+        summary = re.search(
+            r"^# Totals: pass:(\d+) fail:(\d+).*?skip:(\d+).*?error:(\d+)",
+            text,
+            re.MULTILINE,
+        )
+        if summary:
+            totals = {
+                "passed": int(summary.group(1)),
+                "failed": int(summary.group(2)) + int(summary.group(4)),
+                "skipped": int(summary.group(3)),
+            }
+            selected_tap = path
+            break
+
+    if selected_tap is None and tap_paths:
+        selected_tap = tap_paths[0]
+    if selected_tap:
+        for line in selected_tap.read_text(errors="replace").splitlines():
+            match = re.match(r"^\s*(not )?ok\s+(\d+)(?:\s+(.*?))?\s*$", line)
             if not match:
                 continue
-            name = match.group(2) or f"{path.name}:{len(cases) + 1}"
+            description = match.group(3) or ""
+            skipped = re.search(r"#\s*SKIP(?:\s+(.*))?", description)
+            name = (skipped.group(1) if skipped else description).strip()
+            name = re.sub(r"^[- ]+|\s+#.*$", "", name).strip()
             status = "FAIL" if match.group(1) else "PASS"
-            if match.group(3) == "SKIP":
+            if skipped:
                 status = "SKIP"
-            cases[name] = status
-    counts = {
-        "passed": sum(status == "PASS" for status in cases.values()),
-        "failed": sum(status == "FAIL" for status in cases.values()),
-        "skipped": sum(status == "SKIP" for status in cases.values()),
-    }
-    return {"state": "collected" if cases else "disabled/no results", "counts": counts, "cases": cases}
+            cases[match.group(2) + (f" {name}" if name else "")] = status
+
+    if totals is None:
+        totals = {
+            "passed": sum(status == "PASS" for status in cases.values()),
+            "failed": sum(status == "FAIL" for status in cases.values()),
+            "skipped": sum(status == "SKIP" for status in cases.values()),
+        }
+
+    exit_codes = []
+    if artifact_root.exists():
+        exit_paths = list(artifact_root.rglob("*.exit")) + list(artifact_root.rglob("uml-exit.txt"))
+        for path in exit_paths:
+            match = re.search(r"(?:uml_exit=)?(-?\d+)", path.read_text(errors="replace"))
+            if match:
+                exit_codes.append(int(match.group(1)))
+    state = "not-collected"
+    if selected_tap:
+        if totals["failed"] or any(code != 0 for code in exit_codes):
+            state = "failed"
+        elif exit_codes:
+            state = "passed"
+        else:
+            state = "incomplete (missing exit status)"
+    return {"state": state, "counts": totals, "cases": cases}
+
+
+def collect_nginx(root):
+    path = root / "nginx" / "aggregate.json"
+    data = load_json(path)
+    if not isinstance(data, dict):
+        return {"state": "not run/no results", "matrix": []}
+    matrix = data.get("matrix")
+    if not isinstance(matrix, list):
+        return {"state": "invalid aggregate", "matrix": []}
+    return {"state": "collected", "matrix": matrix}
 
 
 def collect(root, run_url, sha, tested_ref, job_status):
@@ -365,6 +419,7 @@ def collect(root, run_url, sha, tested_ref, job_status):
         "lmbench_table": collect_lmbench_table(root, benchmarks),
         "kunit": collect_kunit(root),
         "kselftest": collect_kselftest(root),
+        "nginx": collect_nginx(root),
         "ltp": collect_ltp(root),
     }
 
@@ -427,8 +482,10 @@ def render_section(title, old, new, cases_key, counts_keys):
         comparable = before.get("state") == after.get("state")
         if title == "LTP":
             comparable = before.get("state") == "complete" and after.get("state") == "complete"
-        elif title in ("KUnit", "kselftest"):
+        elif title == "KUnit":
             comparable = before.get("state") == "collected" and after.get("state") == "collected"
+        elif title == "kselftest":
+            comparable = before.get("state") in ("passed", "failed") and after.get("state") in ("passed", "failed")
         count_diff = count_changes(before.get("counts"), after.get("counts"), counts_keys) if comparable else []
         if count_diff:
             rendered = ", ".join(f"{key} {was} → {now}" for key, was, now in count_diff)
@@ -466,9 +523,9 @@ def render(snapshot, previous):
     else:
         lines.append("No KUnit JSON artifacts were collected.")
     kselftest = snapshot["kselftest"]
-    if kselftest["state"] == "collected":
+    if kselftest["state"] in ("passed", "failed"):
         counts = kselftest["counts"]
-        kselftest_status = f"collected: {counts['passed']} passed, {counts['failed']} failed, {counts['skipped']} skipped"
+        kselftest_status = f"{kselftest['state']}: {counts['passed']} passed, {counts['failed']} failed, {counts['skipped']} skipped"
     else:
         kselftest_status = kselftest["state"]
     lines.extend(["", "### kselftest results", f"Current status: {kselftest_status}.", ""])
@@ -496,6 +553,18 @@ def render(snapshot, previous):
     if not snapshot["ltp"]["targets"]:
         lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
     lines.append("")
+    profiles = [target for target, _header in LMBENCH_COLUMNS]
+    getpid_values = {
+        item.get("target"): item.get("value")
+        for item in snapshot.get("benchmark", []) if item.get("name") == "getpid"
+    }
+    lines.extend(["### do_getpid (nsec)", "", "| | " + " | ".join(profiles) + " |",
+                  "|---|" + "---:|" * len(profiles)])
+    lines.append("| getpid | " + " | ".join(
+        f"{getpid_values[profile]:.2f}" if isinstance(getpid_values.get(profile), (int, float)) else "N/A"
+        for profile in profiles
+    ) + " |")
+    lines.append("")
     lines.append("### lmbench (usec; bandwidth rows in MB/sec)")
     headers = [header for _target, header in LMBENCH_COLUMNS]
     lines.append("||" + "|".join(headers) + "|")
@@ -507,7 +576,66 @@ def render(snapshot, previous):
             value = lmbench_table.get(target, {}).get(operation, "FAIL")
             cells.append(f"{value:.6g}" if isinstance(value, (int, float)) else value)
         lines.append("|" + label + "|" + "|".join(cells) + "|")
-    lines.append("")
+    lines.extend(["", "<!-- report-chart:lmbench.png -->", "<!-- report-chart:lmbench-bandwidth.png -->", ""])
+
+    iperf_values = {}
+    netperf_values = {}
+    for item in snapshot.get("benchmark", []):
+        labels = item.get("labels", {})
+        if item.get("name") == "iperf3":
+            iperf_values[(item.get("target"), labels.get("direction"))] = item.get("value")
+        elif item.get("name") == "netperf":
+            netperf_values[(item.get("target"), labels.get("test"), labels.get("payload_bytes"))] = item.get("value")
+
+    lines.extend(["### iperf3 (Mbps)", "", "| Direction | " + " | ".join(profiles) + " |",
+                  "|---|" + "---:|" * len(profiles)])
+    for direction, label in (("forward", "Forward"), ("reverse", "Reverse")):
+        cells = [iperf_values.get((profile, direction), "N/A") for profile in profiles]
+        lines.append("| " + label + " | " + " | ".join(
+            f"{value:.2f}" if isinstance(value, (int, float)) else value for value in cells
+        ) + " |")
+    lines.extend(["", "<!-- report-chart:iperf3.png -->", ""])
+
+    payloads = (64, 128, 256, 512, 1024, 1500, 65507)
+    for test, title in (("TCP_STREAM", "TCP_STREAM"), ("TCP_MAERTS", "TCP_MAERTS")):
+        lines.extend([f"### netperf {title} (Mbps)", "",
+                      "| Payload bytes | " + " | ".join(profiles) + " |",
+                      "|---:|" + "---:|" * len(profiles)])
+        for payload in payloads:
+            cells = [netperf_values.get((profile, test, payload), "N/A") for profile in profiles]
+            lines.append(f"| {payload} | " + " | ".join(
+                f"{value:.2f}" if isinstance(value, (int, float)) else value for value in cells
+            ) + " |")
+        lines.append("")
+    lines.extend(["<!-- report-chart:tcp-stream.png -->", ""])
+
+    nginx = snapshot.get("nginx", {"state": "not run/no results", "matrix": []})
+    lines.extend(["### nginx matrix", ""])
+    if nginx.get("matrix"):
+        lines.extend([
+            "| Profile | Workers | Connections | Status | Requests/s | Avg latency (ms) | Socket errors |",
+            "|---|---:|---:|---|---:|---:|---|",
+        ])
+        ordered_matrix = sorted(
+            nginx["matrix"],
+            key=lambda item: (item.get("profile", ""), int(item.get("workers", 0)), int(item.get("connections", 0))),
+        )
+        for item in ordered_matrix:
+            def cell(value):
+                return f"{value:.3f}" if isinstance(value, (int, float)) else "N/A"
+
+            socket_errors = item.get("socket_errors")
+            lines.append(
+                f"| {item.get('profile', 'unknown')} | {item.get('workers', 'N/A')} "
+                f"| {item.get('connections', 'N/A')} | {item.get('status', 'UNKNOWN')} "
+                f"| {cell(item.get('requests_per_second'))} | {cell(item.get('average_latency_ms'))} "
+                f"| {socket_errors if socket_errors is not None else 'N/A'} |"
+            )
+    else:
+        lines.append(f"No nginx matrix results were collected ({nginx.get('state', 'unknown')}).")
+    lines.extend(["", "<!-- report-chart:nginx-workers-1.png -->",
+                  "<!-- report-chart:nginx-workers-4.png -->", ""])
+
     lines.append("### Changes from previous report")
     if not previous:
         lines.extend(["This is the first report with a saved comparison snapshot. The next report will be compared with this run.", ""])
@@ -535,8 +663,10 @@ def render(snapshot, previous):
             comparable = before.get("state") == after.get("state")
             if title == "LTP":
                 comparable = before.get("state") == "complete" and after.get("state") == "complete"
-            elif title in ("KUnit", "kselftest"):
+            elif title == "KUnit":
                 comparable = before.get("state") == "collected" and after.get("state") == "collected"
+            elif title == "kselftest":
+                comparable = before.get("state") in ("passed", "failed") and after.get("state") in ("passed", "failed")
             if comparable:
                 changed += bool(count_changes(before.get("counts"), after.get("counts"), counts_keys))
                 changed += bool(compare_cases(before.get(cases_key, {}), after.get(cases_key, {})))

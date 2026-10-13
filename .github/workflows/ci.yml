@@ -456,9 +456,6 @@ jobs:
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
-        # Keep Python-based KUnit parsing disabled while Task A investigates
-        # the SWMMU fault. The focused SWMMU kselftest below runs directly.
-        if: ${{ false }}
         run: |
           mkdir -p output/kunit
           for config in `find . -path './ci-config' -prune -o -name .kunitconfig -print | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
@@ -467,7 +464,7 @@ jobs:
             ./tools/testing/kunit/kunit.py run --json="output/kunit/kunit-${{ matrix.testname }}-${result_name}.json" --kunitconfig="$config" ${{ matrix.kunit_opts }}
           done
       - name: Upload KUnit result data
-        if: ${{ false }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: kunit-results-${{ matrix.testname }}
@@ -1595,6 +1592,13 @@ jobs:
         with:
             path: output/kunit-results
             pattern: kunit-results-*
+      - name: Download direct SWMMU kselftest result
+        if: ${{ always() && needs.build_uml.result != 'skipped' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: swmmu-kselftest-um-nommu-sas
+          path: output/kselftest-artifact
       - name: Download UML nginx matrix results
         if: ${{ github.event_name == 'workflow_dispatch' }}
         continue-on-error: true
@@ -1742,39 +1746,47 @@ jobs:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           ASSET_BASE_URL: ${{ steps.publish_chart_assets.outputs.asset_base_url }}
         run: |
-          {
-            cat um-nommu.log 2>/dev/null || true
-            if [ -n "$PAGE_URL" ]; then
-              printf '\n### Benchmark charts and result data\n\n[Open this run\x27s report on GitHub Pages](%s)\n\n' "$PAGE_URL"
-            else
-              printf '\n### Benchmark charts and result data\n\nGitHub Pages deployment did not return a URL; see the workflow artifacts.\n\n'
-            fi
-            for chart in lmbench.png lmbench-bandwidth.png iperf3.png tcp-stream.png nginx-workers-1.png nginx-workers-4.png; do
-              if [ -f "$RUNNER_TEMP/site/$chart" ]; then
-                case "$chart" in
-                  lmbench.png)
-                    printf 'lmbench operation latency by UML profile; the logarithmic vertical axis uses microseconds.\n\n' ;;
-                  lmbench-bandwidth.png)
-                    printf 'lmbench pipe and memory bandwidth by UML profile, in MB/s.\n\n' ;;
-                  iperf3.png)
-                    printf 'iperf3 forward and reverse goodput by UML profile, in Gbit/s.\n\n' ;;
-                  tcp-stream.png)
-                    printf 'netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero. The vertical range is symmetric and includes native values when available.\n\n' ;;
-                  nginx-workers-1.png)
-                    printf 'Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.\n\n' ;;
-                  nginx-workers-4.png)
-                    printf 'Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.\n\n' ;;
-                esac
-                if [ -n "$ASSET_BASE_URL" ]; then
-                  printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"
-                elif [ -n "$PAGE_URL" ]; then
-                  printf '> ⚠️ Permanent chart storage failed; this image link may change on a later Pages deployment.\n\n'
-                  printf '![%s](%s%s)\n\n' "${chart%.png}" "${PAGE_URL%/}/" "$chart"
-                fi
-              fi
-            done
-            cat "$RUNNER_TEMP/comparison-report.md"
-          } > "$RUNNER_TEMP/comment.md"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          report_path = Path(os.environ["RUNNER_TEMP"]) / "comparison-report.md"
+          comment_path = Path(os.environ["RUNNER_TEMP"]) / "comment.md"
+          site_path = Path(os.environ["RUNNER_TEMP"]) / "site"
+          page_url = os.environ.get("PAGE_URL", "")
+          asset_base = os.environ.get("ASSET_BASE_URL", "").rstrip("/")
+          report = report_path.read_text()
+          descriptions = {
+              "lmbench.png": "lmbench operation latency by UML profile; the logarithmic vertical axis uses microseconds.",
+              "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
+              "iperf3.png": "iperf3 forward and reverse goodput by UML profile, in Gbit/s.",
+              "tcp-stream.png": "netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero. The vertical range is symmetric and includes native values when available.",
+              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+          }
+          for filename, description in descriptions.items():
+              marker = f"<!-- report-chart:{filename} -->"
+              if marker not in report:
+                  continue
+              image = site_path / filename
+              if not image.is_file():
+                  report = report.replace(marker, "")
+                  continue
+              if asset_base:
+                  image_url = f"{asset_base}/{filename}"
+              elif page_url:
+                  image_url = f"{page_url.rstrip('/')}/{filename}"
+                  description += " (temporary Pages URL; see the workflow run artifacts if it expires.)"
+              else:
+                  report = report.replace(marker, f"{description} Chart file: `{filename}` is attached to the workflow run artifacts.")
+                  continue
+              embed = f"{description}\n\n![{filename.removesuffix('.png')}]({image_url})"
+              report = report.replace(marker, embed)
+
+          if page_url:
+              report = f"[Open this run's full report on GitHub Pages]({page_url})\n\n" + report
+          comment_path.write_text(report)
+          PY
       - uses: actions/upload-artifact@v7
         if: ${{ always() && steps.create_report.outcome == 'success' }}
         with:
