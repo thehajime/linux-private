@@ -527,9 +527,9 @@ jobs:
           push: true
           tags: ghcr.io/thehajime/alpine:${{ matrix.base_tag }}-${{ matrix.testname }}
 
-  build_swmmu_nginx_rootfs:
+  build_nginx_rootfs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/netperf-focused' }}
-    name: Build SWMMU nginx rootfs once
+    name: Build shared nginx rootfs images once
     needs: [build_nommu_apks]
     runs-on: ubuntu-22.04
     timeout-minutes: 180
@@ -598,7 +598,7 @@ jobs:
       - name: Upload shared rootfs, signed APKs, and manifest
         uses: actions/upload-artifact@v4
         with:
-          name: swmmu-nginx-rootfs
+          name: nginx-rootfs-sas
           path: .swmmu-nginx/artifact
           if-no-files-found: error
       - name: Upload shared MMU nginx rootfs
@@ -617,14 +617,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: swmmu-nginx-rootfs-diagnostics
+          name: nginx-sas-rootfs-diagnostics
           path: .swmmu-nginx/logs
           if-no-files-found: warn
 
-  nginx_swmmu_benchmark:
+  nginx_benchmark:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/netperf-focused' }}
     name: "nginx: ${{ matrix.profile }}, workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
-    needs: [build_uml, build_swmmu_nginx_rootfs]
+    needs: [build_uml, build_nginx_rootfs]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -644,8 +644,8 @@ jobs:
         wrk_threads: [2]
     env:
       NGINX_IMAGE_NAME: ${{ contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
-      NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'swmmu-nginx-rootfs' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
-      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
+      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && 'ncpus=4' || matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
       NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers
@@ -704,7 +704,7 @@ jobs:
           aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
           gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
           out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
-          .github/workflows/run-swmmu-nginx-benchmark.sh \
+          .github/workflows/run-nginx-benchmark.sh \
             --kernel "$RUNNER_TEMP/vmlinux" \
             --rootfs rootfs \
             --workers "$WORKERS" \
@@ -742,6 +742,51 @@ jobs:
               --profile "$PROFILE" \
               --kernel-sha unknown --aports-sha unknown --gcc-version unknown || true
           fi
+      - name: Show nginx result and failure details
+        if: always()
+        env:
+          WORKERS: ${{ matrix.workers }}
+          THREADS: ${{ matrix.wrk_threads }}
+          CONNECTIONS: ${{ matrix.connections }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -uo pipefail
+          out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
+          result="$out/measurement.json"
+          if [[ -s "$result" ]]; then
+            python3 - "$result" >>"$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, pathlib, sys
+          result = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print(f"### nginx: {result.get('profile')} / workers={result.get('workers')} / connections={result.get('connections')}")
+          print(f"\n**Status:** {result.get('status')}  ")
+          print(f"**Requests/sec:** {result.get('requests_per_second')}  ")
+          print(f"**Mean latency (ms):** {result.get('average_latency_ms')}  ")
+          print(f"**HTTP/TLS smoke:** {result.get('smoke_http')} / {result.get('smoke_tls')}")
+          failures = result.get('failures') or []
+          if failures:
+              print("\n<details><summary>Failure details</summary>\n")
+              for failure in failures:
+                  print(f"- {failure}")
+              print("\n</details>")
+          PY
+          else
+            printf '### nginx: %s / workers=%s / connections=%s\n\n**Status:** no measurement.json was produced.\n' \
+              "$PROFILE" "$WORKERS" "$CONNECTIONS" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ -s "$out/harness.error" ]]; then
+            printf '\nHarness error:\n' >>"$GITHUB_STEP_SUMMARY"
+            printf '\n```text\n' >>"$GITHUB_STEP_SUMMARY"
+            cat "$out/harness.error" >>"$GITHUB_STEP_SUMMARY"
+            printf '\n```\n' >>"$GITHUB_STEP_SUMMARY"
+            printf 'nginx harness failure: '
+            cat "$out/harness.error"
+          fi
+          for log in wrk-warmup.log wrk.log smoke-http.log smoke-tls.log; do
+            if [[ -s "$out/$log" ]] && { [[ "$log" == wrk-warmup.log && "$(cat "$out/wrk-warmup.status" 2>/dev/null)" == FAIL ]] || [[ "$log" == wrk.log && "$(cat "$out/harness.status" 2>/dev/null)" == FAIL ]]; }; then
+              printf '\nRelevant %s tail:\n' "$log"
+              tail -n 40 "$out/$log"
+            fi
+          done
       - name: Upload this leg's raw logs and measurement JSON
         if: always()
         uses: actions/upload-artifact@v4
@@ -1439,7 +1484,7 @@ jobs:
     if: ${{ always() && github.ref_name != 'codex/netperf-focused' }}
     runs-on: ubuntu-22.04
     name: bench-result
-    needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_swmmu_benchmark]
+    needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_benchmark]
     permissions:
       actions: read
       contents: write
@@ -1472,13 +1517,13 @@ jobs:
           pattern: nginx-um-*-w*-c*
           path: ${{ runner.temp }}/nginx-matrix
           merge-multiple: false
-      - name: Download SWMMU rootfs diagnostics
+      - name: Download shared SAS rootfs diagnostics
         if: ${{ github.event_name == 'workflow_dispatch' }}
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: swmmu-nginx-rootfs-diagnostics
-          path: ${{ runner.temp }}/swmmu-nginx-rootfs-diagnostics
+          name: nginx-sas-rootfs-diagnostics
+          path: ${{ runner.temp }}/nginx-sas-rootfs-diagnostics
       - name: Display structure of downloaded files
         run: mkdir -p output && ls -R output || true
       - name: Install packages
@@ -1496,8 +1541,8 @@ jobs:
           if [ -f output/nginx/nginx-comparison.png ]; then
             cp output/nginx/nginx-comparison.png output/out/nginx-comparison.png
           fi
-          if [ -d "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" ]; then
-            cp -a "$RUNNER_TEMP/swmmu-nginx-rootfs-diagnostics" \
+          if [ -d "$RUNNER_TEMP/nginx-sas-rootfs-diagnostics" ]; then
+            cp -a "$RUNNER_TEMP/nginx-sas-rootfs-diagnostics" \
               output/nginx/rootfs-diagnostics
           fi
       - uses: actions/upload-artifact@v4
@@ -1625,9 +1670,9 @@ jobs:
                   iperf3.png)
                     printf 'iperf3 forward and reverse goodput by UML profile, in Gbit/s.\n\n' ;;
                   tcp-stream.png)
-                    printf 'netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero.\n\n' ;;
+                    printf 'netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero. The vertical range is symmetric and includes native values when available.\n\n' ;;
                   nginx-comparison.png)
-                    printf 'Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. Each bar is one matrix measurement.\n\n' ;;
+                    printf 'Nginx requests per second grouped by client count (4, 16, 64), with UML profiles adjacent within each group. Color identifies the profile; solid fill is one worker and patterned fill is four workers. SMP4 means CONFIG_SMP=y with four CPUs online; UP means CONFIG_SMP=n. Each bar is one matrix measurement.\n\n' ;;
                 esac
                 if [ -n "$ASSET_BASE_URL" ]; then
                   printf '![%s](%s/%s)\n\n' "${chart%.png}" "$ASSET_BASE_URL" "$chart"

@@ -17,8 +17,9 @@ reproducible kselftest build instructions in
 - **Correctness baseline:** SVM-style all-access instrumentation with raw
   pointers and runtime address translation.
 - **Userspace checkpoint:** instrumented Bash and a short lmbench smoke have
-  completed. Coreutils is the next package-profile target; nginx, OpenSSL, and
-  broader application validation have not started.
+  completed. Coreutils is the next package-profile target. Nginx has exploratory
+  CI smoke/benchmark coverage, but broader application validation and OpenSSL
+  testing have not started.
 - **Next validation task:** build a fresh kselftest tree using the documented
   workflow, run both `zpoline=0` and `zpoline=1`, and record exact KUnit and
   kselftest TAP totals.
@@ -39,7 +40,8 @@ reproducible kselftest build instructions in
 - [ ] Close the remaining correctness gaps for signals, mappings, user-copy,
   nonlocal control flow, and supported compiler-generated accesses.
 - [ ] Extend the instrumented Alpine profile through coreutils, then validate
-  nginx, OpenSSL, and broader applications. **Nginx is not started.**
+  OpenSSL and broader applications. Nginx has exploratory CI HTTP/TLS smoke
+  and wrk matrix coverage; this is not yet broad application validation.
 - [ ] Define the final mode ABI and expand beyond the current x86_64 SAS scope.
 - [ ] Address concurrency and performance after functional validation is
   stable.
@@ -131,8 +133,9 @@ reproducible kselftest build instructions in
   paged-mode support or keep the affected allocator configuration disabled.
 - [ ] Extend the reproducible Alpine SWMMU package/rootfs profile through
   coreutils, the next intended package target.
-- [ ] After the required package closure exists, begin nginx and OpenSSL
-  validation. Neither is currently validated or in progress.
+- [ ] Complete the remaining SWMMU package closure, then extend nginx testing
+  beyond the current CI smoke/benchmark matrix. OpenSSL validation has not
+  started.
 - [ ] Evaluate ARM and ARM64 only after the x86_64 profile is stable.
 
 ### Optimization and performance (postponed)
@@ -503,8 +506,10 @@ smoke results, not full Bash or performance validation. The high
 
 An observed uninstrumented coreutils `id` success is incidental and does not
 establish compatibility for uninstrumented paged-SWMMU applications. The
-planned package sequence is coreutils first and nginx later; nginx and OpenSSL
-have not been started.
+planned package sequence remains coreutils first, followed by broader nginx
+validation and then OpenSSL. nginx now has initial CI HTTP/TLS smoke and wrk
+matrix coverage; one SAS/seccomp 4-worker/64-connection warmup stalled, so this
+does not close broad application validation. OpenSSL has not been started.
 
 ### SAS alias teardown development record (2026-10-05)
 
@@ -574,9 +579,11 @@ have not been started.
   The matched comparison shows that these enlarged values cause direction-
   specific wall-time delays in this local setup. The mechanism behind the
   extra UML CPU time is still unknown and needs investigation.
-- [ ] In the next Actions run, confirm `tcp_wmem` and `tcp_rmem` remain at the
-  guest defaults during netperf, then compare per-case wall time with netperf's
-  reported measurement duration and preserve the complete job logs.
+- [x] Confirm the netperf-only Actions path leaves `tcp_wmem` and `tcp_rmem`
+  at guest defaults. Run `38329251963` completed all 15 cases in both
+  `um-nommu-sas-seccomp` and `um-nommu-sas-zpoline`; the reported per-case
+  durations and wall times are now in its artifacts and Issue #4 report. This
+  focused manual run did not exercise the combined iperf3-plus-netperf path.
 - [ ] Diagnose why the enlarged `tcp_wmem` setting delays TCP_STREAM and the
   enlarged `tcp_rmem` setting delays TCP_MAERTS outside netperf's reported
   measurement interval. Record guest/UML CPU use, relevant syscall and vector
@@ -590,6 +597,43 @@ have not been started.
   duration, and buffer defaults. Adopt an alternative only if the same cases
   complete reliably and improve wall time; record unsupported runner features
   and any topology differences.
+
+### CI profile follow-up (2026-10-13)
+
+- [x] Measure representative pre/post CI elapsed time. Run `38065409936`
+  (before the current cache warm-up) took 29m04s; run `38329251963` took
+  13m38s, a 15m26s / 53% reduction. Both were workflow-dispatch runs with
+  KUnit, LTP, and native network measurements skipped. The latter exercised
+  the expanded 36-leg nginx matrix (one leg failed its wrk warmup), while the
+  former exercised six nginx legs, so this is directional rather than a
+  controlled same-workload benchmark. The `um-mmu` build-0 step fell from
+  6m50s to 38s, consistent with a warm ccache; the rootfs job fell from
+  1m57s to 25s and now overlaps the UML builds. Those cache and scheduling
+  changes explain most of the elapsed-time reduction.
+- [x] Confirm nginx rootfs generation is already consolidated into one job:
+  it builds one SAS, one MMU, and one plain-NOMMU rootfs and uploads each once
+  for its matching matrix legs. These profile rootfses use different package
+  sets and remain separate; the job and shared SAS artifact names are being
+  clarified to avoid suggesting that all matrix legs build SWMMU rootfses.
+- [x] Restore the historical plot palette and key placement, keep the image
+  title out of the charts, use a symmetric netperf y-range rounded up from the
+  largest available value (including native whenever the run has native
+  network data), and add the SMP marker to nginx profile labels. Run
+  `38329251963` did not contain native netperf measurements; its largest
+  available magnitude was about 12.64 Gbps, giving a symmetric +/-15 Gbps
+  range. The generated chart still needs visual review after the next Actions
+  run.
+- [ ] Resolve the failed nginx warmup in run `38329251963`, profile
+  `um-nommu-sas-seccomp`, workers 4, connections 64. HTTP/TLS smoke tests
+  passed, but `wrk` reported zero requests during its five-second warmup. The
+  PCAP captured 64 warmup GET requests and only one HTTP 200 response, arriving
+  just after that interval; this is a real throughput stall, not merely a
+  false failure check. The failure reason and relevant log tails will be
+  printed in the Actions step and job summary; investigate the server/network
+  stall on the next run.
+- [ ] Add a distinct plain-NOMMU UML + SAS profile with SWMMU disabled in a
+  separate CI task. Define its kernel config, rootfs packages, and validation
+  independently; do not merge it into the current SWMMU profile work.
 
 ### Task C — plain-NOMMU mremap Maple range candidate (2026-10-13)
 

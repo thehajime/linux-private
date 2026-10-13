@@ -12,10 +12,10 @@ PROFILES = (
     ("native", "native", "#c0392b"),
     ("um-mmu", "um", "#27ae60"),
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu", "#d68910"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#3f8fc5"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#172a83"),
+    ("um-nommu", "um-nommu", "#4169e1"),
+    ("um-nommu-seccomp", "um-nommu(s)", "#0000ff"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#d68910"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#a04000"),
 )
 LATENCY_ROWS = (
     ("select-10", "select-10"),
@@ -64,6 +64,28 @@ def has_finite_measurement(files):
     return False
 
 
+def symmetric_plot_limit(files):
+    """Return a round, symmetric range which contains every finite value."""
+    peak = 0.0
+    for path, _name, _color in files:
+        for line in path.read_text().splitlines():
+            try:
+                value = abs(float(line))
+            except ValueError:
+                continue
+            if math.isfinite(value):
+                peak = max(peak, value)
+    if peak == 0:
+        return 1.0
+
+    magnitude = 10 ** math.floor(math.log10(peak))
+    for factor in (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
+        limit = factor * magnitude
+        if peak <= limit:
+            return limit
+    return 10 * magnitude
+
+
 def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, netperf=False):
     status_path = out_dir / f"{Path(filename).stem}-plot-status.txt"
     if not has_finite_measurement(files):
@@ -88,12 +110,12 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         plot_items.append(
             f"{gnuplot_quote(path)} using {xexpr}:1 with boxes "
             f"fc rgb {gnuplot_quote(color)} fs pattern 2 "
-            f"lt 1 lc rgb {gnuplot_quote(color)} lw 0.6 "
+            f"lt 1 lc rgb {gnuplot_quote(color)} lw 0.4 "
             f"title {gnuplot_quote(names[index])}"
         )
     script = out_dir / f"{filename}.gnuplot"
     commands = [
-        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 1",
+        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
         f"set output {gnuplot_quote(out_dir / filename)}",
         "set pointsize 2",
         *([] if logscale else ["set xzeroaxis"]),
@@ -110,18 +132,24 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         *(["set rmargin 10"] if filename == "lmbench-bandwidth.png" else []),
         'set key font ",12"',
         "set key top left Left reverse",
-        f"set xtics ({xtics}) rotate by 35 right",
+        f"set xtics ({xtics})" + (" rotate by 45 right" if filename in ("lmbench.png", "lmbench-bandwidth.png") else ""),
         f"set xrange [{-group_width / 2 - width / 2 - 0.1:.3f}:{((2 * len(labels) - 1) if netperf else len(labels) - 1) + group_width / 2 + width / 2 + (0.55 if filename == 'lmbench-bandwidth.png' else 0.1):.3f}]",
-        "set auto y",
     ]
+    range_note = ""
     if logscale:
         commands.extend(["set logscale y", "set yrange [0.01:*]"])
     else:
         commands.append("unset logscale y")
+        if netperf:
+            limit = symmetric_plot_limit(files)
+            commands.append(f"set yrange [-{limit:g}:{limit:g}]")
+            native_available = has_finite_measurement(files[:1])
+            basis = "native plus other profiles" if native_available else "available non-native profiles (native was unavailable)"
+            range_note = f" Symmetric y-range: +/- {limit:g} Gbps, rounded from the largest finite value in {basis}."
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))
     script.write_text("\n".join(commands) + "\n")
     subprocess.run(["gnuplot", str(script)], check=True)
-    status_path.write_text("Plot generated from available measurements.\n")
+    status_path.write_text("Plot generated from available measurements." + range_note + "\n")
 
 
 def main():
@@ -219,7 +247,7 @@ def main():
     render_plot(
         out_dir,
         "tcp-stream.png",
-        "Goodput (Gbps; TCP_MAERTS shown negative)",
+        "Goodput (Gbps)",
         [(str(size), 2 * index + 0.5) for index, size in enumerate(PAYLOADS)],
         interleaved,
         netperf=True,

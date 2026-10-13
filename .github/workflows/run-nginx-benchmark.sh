@@ -3,7 +3,7 @@ set -uo pipefail
 
 usage() {
 	cat >&2 <<'EOF'
-Usage: run-swmmu-nginx-benchmark.sh --kernel FILE --rootfs DIR --workers N \
+Usage: run-nginx-benchmark.sh --kernel FILE --rootfs DIR --workers N \
        --threads N --connections N --duration SEC --output DIR \
        --kernel-sha SHA --aports-sha SHA --gcc-version VERSION
 EOF
@@ -93,6 +93,7 @@ fail() {
 	fi
 	HARNESS_ERROR+="$*"
 	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
+	printf 'nginx harness failure: %s\n' "$*" >&2
 }
 
 capture_host_vmlinux_backtrace() {
