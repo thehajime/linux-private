@@ -598,40 +598,65 @@ does not close broad application validation. OpenSSL has not been started.
   complete reliably and improve wall time; record unsupported runner features
   and any topology differences.
 
-### CI profile follow-up (2026-10-13)
+- [ ] Diagnose large-payload netperf failures seen in run `38333192770` after
+  removing the enlarged TCP buffers. The 256-byte cases reported connection
+  refused; later payload cases included a netperf `Assertion failed: width >= 1`
+  and userspace faults. Keep these failures visible in CI reports and determine
+  whether the control connection, guest netserver, or UML vector transport fails
+  first before changing the buffer defaults again.
 
-- [x] Measure representative pre/post CI elapsed time. Run `38065409936`
-  (before the current cache warm-up) took 29m04s; run `38329251963` took
-  13m38s, a 15m26s / 53% reduction. Both were workflow-dispatch runs with
-  KUnit, LTP, and native network measurements skipped. The latter exercised
-  the expanded 36-leg nginx matrix (one leg failed its wrk warmup), while the
-  former exercised six nginx legs, so this is directional rather than a
-  controlled same-workload benchmark. The `um-mmu` build-0 step fell from
-  6m50s to 38s, consistent with a warm ccache; the rootfs job fell from
-  1m57s to 25s and now overlaps the UML builds. Those cache and scheduling
-  changes explain most of the elapsed-time reduction.
-- [x] Confirm nginx rootfs generation is already consolidated into one job:
-  it builds one SAS, one MMU, and one plain-NOMMU rootfs and uploads each once
-  for its matching matrix legs. These profile rootfses use different package
-  sets and remain separate; the job and shared SAS artifact names are being
-  clarified to avoid suggesting that all matrix legs build SWMMU rootfses.
-- [x] Restore the historical plot palette and key placement, keep the image
-  title out of the charts, use a symmetric netperf y-range rounded up from the
-  largest available value (including native whenever the run has native
-  network data), and add explicit CONFIG_SMP=y/n markers to nginx profile labels. Only the seccomp UML profile is started with four CPUs: ptrace userspace reports that it does not support SMP. Run
-  `38329251963` did not contain native netperf measurements; its largest
-  available magnitude was about 12.64 Gbps, giving a symmetric +/-15 Gbps
-  range. The generated chart still needs visual review after the next Actions
-  run.
-- [x] Diagnose and correct the first follow-up run `38332277476`: the PTRACE `um-mmu` profile cannot start with `ncpus=4` (`SMP is not supported with PTRACE userspace`). Cancelled that run, removed the explicit CPU count from PTRACE UML, retained four CPUs only for seccomp UML, and changed the legend to show kernel `CONFIG_SMP=y/n` rather than online CPU count. Re-run validation is pending.
-- [ ] Resolve the failed nginx warmup in run `38329251963`, profile
+### CI plot and full-run follow-up (2026-10-13)
+
+- [ ] Render and visually review the requested palette update: keep the MMU
+  colors consistent, set SAS-seccomp to blue and SAS-zpoline to royal blue,
+  and reuse the previous SAS colors for plain NOMMU. Check that the lmbench
+  bandwidth plot no longer has excess right padding and that the nginx legend
+  sits above the bars without overlap.
+- [ ] Re-run the complete manual CI with KUnit, LTP, native network benchmarks,
+  all UML benchmark profiles, and the nginx matrix enabled. Measure end-to-end
+  time and compare it with a full run from the RISC-V image-build period; do
+  not compare a shortened manual run to the complete run.
+- [ ] Verify in the Actions web log that nginx UML console output streams while
+  the guest runs, including its boot/readiness and HTTP/TLS/wrk milestones.
+
+### CI, rootfs, and plot follow-up (2026-10-13)
+
+- [x] Consolidate shared nginx rootfs generation into one job. It builds one
+  SAS, one MMU, and one plain-NOMMU rootfs and uploads each once for matching
+  matrix jobs; differing userspace package sets mean these remain three images.
+  The published UML Dockerfile already starts from Alpine edge and uses `apk
+  update`/`apk add`. The standalone nginx rootfs builders now also copy Alpine
+  edge repositories and Alpine plus NOMMU package signing keys into each
+  guest, so repositories and trust keys are present for later package installs.
+  Runtime `apk add` execution inside the SWMMU guest has not yet been validated;
+  the custom NOMMU APKs remain available as signed APK artifacts.
+- [x] Keep shared rootfs job/artifact/helper names generic where the assets are
+  shared. SWMMU-specific package build and init helper names remain specific to
+  the SWMMU-only contents.
+- [x] Configure all benchmark plots from one shared profile palette: SAS-seccomp
+  uses blue, SAS-zpoline uses royal blue, and plain NOMMU reuses the previous
+  SAS colors. Keep the bandwidth chart's x-range tight, use at least +/-50 Gbps
+  for netperf (expanding symmetrically when measured values require it), and
+  leave headroom above nginx bars for its in-chart legend. These plot changes
+  need visual confirmation from the next full Actions run.
+- [x] Make nginx UML console output stream into the Actions job log while the
+  guest runs, with explicit boot, readiness, smoke-test, and wrk phase markers.
+- [ ] Run the complete manual CI with KUnit, LTP, native network benchmarks,
+  UML benchmark profiles, and nginx matrix enabled. Compare its elapsed time to
+  the full CI baseline from the RISC-V image-build period; shortened manual runs
+  are not comparable. If that period has no complete run, record the closest
+  available run and explain the gap.
+- [ ] Diagnose large-payload netperf failures seen in run `38333192770` after
+  removing enlarged TCP buffers. The 256-byte cases reported connection
+  refused; later payload cases included `Assertion failed: width >= 1` and
+  userspace faults. Keep failures visible in reports; determine whether the
+  control connection, guest netserver, or UML vector transport fails first
+  before changing buffer defaults.
+- [ ] Resolve the nginx throughput stall in run `38333192770`, profile
   `um-nommu-sas-seccomp`, workers 4, connections 64. HTTP/TLS smoke tests
-  passed, but `wrk` reported zero requests during its five-second warmup. The
-  PCAP captured 64 warmup GET requests and only one HTTP 200 response, arriving
-  just after that interval; this is a real throughput stall, not merely a
-  false failure check. The failure reason and relevant log tails will be
-  printed in the Actions step and job summary; investigate the server/network
-  stall on the next run.
+  passed, but wrk reported zero requests in 30 seconds. Packet capture showed
+  delayed responses arriving during and after the measurement. The new job-log
+  streaming should make the next reproduction easier to follow.
 - [ ] Add a distinct plain-NOMMU UML + SAS profile with SWMMU disabled in a
   separate CI task. Define its kernel config, rootfs packages, and validation
   independently; do not merge it into the current SWMMU profile work.

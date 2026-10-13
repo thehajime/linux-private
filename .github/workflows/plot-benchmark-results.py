@@ -12,10 +12,10 @@ PROFILES = (
     ("native", "native", "#c0392b"),
     ("um-mmu", "um", "#27ae60"),
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu", "#4169e1"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#0000ff"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#d68910"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#a04000"),
+    ("um-nommu", "um-nommu", "#d68910"),
+    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
+    ("um-nommu-sas-seccomp", "um-nommu(sas-s)", "#0000ff"),
+    ("um-nommu-sas-zpoline", "um-nommu(sas-z)", "#4169e1"),
 )
 LATENCY_ROWS = (
     ("select-10", "select-10"),
@@ -65,7 +65,7 @@ def has_finite_measurement(files):
 
 
 def symmetric_plot_limit(files):
-    """Return a round, symmetric range which contains every finite value."""
+    """Return a symmetric, rounded range with at least 50 Gbps of headroom."""
     peak = 0.0
     for path, _name, _color in files:
         for line in path.read_text().splitlines():
@@ -76,14 +76,14 @@ def symmetric_plot_limit(files):
             if math.isfinite(value):
                 peak = max(peak, value)
     if peak == 0:
-        return 1.0
+        return 50.0
 
     magnitude = 10 ** math.floor(math.log10(peak))
     for factor in (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
         limit = factor * magnitude
         if peak <= limit:
-            return limit
-    return 10 * magnitude
+            return max(50.0, limit)
+    return max(50.0, 10 * magnitude)
 
 
 def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, netperf=False):
@@ -129,11 +129,10 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         "set style fill pattern 2",
         f"set boxwidth {width:.4f}",
         "set size 1.0,1.0",
-        *(["set rmargin 10"] if filename == "lmbench-bandwidth.png" else []),
         'set key font ",12"',
         "set key top left Left reverse",
         f"set xtics ({xtics})" + (" rotate by 45 right" if filename in ("lmbench.png", "lmbench-bandwidth.png") else ""),
-        f"set xrange [{-group_width / 2 - width / 2 - 0.1:.3f}:{((2 * len(labels) - 1) if netperf else len(labels) - 1) + group_width / 2 + width / 2 + (0.55 if filename == 'lmbench-bandwidth.png' else 0.1):.3f}]",
+        f"set xrange [{-group_width / 2 - width / 2 - 0.1:.3f}:{((2 * len(labels) - 1) if netperf else len(labels) - 1) + group_width / 2 + width / 2 + 0.1:.3f}]",
     ]
     range_note = ""
     if logscale:
@@ -145,7 +144,7 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
             commands.append(f"set yrange [-{limit:g}:{limit:g}]")
             native_available = has_finite_measurement(files[:1])
             basis = "native plus other profiles" if native_available else "available non-native profiles (native was unavailable)"
-            range_note = f" Symmetric y-range: +/- {limit:g} Gbps, rounded from the largest finite value in {basis}."
+            range_note = f" Symmetric y-range: +/- {limit:g} Gbps (50 Gbps minimum; expanded to contain the largest finite value in {basis})."
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))
     script.write_text("\n".join(commands) + "\n")
     subprocess.run(["gnuplot", str(script)], check=True)

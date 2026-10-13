@@ -38,6 +38,11 @@ else
 		2>&1 | tee "$NGINX_WORK/apk-install.log"
 fi
 
+mkdir -p "$rootfs/etc/apk/keys"
+cp /etc/apk/repositories "$rootfs/etc/apk/repositories"
+cp /etc/apk/keys/*.rsa.pub "$rootfs/etc/apk/keys/"
+cp "$NGINX_APK_DIR/keys/"*.rsa.pub "$rootfs/etc/apk/keys/"
+
 mkdir -p "$rootfs/dev/shm" "$rootfs/proc" "$rootfs/sys" "$rootfs/run" \
 	"$rootfs/tmp" "$rootfs/var/www/localhost/htdocs" "$rootfs/var/lib/nginx/tmp"
 chmod 1777 "$rootfs/tmp"

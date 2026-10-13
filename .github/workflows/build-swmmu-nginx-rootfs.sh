@@ -67,6 +67,8 @@ apk --root "$ROOTFS" --initdb --keys-dir "$SWMMU_WORK/apk-keys" \
 	"$OUT/packages/coreutils-nommu"-*.apk \
 	2>&1 | tee "$SWMMU_WORK/logs/base-rootfs.log"
 mkdir -p "$ROOTFS/etc/apk/keys"
+cp /etc/apk/repositories "$ROOTFS/etc/apk/repositories"
+cp /etc/apk/keys/*.rsa.pub "$ROOTFS/etc/apk/keys/"
 cp "$OUT/keys/"*.rsa.pub "$ROOTFS/etc/apk/keys/"
 
 "$OUT/tools/busybox-host" --install -s "$ROOTFS"

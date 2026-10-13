@@ -74,6 +74,7 @@ UML_PID=
 HOST_PROBE_PID=
 TAP_CAPTURE_PID=
 TAP_CAPTURE_LAUNCHER_PID=
+CONSOLE_TAIL_PID=
 HARNESS_STATUS=PASS
 GUEST_IP=172.18.0.2
 EXPECTED_BODY=nginx-matrix-ok
@@ -204,6 +205,14 @@ stop_tap_capture() {
 	fi
 }
 
+stop_console_log() {
+	if [[ -n "$CONSOLE_TAIL_PID" ]]; then
+		kill "$CONSOLE_TAIL_PID" 2>/dev/null || true
+		wait "$CONSOLE_TAIL_PID" 2>/dev/null || true
+		CONSOLE_TAIL_PID=
+	fi
+}
+
 capture_logs() {
 	stop_tap_capture
 	if [[ -n "$HOST_PROBE_PID" ]]; then
@@ -238,6 +247,7 @@ capture_logs() {
 		wait "$UML_PID" 2>/dev/null || true
 		UML_PID=
 	fi
+	stop_console_log
 	if [[ -f "$ROOTFS/run/nginx-error.log" ]]; then
 		cp "$ROOTFS/run/nginx-error.log" "$OUTPUT/nginx.log"
 	fi
@@ -356,6 +366,11 @@ if ! grep -q "^worker_processes ${WORKERS};$" "$OUTPUT/nginx.conf" 2>/dev/null |
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
+	: >"$OUTPUT/kernel.log"
+	tail -n +1 -F "$OUTPUT/kernel.log" &
+	CONSOLE_TAIL_PID=$!
+	printf 'Starting UML nginx guest: profile=%s workers=%s connections=%s\n' \
+		"$PROFILE" "$WORKERS" "$CONNECTIONS"
 	timeout --foreground --signal=TERM --kill-after=10s 600s \
 		"$KERNEL" vec0:transport=tap,ifname=tap100,depth=128,gro=1 \
 		root=/dev/root "rootflags=$ROOTFS" rootfstype=hostfs rw mem=2048m \
@@ -381,6 +396,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	if [[ "$ready" != 1 ]]; then
 		fail "UML guest did not report its nginx ready marker within ${ready_timeout} seconds"
 	else
+		printf 'UML nginx guest ready; running HTTP/TLS smoke tests and wrk.\n'
 		if [[ -s "$ROOTFS/run/online-cpus.txt" ]]; then
 			cp "$ROOTFS/run/online-cpus.txt" "$OUTPUT/online-cpus.txt"
 		fi
@@ -410,6 +426,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
+	printf 'Starting nginx HTTP and TLS smoke tests.\n'
 	if timeout 10s docker exec "$CLIENT" curl --fail --silent --show-error \
 		--max-time 5 "http://$GUEST_IP:8080/" >"$OUTPUT/http.body" \
 		2>"$OUTPUT/smoke-http.log" && \
@@ -440,6 +457,7 @@ else
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
+	printf 'Starting wrk warmup: workers=%s connections=%s.\n' "$WORKERS" "$CONNECTIONS"
 	warmup_rc=0
 	timeout 40s docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
 		-T 30s -d5s "http://$GUEST_IP:8080/" >"$OUTPUT/wrk-warmup.log" 2>&1 || warmup_rc=$?
@@ -462,6 +480,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	fi
 fi
 if [[ "$HARNESS_STATUS" == PASS ]]; then
+	printf 'Starting main wrk measurement for %ss.\n' "$DURATION"
 	wrk_rc=0
 	timeout --foreground --signal=TERM --kill-after=5s "$((DURATION + 45))s" \
 		docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \

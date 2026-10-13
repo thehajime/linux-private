@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json, math, subprocess, sys
 from pathlib import Path
-PROFILES=(("um-mmu","um [SMP=y]","#27ae60"),("um-mmu-seccomp","um-mmu(s) [SMP=y]","#145a32"),("um-nommu","um-nommu [SMP=n]","#4169e1"),("um-nommu-seccomp","um-nommu(s) [SMP=n]","#0000ff"),("um-nommu-sas-seccomp","um-nommu(sas-s) [SMP=n]","#d68910"),("um-nommu-sas-zpoline","um-nommu(sas-z) [SMP=n]","#a04000"))
+PROFILES=(("um-mmu","um [SMP=y]","#27ae60"),("um-mmu-seccomp","um-mmu(s) [SMP=y]","#145a32"),("um-nommu","um-nommu [SMP=n]","#d68910"),("um-nommu-seccomp","um-nommu(s) [SMP=n]","#a04000"),("um-nommu-sas-seccomp","um-nommu(sas-s) [SMP=n]","#0000ff"),("um-nommu-sas-zpoline","um-nommu(sas-z) [SMP=n]","#4169e1"))
 WORKERS=(1,4); CONNECTIONS=(4,16,64)
 def q(x): return "'"+str(x).replace("\\","\\\\").replace("'","\\'")+"'"
 def finite(x): return isinstance(x,(int,float)) and math.isfinite(x)
@@ -33,8 +33,10 @@ def main():
  status=out/"plot-status.txt"
  if not items: status.write_text("Plot omitted: no finite nginx measurements are available.\n"); return
  gp=out/"throughput-comparison.gnuplot"
- gp.write_text("\n".join(("set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",f"set output {q(out/'nginx-comparison.png')}","set xlabel 'Client connections'","set ylabel 'Requests per second'","set xtics ('4' 1, '16' 2, '64' 3)","set xrange [0.45:3.55]","set grid ytics","set logscale y","set yrange [1:*]",f"set boxwidth {width*.9:.5f} absolute","set size 1.0,1.0","set key top left Left reverse font ',12'","set style fill pattern 2","set tics out","plot "+", ".join(items),"")))
+ max_value=max(v for v in vals.values() if finite(v))
+ y_upper=max(100.0,max_value*100.0)
+ gp.write_text("\n".join(("set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",f"set output {q(out/'nginx-comparison.png')}","set xlabel 'Client connections'","set ylabel 'Requests per second'","set xtics ('4' 1, '16' 2, '64' 3)","set xrange [0.45:3.55]","set grid ytics","set logscale y",f"set yrange [1:{y_upper:.8g}]",f"set boxwidth {width*.9:.5f} absolute","set size 1.0,1.0","set key top left Left reverse font ',12'","set style fill pattern 2","set tics out","plot "+", ".join(items),"")))
  subprocess.run(["gnuplot",str(gp)],check=True)
- status.write_text("Grouped throughput bars: client connections on x-axis; color is UML profile, solid fill is one worker and pattern fill is four workers. SMP=y means CONFIG_SMP=y; SMP=n means CONFIG_SMP=n. Missing measurements are omitted.\n")
+ status.write_text("Grouped throughput bars: client connections on x-axis; color is UML profile, solid fill is one worker and pattern fill is four workers. SMP=y means CONFIG_SMP=y; SMP=n means CONFIG_SMP=n. Missing measurements are omitted. The y-axis has additional headroom so the in-plot legend does not cover bars.\n")
  print(f"Generated {out/'nginx-comparison.png'}")
 if __name__=="__main__": main()
