@@ -317,7 +317,8 @@ finish() {
 		rm -f "$OUTPUT/harness.error"
 	fi
 	python3 .github/workflows/parse-swmmu-nginx-measurement.py \
-		--output "$OUTPUT" --workers "$WORKERS" --threads "$THREADS" \
+		--output "$OUTPUT" --workers "$WORKERS" --ncpus "$NCPUS" \
+		--threads "$THREADS" \
 		--connections "$CONNECTIONS" --duration "$DURATION" \
 		--profile "$PROFILE" \
 		--kernel-sha "$KERNEL_SHA" --aports-sha "$APORTS_SHA" \
