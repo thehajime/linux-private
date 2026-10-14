@@ -22,7 +22,14 @@ LTP_TARGETS = (
     "um-nommu-sas-seccomp", "um-nommu-sas-zpoline", "riscv-nommu",
 )
 LTP_CRASH_SIGNATURES = (
-    ("kernel panic", re.compile(r"Kernel panic(?:\s+-\s+not syncing)?", re.IGNORECASE)),
+    (
+        "kernel panic",
+        re.compile(
+            r"^\s*(?:\[\s*\d+(?:\.\d+)?\]\s*)?"
+            r"Kernel panic(?:\s+-\s+not syncing)?",
+            re.IGNORECASE | re.MULTILINE,
+        ),
+    ),
     ("SIGSEGV", re.compile(r"\bsegfault at\b|^\s*Segmentation fault\b", re.IGNORECASE | re.MULTILINE)),
     ("SIGABRT", re.compile(r"\bAborted \(core dumped\)|\bSIGABRT\b", re.IGNORECASE)),
 )

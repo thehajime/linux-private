@@ -63,10 +63,12 @@ chmod +x /bin/faketty
 
 if [ "${LTP_FULL_RUN:-true}" = true ]; then
 	LTP_RUN_PATTERN=
-	printf 'full syscalls suite (workflow_dispatch)\n' > output/ltp/run-pattern.txt
+	: > output/ltp/run-pattern.txt
+	printf 'full syscalls suite (workflow_dispatch)\n' > output/ltp/run-mode.txt
 else
 	LTP_RUN_PATTERN='getpid01|getppid01|getuid01'
-	printf 'smoke subset: %s\n' "$LTP_RUN_PATTERN" > output/ltp/run-pattern.txt
+	printf '%s\n' "$LTP_RUN_PATTERN" > output/ltp/run-pattern.txt
+	printf 'push smoke subset\n' > output/ltp/run-mode.txt
 fi
 
 run_faketty()
