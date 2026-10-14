@@ -140,10 +140,11 @@ def main():
     if generated:
         status.write_text(
             "Separate charts compare workers=1 and workers=4. The x-axis is client "
-            "connections. MMU profiles use CONFIG_SMP=y and show one and four "
-            "online CPUs (solid versus patterned fill); NOMMU profiles use "
-            "CONFIG_SMP=n and currently show one CPU. Add their four-CPU matrix "
-            "entries when NOMMU SMP is supported. "
+            "connections. MMU profiles use CONFIG_SMP=y; um-mmu uses one online "
+            "CPU, while um-mmu-seccomp compares one and four CPUs (solid versus "
+            "patterned fill). NOMMU profiles use CONFIG_SMP=n and currently show "
+            "one CPU. Add their four-CPU matrix entries when NOMMU SMP is "
+            "supported. "
             "Profile colors are consistent between both charts.\n"
         )
         for image in generated:

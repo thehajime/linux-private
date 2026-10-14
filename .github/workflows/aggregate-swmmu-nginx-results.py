@@ -18,7 +18,7 @@ PROFILES = (
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
 CPU_COUNTS = {
-    "um-mmu": (1, 4),
+    "um-mmu": (1,),
     "um-mmu-seccomp": (1, 4),
     "um-nommu": (1,),
     "um-nommu-seccomp": (1,),

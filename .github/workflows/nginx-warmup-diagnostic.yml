@@ -1,0 +1,132 @@
+name: nginx SAS warmup diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  compare-warmup:
+    name: SAS seccomp warmup pair
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      PROFILE: um-nommu-sas-seccomp
+      WORKERS: 4
+      NCPUS: 1
+      THREADS: 2
+      CONNECTIONS: 64
+      KERNEL_ARGS: zpoline=0
+      NEEDS_RAWIO: false
+      NGINX_WRK_TIMEOUT_SECONDS: "60"
+    steps:
+      - name: Check out the tested workflow helpers
+        uses: actions/checkout@v6
+
+      - name: Download exact tested SAS rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: nginx-rootfs-sas
+          path: ${{ runner.temp }}/nginx-rootfs
+          run-id: 38518002013
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact tested SAS UML image
+        uses: actions/download-artifact@v4
+        with:
+          name: uml-docker-image-um-nommu-sas
+          path: ${{ runner.temp }}/uml-image
+          run-id: 38518002013
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tested kernel and rootfs
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
+          cid=$(docker create uml-ci/alpine:edge-um-nommu-sas)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 "$RUNNER_TEMP/vmlinux"
+          cat "$RUNNER_TEMP/nginx-rootfs/manifest.txt"
+
+      - name: Install TAP and diagnostic tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends iproute2 libcap2-bin tcpdump gdb
+
+      - name: Run matched worker=4/c64 tests with 15s and 60s warmup
+        shell: bash
+        run: |
+          set -uo pipefail
+          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          mkdir -p output
+          for warmup in 15 60; do
+            rootfs="$RUNNER_TEMP/rootfs-$warmup"
+            mkdir -p "$rootfs"
+            tar -xzf "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" -C "$rootfs"
+            out="$GITHUB_WORKSPACE/output/warmup-${warmup}s"
+            echo "Running SAS-seccomp worker=4 c64 with ${warmup}s warmup"
+            NGINX_WRK_WARMUP_SECONDS="$warmup" \
+            NGINX_WRK_WARMUP_TIMEOUT_SECONDS="$((warmup + 75))" \
+              bash .github/workflows/run-nginx-benchmark.sh \
+                --kernel "$RUNNER_TEMP/vmlinux" \
+                --rootfs "$rootfs" \
+                --workers "$WORKERS" \
+                --ncpus "$NCPUS" \
+                --threads "$THREADS" \
+                --connections "$CONNECTIONS" \
+                --duration 30 \
+                --profile "$PROFILE" \
+                --kernel-args "$KERNEL_ARGS" \
+                --needs-rawio "$NEEDS_RAWIO" \
+                --kernel-sha "$kernel_sha" \
+                --aports-sha "$aports_sha" \
+                --gcc-version "$gcc_version" \
+                --output "$out"
+            rc=$?
+            printf '%s\n' "$rc" >"$out/helper-exit-code.txt"
+            echo "warmup=${warmup}s helper_exit=$rc"
+            sudo ip link delete dev tap100 2>/dev/null || true
+          done
+
+      - name: Compare minimum warmup throughput and measurements
+        if: always()
+        run: |
+          set -o pipefail
+          python3 - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+          import pathlib
+          import re
+
+          print("### SAS-seccomp warmup comparison (worker=4, connections=64)")
+          print("Same kernel/rootfs and runner; warmup values are 15s and 60s. A 5 requests/s minimum is evaluated as a diagnostic threshold only; both measured phases still run.")
+          print("| Warmup | Requests in warmup | Warmup req/s | Mean warmup latency | 5 req/s threshold | Measured status | Measured req/s |")
+          print("|---:|---:|---:|---:|---:|---:|---:|")
+          failed_measurement = False
+          for seconds in (15, 60):
+              out = pathlib.Path("output") / f"warmup-{seconds}s"
+              warmup = (out / "wrk-warmup.log").read_text(errors="replace") if (out / "wrk-warmup.log").exists() else ""
+              measurement = json.loads((out / "measurement.json").read_text()) if (out / "measurement.json").exists() else {}
+              count_match = re.search(r"([0-9]+) requests in ([0-9.]+)s", warmup)
+              rate_match = re.search(r"Requests/sec:\s*([0-9.]+)", warmup)
+              latency_match = re.search(r"^\s*Latency\s+([0-9.]+(?:ns|us|µs|ms|s))", warmup, re.M)
+              count = int(count_match.group(1)) if count_match else None
+              rate = float(rate_match.group(1)) if rate_match else None
+              threshold = "pass" if rate is not None and rate >= 5.0 else "below threshold"
+              print(f"| {seconds}s | {count if count is not None else 'missing'} | {rate if rate is not None else 'missing'} | {latency_match.group(1) if latency_match else 'missing'} | {threshold} | {measurement.get('status', 'missing')} | {measurement.get('requests_per_second', 'missing')} |")
+              failed_measurement |= measurement.get("status") != "PASS"
+          if failed_measurement:
+              raise SystemExit("one or more measured runs failed; see uploaded raw artifact")
+          PY
+
+      - name: Upload both raw runs and parsed results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sas-warmup-diagnostic-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: output/
+          if-no-files-found: error

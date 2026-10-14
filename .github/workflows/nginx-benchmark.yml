@@ -25,6 +25,10 @@ jobs:
         connections: [4, 16, 64]
         wrk_threads: [2]
         exclude:
+          # PTRACE userspace rejects CONFIG_SMP with more than one CPU.
+          # Keep the four-CPU comparison on the seccomp UML profile below.
+          - profile: um-mmu
+            ncpus: 4
           # NOMMU UML currently has no SMP support. Remove these exclusions
           # when the corresponding profile can boot with multiple CPUs.
           - profile: um-nommu
