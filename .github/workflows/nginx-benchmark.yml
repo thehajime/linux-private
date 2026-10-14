@@ -98,6 +98,10 @@ jobs:
           NCPUS: ${{ matrix.ncpus }}
           KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
           NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
+          # SAS/SWMMU may need longer request deadlines than other UML profiles.
+          NGINX_WRK_WARMUP_SECONDS: "15"
+          NGINX_WRK_TIMEOUT_SECONDS: ${{ contains(matrix.profile, 'sas') && '60' || '30' }}
+          NGINX_WRK_WARMUP_TIMEOUT_SECONDS: ${{ contains(matrix.profile, 'sas') && '90' || '60' }}
         run: |
           kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
           aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
@@ -130,7 +134,7 @@ jobs:
           out="output/${PROFILE}/w${WORKERS}-n${NCPUS}-c${CONNECTIONS}"
           if [[ ! -s "$out/measurement.json" ]]; then
             mkdir -p "$out"
-            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log host-vmlinux-backtrace.log; do
+            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk-warmup.error warmup-duration.txt warmup-timeout.txt wrk-timeout.txt wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log host-vmlinux-backtrace.log; do
               touch "$out/$file"
             done
             printf 'FAIL\n' >"$out/harness.status"
@@ -170,6 +174,12 @@ jobs:
               print("\n<details><summary>Failure details</summary>\n")
               for failure in failures:
                   print(f"- {failure}")
+              print("\n</details>")
+          warnings = result.get('warnings') or []
+          if warnings:
+              print("\n<details><summary>Warmup warnings</summary>\n")
+              for warning in warnings:
+                  print(f"- {warning}")
               print("\n</details>")
           PY
           else

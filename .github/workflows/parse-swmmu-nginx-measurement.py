@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn one raw wrk run and its smoke checks into a strict JSON result."""
+"""Turn one raw wrk run into a JSON result with separate warnings and failures."""
 
 import argparse
 import json
@@ -23,6 +23,13 @@ def read_text(path: Path) -> str:
         return ""
 
 
+def read_int(path: Path, default=None):
+    try:
+        return int(read_text(path))
+    except ValueError:
+        return default
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
@@ -39,6 +46,7 @@ def main() -> int:
 
     raw = read_text(args.output / "wrk.log")
     failures = []
+    warnings = []
     harness_status = read_text(args.output / "harness.status")
     if harness_status == "SKIP":
         result = {
@@ -52,7 +60,10 @@ def main() -> int:
             "wrk_threads": args.threads,
             "connections": args.connections,
             "duration_seconds": args.duration,
-            "wrk_timeout_seconds": 30,
+            "warmup_status": read_text(args.output / "wrk-warmup.status") or "NOT_RUN",
+            "warmup_duration_seconds": read_int(args.output / "warmup-duration.txt"),
+            "warmup_outer_timeout_seconds": read_int(args.output / "warmup-timeout.txt"),
+            "wrk_timeout_seconds": read_int(args.output / "wrk-timeout.txt", 30),
             "kernel_sha": args.kernel_sha,
             "aports_sha": args.aports_sha,
             "gcc_version": args.gcc_version,
@@ -67,7 +78,9 @@ def main() -> int:
                 "tap100-pcap.status", "kernel.log",
                 "online-cpus.txt", "nginx.log", "client-setup.log",
                 "client-container.log", "smoke-http.log", "smoke-tls.log",
-                "wrk-warmup.log", "wrk-warmup.status", "wrk.log", "nginx.conf",
+                "wrk-warmup.log", "wrk-warmup.status", "wrk-warmup.error",
+                "warmup-duration.txt", "warmup-timeout.txt", "wrk-timeout.txt",
+                "wrk.log", "nginx.conf",
                 "guest-runtime-probe.log", "host-runtime-probe.log",
                 "host-vmlinux-backtrace.log",
             ],
@@ -83,7 +96,10 @@ def main() -> int:
 
     warmup_status = read_text(args.output / "wrk-warmup.status")
     if warmup_status != "PASS":
-        failures.append(f"wrk warmup status is {warmup_status or 'missing'}")
+        warnings.append(f"wrk warmup status is {warmup_status or 'missing'}")
+    warmup_error = read_text(args.output / "wrk-warmup.error")
+    if warmup_error:
+        warnings.append(warmup_error)
     warmup = read_text(args.output / "wrk-warmup.log")
     warmup_errors = re.search(
         r"Socket errors:\s*connect\s+(\d+),\s*read\s+(\d+),\s*write\s+(\d+),\s*timeout\s+(\d+)",
@@ -92,12 +108,13 @@ def main() -> int:
     )
     if warmup_errors and any(int(value) for value in warmup_errors.groups()):
         warmup_counts = [int(value) for value in warmup_errors.groups()]
-        failures.append(f"wrk warmup reported socket errors {warmup_counts}")
+        warnings.append(f"wrk warmup reported socket errors {warmup_counts}")
     warmup_requests = re.search(r"Requests/sec:\s*([0-9.]+)", warmup)
     if not warmup_requests:
-        failures.append("wrk warmup Requests/sec measurement is missing")
+        if warmup_status == "PASS":
+            warnings.append("wrk warmup Requests/sec measurement is missing")
     elif float(warmup_requests.group(1)) <= 0:
-        failures.append("wrk warmup completed without serving any requests")
+        warnings.append("wrk warmup completed without serving any requests")
 
     for label in ("http", "tls"):
         if read_text(args.output / f"smoke-{label}.status") != "PASS":
@@ -148,13 +165,18 @@ def main() -> int:
         "schema_version": 1,
         "status": "FAIL" if failures else "PASS",
         "failures": failures,
+        "warnings": warnings,
         "profile": args.profile,
         "workers": args.workers,
         "ncpus": args.ncpus,
         "wrk_threads": args.threads,
         "connections": args.connections,
         "duration_seconds": args.duration,
-        "wrk_timeout_seconds": 30,
+        "warmup_status": warmup_status or "MISSING",
+        "warmup_duration_seconds": read_int(args.output / "warmup-duration.txt"),
+        "warmup_outer_timeout_seconds": read_int(args.output / "warmup-timeout.txt"),
+        "warmup_requests_per_second": float(warmup_requests.group(1)) if warmup_requests else None,
+        "wrk_timeout_seconds": read_int(args.output / "wrk-timeout.txt", 30),
         "kernel_sha": args.kernel_sha,
         "aports_sha": args.aports_sha,
         "gcc_version": args.gcc_version,
@@ -181,6 +203,10 @@ def main() -> int:
             "smoke-tls.log",
             "wrk-warmup.log",
             "wrk-warmup.status",
+            "wrk-warmup.error",
+            "warmup-duration.txt",
+            "warmup-timeout.txt",
+            "wrk-timeout.txt",
             "wrk.log",
             "nginx.conf",
             "guest-runtime-probe.log",

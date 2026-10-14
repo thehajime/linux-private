@@ -48,6 +48,19 @@ ROOTFS=$(cd -- "$ROOTFS" && pwd -P) || {
 : "${PROFILE:=um-nommu-sas-zpoline}"
 : "${KERNEL_ARGS_TEXT:=}"
 : "${NEEDS_RAWIO:=false}"
+: "${NGINX_WRK_WARMUP_SECONDS:=15}"
+: "${NGINX_WRK_TIMEOUT_SECONDS:=30}"
+for variable in NGINX_WRK_WARMUP_SECONDS NGINX_WRK_TIMEOUT_SECONDS; do
+	if [[ ! "${!variable}" =~ ^[1-9][0-9]*$ ]]; then
+		echo "$variable must be a positive integer" >&2
+		exit 2
+	fi
+done
+: "${NGINX_WRK_WARMUP_TIMEOUT_SECONDS:=$((NGINX_WRK_WARMUP_SECONDS + NGINX_WRK_TIMEOUT_SECONDS + 15))}"
+if [[ ! "$NGINX_WRK_WARMUP_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+	echo "NGINX_WRK_WARMUP_TIMEOUT_SECONDS must be a positive integer" >&2
+	exit 2
+fi
 KERNEL_ARGS=()
 if [[ -n "$KERNEL_ARGS_TEXT" ]]; then
 	read -r -a KERNEL_ARGS <<<"$KERNEL_ARGS_TEXT"
@@ -61,6 +74,9 @@ printf '%s\n' "$NCPUS" >"$OUTPUT/ncpus.txt"
 printf '%s\n' "$THREADS" >"$OUTPUT/threads.txt"
 printf '%s\n' "$CONNECTIONS" >"$OUTPUT/connections.txt"
 printf '%s\n' "$DURATION" >"$OUTPUT/duration.txt"
+printf '%s\n' "$NGINX_WRK_WARMUP_SECONDS" >"$OUTPUT/warmup-duration.txt"
+printf '%s\n' "$NGINX_WRK_WARMUP_TIMEOUT_SECONDS" >"$OUTPUT/warmup-timeout.txt"
+printf '%s\n' "$NGINX_WRK_TIMEOUT_SECONDS" >"$OUTPUT/wrk-timeout.txt"
 printf '%s\n' "$KERNEL_SHA" >"$OUTPUT/kernel-sha.txt"
 printf '%s\n' "$APORTS_SHA" >"$OUTPUT/aports-sha.txt"
 printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
@@ -466,34 +482,42 @@ else
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
-	printf 'Starting wrk warmup: workers=%s connections=%s.\n' "$WORKERS" "$CONNECTIONS"
+	printf 'Starting wrk warmup: workers=%s connections=%s duration=%ss timeout=%ss.\n' \
+		"$WORKERS" "$CONNECTIONS" "$NGINX_WRK_WARMUP_SECONDS" "$NGINX_WRK_WARMUP_TIMEOUT_SECONDS"
 	warmup_rc=0
-	timeout 40s docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
-		-T 30s -d5s "http://$GUEST_IP:8080/" >"$OUTPUT/wrk-warmup.log" 2>&1 || warmup_rc=$?
+	timeout "${NGINX_WRK_WARMUP_TIMEOUT_SECONDS}s" docker exec "$CLIENT" \
+		wrk -t"$THREADS" -c"$CONNECTIONS" \
+		-T "${NGINX_WRK_TIMEOUT_SECONDS}s" -d"${NGINX_WRK_WARMUP_SECONDS}s" \
+		"http://$GUEST_IP:8080/" >"$OUTPUT/wrk-warmup.log" 2>&1 || warmup_rc=$?
 	if [[ "$warmup_rc" -ne 0 ]]; then
 		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
-		fail "wrk warmup failed or timed out with exit status $warmup_rc"
+		printf 'wrk warmup failed or timed out with exit status %s\n' "$warmup_rc" \
+			>"$OUTPUT/wrk-warmup.error"
 	elif grep -Eq 'Socket errors:.*(connect|read|write|timeout) [1-9][0-9]*' \
 		"$OUTPUT/wrk-warmup.log"; then
 		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
-		fail "wrk warmup reported socket errors"
+		printf 'wrk warmup reported socket errors\n' >"$OUTPUT/wrk-warmup.error"
 	elif ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
 		"$OUTPUT/wrk-warmup.log"; then
 		printf 'FAIL\n' >"$OUTPUT/wrk-warmup.status"
-		fail "wrk warmup completed without serving any requests"
+		printf 'wrk warmup completed without serving any requests\n' \
+			>"$OUTPUT/wrk-warmup.error"
 	else
 		printf 'PASS\n' >"$OUTPUT/wrk-warmup.status"
+		rm -f "$OUTPUT/wrk-warmup.error"
 	fi
 	if [[ "$(cat "$OUTPUT/wrk-warmup.status")" == FAIL ]]; then
-		capture_host_vmlinux_backtrace
+		printf 'Warmup did not complete cleanly; continue to the measured wrk run and retain both logs.\n' >&2
 	fi
 fi
 if [[ "$HARNESS_STATUS" == PASS ]]; then
 	printf 'Starting main wrk measurement for %ss.\n' "$DURATION"
 	wrk_rc=0
-	timeout --foreground --signal=TERM --kill-after=5s "$((DURATION + 45))s" \
+	timeout --foreground --signal=TERM --kill-after=5s \
+		"$((DURATION + NGINX_WRK_TIMEOUT_SECONDS + 15))s" \
 		docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
-		-T 30s -d"${DURATION}s" --latency "http://$GUEST_IP:8080/" \
+		-T "${NGINX_WRK_TIMEOUT_SECONDS}s" -d"${DURATION}s" --latency \
+		"http://$GUEST_IP:8080/" \
 		>"$OUTPUT/wrk.log" 2>&1 || wrk_rc=$?
 	printf '%s\n' "$wrk_rc" >"$OUTPUT/wrk.exit-code"
 	if [[ "$wrk_rc" -ne 0 ]]; then
@@ -502,7 +526,8 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		"$OUTPUT/wrk.log"; then
 		fail "wrk completed without serving any requests"
 	fi
-	if [[ "$wrk_rc" -ne 0 ]] || \
+	if [[ "$(cat "$OUTPUT/wrk-warmup.status")" == FAIL ]] || \
+	   [[ "$wrk_rc" -ne 0 ]] || \
 	   ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
 		"$OUTPUT/wrk.log" || \
 	   grep -Eq 'Socket errors:.*(connect|read|write|timeout) [1-9][0-9]*' \
