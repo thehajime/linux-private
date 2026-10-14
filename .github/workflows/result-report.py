@@ -512,23 +512,9 @@ def render(snapshot, previous):
         f"- Tested ref: `{snapshot['tested_ref']}`",
         f"- Workflow commit: [`{snapshot['workflow_sha'][:12]}`]({snapshot['run_url']})",
         "- Job status: " + ", ".join(f"{name} `{status}`" for name, status in sorted(snapshot["job_status"].items())),
-        "",
-        "### KUnit results",
     ]
-    if snapshot["kunit"]["suites"]:
-        lines.extend(["| Target / suite | Passed | Failed | Crashed | Skipped | Errors |", "|---|---:|---:|---:|---:|---:|"])
-        for suite, result in sorted(snapshot["kunit"]["suites"].items()):
-            counts = result["counts"]
-            lines.append(f"| {suite} | {counts['passed']} | {counts['failed']} | {counts['crashed']} | {counts['skipped']} | {counts['errors']} |")
-    else:
-        lines.append("No KUnit JSON artifacts were collected.")
-    kselftest = snapshot["kselftest"]
-    if kselftest["state"] in ("passed", "failed"):
-        counts = kselftest["counts"]
-        kselftest_status = f"{kselftest['state']}: {counts['passed']} passed, {counts['failed']} failed, {counts['skipped']} skipped"
-    else:
-        kselftest_status = kselftest["state"]
-    lines.extend(["", "### kselftest results", f"Current status: {kselftest_status}.", ""])
+    lines.append("")
+
     lines.extend([
         "### LTP results",
         "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
@@ -553,6 +539,7 @@ def render(snapshot, previous):
     if not snapshot["ltp"]["targets"]:
         lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
     lines.append("")
+
     profiles = [target for target, _header in LMBENCH_COLUMNS]
     getpid_values = {
         item.get("target"): item.get("value")
@@ -636,6 +623,24 @@ def render(snapshot, previous):
     lines.extend(["", "<!-- report-chart:nginx-workers-1.png -->",
                   "<!-- report-chart:nginx-workers-4.png -->", ""])
 
+    kselftest = snapshot["kselftest"]
+    if kselftest["state"] in ("passed", "failed"):
+        counts = kselftest["counts"]
+        kselftest_status = f"{kselftest['state']}: {counts['passed']} passed, {counts['failed']} failed, {counts['skipped']} skipped"
+    else:
+        kselftest_status = kselftest["state"]
+    lines.extend(["### kselftest results", f"Current status: {kselftest_status}.", ""])
+
+    lines.extend(["### KUnit results", ""])
+    if snapshot["kunit"]["suites"]:
+        lines.extend(["| Target / suite | Passed | Failed | Crashed | Skipped | Errors |", "|---|---:|---:|---:|---:|---:|"])
+        for suite, result in sorted(snapshot["kunit"]["suites"].items()):
+            counts = result["counts"]
+            lines.append(f"| {suite} | {counts['passed']} | {counts['failed']} | {counts['crashed']} | {counts['skipped']} | {counts['errors']} |")
+    else:
+        lines.append("No KUnit JSON artifacts were collected.")
+    lines.append("")
+
     lines.append("### Changes from previous report")
     if not previous:
         lines.extend(["This is the first report with a saved comparison snapshot. The next report will be compared with this run.", ""])
@@ -689,9 +694,9 @@ def render(snapshot, previous):
     else:
         lines.append("No benchmark value changes (or no numeric samples in both reports).")
     lines.append("")
-    lines.extend(render_section("KUnit", previous.get("kunit", {}).get("suites"), snapshot.get("kunit", {}).get("suites"), "cases", KUNIT_COUNTS))
-    lines.extend(render_section("kselftest", {"kselftest": previous.get("kselftest", {})}, {"kselftest": snapshot.get("kselftest", {})}, "cases", KSELFTEST_COUNTS))
     lines.extend(render_section("LTP", previous.get("ltp", {}).get("targets"), snapshot.get("ltp", {}).get("targets"), "cases", LTP_COUNTS))
+    lines.extend(render_section("kselftest", {"kselftest": previous.get("kselftest", {})}, {"kselftest": snapshot.get("kselftest", {})}, "cases", KSELFTEST_COUNTS))
+    lines.extend(render_section("KUnit", previous.get("kunit", {}).get("suites"), snapshot.get("kunit", {}).get("suites"), "cases", KUNIT_COUNTS))
     lines.extend(["</details>", ""])
     return "\n".join(lines)
 

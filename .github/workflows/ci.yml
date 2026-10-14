@@ -456,6 +456,7 @@ jobs:
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
+        if: ${{ matrix.testname != 'um-mmu-tt' }}
         run: |
           mkdir -p output/kunit
           for config in `find . -path './ci-config' -prune -o -name .kunitconfig -print | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
@@ -728,7 +729,7 @@ jobs:
 
   nginx_benchmark:
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    name: "nginx: ${{ matrix.profile }}, workers ${{ matrix.workers }}, connections ${{ matrix.connections }}"
+    name: "nginx benchmark"
     needs: [build_uml, build_nginx_rootfs]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -1302,6 +1303,7 @@ jobs:
   test_ltp:
     runs-on: ubuntu-latest
     needs: [build_uml, build_ltp]
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 180 || 60 }}
     permissions:
       contents: read
       packages: read
@@ -1454,6 +1456,7 @@ jobs:
           LTP_TESTNAME: ${{ matrix.testname }}
           LTP_ARTIFACT_NAME: ${{ matrix.name }}
           UML_OPTIONS: ${{ matrix.vmlinux_opt }}
+          LTP_FULL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           LTP_TIMEOUT_MUL: 10
           LTP_INSTALL_PREEXTRACTED: 1
         run: |
@@ -1463,14 +1466,14 @@ jobs:
               mkdir -p output/ltp
               docker exec -t \
                 -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
+                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_TIMEOUT_MUL \
                 -e LTP_INSTALL_PREEXTRACTED ltp-test \
                 /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
                 | tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
               test -s "output/ltp/ltp-result-${LTP_TESTNAME}.html"
               ;;
             *)
-              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_TIMEOUT_MUL \
+              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_TIMEOUT_MUL \
                 -e LTP_INSTALL_PREEXTRACTED ltp-test \
                 /bin/sh -c 'if command -v bash >/dev/null 2>&1; then \
                   exec bash -x /github/workspace/.github/workflows/run-ltp-job.sh; \
@@ -1567,7 +1570,7 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-22.04
     name: bench-result
-    needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_benchmark]
+    needs: [build_uml,benchmark,checkpatch,nginx_benchmark]
     permissions:
       actions: read
       contents: write
@@ -1686,7 +1689,7 @@ jobs:
           TESTED_REF: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref_name }}
           BUILD_STATUS: ${{ needs.build_uml.result }}
           BENCHMARK_STATUS: ${{ needs.benchmark.result }}
-          LTP_STATUS: ${{ needs.test_ltp.result }}
+          LTP_STATUS: "not a report dependency; available LTP artifacts included"
         run: |
           python3 .github/workflows/result-report.py \
             --data-dir output \

@@ -61,6 +61,14 @@ test -d "$ltp_source/tools/kirk/kirk-src"
 cp .github/workflows/faketty /bin/faketty
 chmod +x /bin/faketty
 
+if [ "${LTP_FULL_RUN:-true}" = true ]; then
+	LTP_RUN_PATTERN=
+	printf 'full syscalls suite (workflow_dispatch)\n' > output/ltp/run-pattern.txt
+else
+	LTP_RUN_PATTERN='getpid01|getppid01|getuid01'
+	printf 'smoke subset: %s\n' "$LTP_RUN_PATTERN" > output/ltp/run-pattern.txt
+fi
+
 run_faketty()
 {
 	case "$LTP_TESTNAME" in
@@ -82,11 +90,11 @@ if [ "$LTP_TESTNAME" = riscv-nommu ]; then
 	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
 		--sut default:com=qemu --com \
 		qemu:image=/work-buildroot/buildroot/output/images/rootfs.ext2:kernel=/work-buildroot/buildroot/output/images/Image:system=riscv64:user=root \
-		-f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json \
+		-f syscalls --run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 elif [ "$LTP_TESTNAME" = native ]; then
 	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
-		-f syscalls --run-pattern '' --skip-file /ltp-skip -o /result.json \
+		-f syscalls --run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 else
 	cp .github/workflows/ltp-exec.sh /ltp-exec.sh

@@ -33,7 +33,8 @@ losetup /dev/loop0 /tmp/test.img
 
 sleep 5
 
-/opt/ltp/kirk -f syscalls --run-pattern "" \
+LTP_RUN_PATTERN=$(cat /github/workspace/output/ltp/run-pattern.txt)
+/opt/ltp/kirk -f syscalls --run-pattern "$LTP_RUN_PATTERN" \
 	      --skip-file ltp-skip -o /result.json
 
 #--workers 16
