@@ -187,6 +187,30 @@ def collect_benchmarks(root):
                 if len(row) >= 2:
                     size = int(row[0])
                     add("netperf", target, row[1], "Mbps", {"test": direction, "payload_bytes": size})
+    # Native iperf3 runs are stored separately so a failed forward run cannot
+    # shift the reverse result into the forward column during normalization.
+    native_status = "not recorded"
+    for status_path in root.rglob("native-iperf3-status.txt"):
+        native_status = status_path.read_text(errors="replace").strip().replace("\n", "; ")
+        break
+    for direction in ("forward", "reverse"):
+        found = False
+        for path in sorted(root.rglob(f"native-iperf3-{direction}.dat")):
+            text = path.read_text(errors="replace")
+            receivers = re.findall(
+                r"([\d.]+)\s+(Gbits/sec|Mbits/sec|Kbits/sec|bits/sec)\s+receiver",
+                text,
+            )
+            if receivers:
+                found = True
+                value, unit = receivers[-1]
+                mbps = float(value) * {"Gbits/sec": 1000, "Mbits/sec": 1,
+                                       "Kbits/sec": 0.001, "bits/sec": 0.000001}[unit]
+                add("iperf3", "native", mbps, "Mbps", {"direction": direction})
+        if not found:
+            add("iperf3-status", "native", 0, "status", {
+                "direction": direction, "detail": native_status,
+            })
     for target, metrics in raw_lmbench.items():
         for name, value, unit, labels in metrics:
             add(name, target, value, unit, labels)
@@ -339,33 +363,16 @@ def collect_ltp(root):
 
 
 def collect_kselftest(root):
-    cases = {}
     artifact_root = root / "kselftest-artifact"
     if not artifact_root.exists():
         artifact_root = root / "kselftest"
     tap_paths = sorted(artifact_root.rglob("*.tap")) if artifact_root.exists() else []
-    totals = None
-    selected_tap = None
+    suites = {}
     for path in tap_paths:
         text = path.read_text(errors="replace")
-        summary = re.search(
-            r"^# Totals: pass:(\d+) fail:(\d+).*?skip:(\d+).*?error:(\d+)",
-            text,
-            re.MULTILINE,
-        )
-        if summary:
-            totals = {
-                "passed": int(summary.group(1)),
-                "failed": int(summary.group(2)) + int(summary.group(4)),
-                "skipped": int(summary.group(3)),
-            }
-            selected_tap = path
-            break
-
-    if selected_tap is None and tap_paths:
-        selected_tap = tap_paths[0]
-    if selected_tap:
-        for line in selected_tap.read_text(errors="replace").splitlines():
+        suite_name = str(path.relative_to(artifact_root).with_suffix(""))
+        cases = {}
+        for line in text.splitlines():
             match = re.match(r"^\s*(not )?ok\s+(\d+)(?:\s+(.*?))?\s*$", line)
             if not match:
                 continue
@@ -373,34 +380,48 @@ def collect_kselftest(root):
             skipped = re.search(r"#\s*SKIP(?:\s+(.*))?", description)
             name = (skipped.group(1) if skipped else description).strip()
             name = re.sub(r"^[- ]+|\s+#.*$", "", name).strip()
-            status = "FAIL" if match.group(1) else "PASS"
-            if skipped:
-                status = "SKIP"
-            cases[match.group(2) + (f" {name}" if name else "")] = status
-
-    if totals is None:
-        totals = {
-            "passed": sum(status == "PASS" for status in cases.values()),
-            "failed": sum(status == "FAIL" for status in cases.values()),
-            "skipped": sum(status == "SKIP" for status in cases.values()),
-        }
-
-    exit_codes = []
-    if artifact_root.exists():
-        exit_paths = list(artifact_root.rglob("*.exit")) + list(artifact_root.rglob("uml-exit.txt"))
-        for path in exit_paths:
-            match = re.search(r"(?:uml_exit=)?(-?\d+)", path.read_text(errors="replace"))
+            status = "SKIP" if skipped else "FAIL" if match.group(1) else "PASS"
+            cases[f"{match.group(2)} {name}".strip()] = status
+        summary = re.search(
+            r"^# Totals: pass:(\d+) fail:(\d+).*?skip:(\d+).*?error:(\d+)",
+            text,
+            re.MULTILINE,
+        )
+        if summary:
+            counts = {
+                "passed": int(summary.group(1)),
+                "failed": int(summary.group(2)) + int(summary.group(4)),
+                "skipped": int(summary.group(3)),
+            }
+        else:
+            counts = {
+                "passed": sum(status == "PASS" for status in cases.values()),
+                "failed": sum(status == "FAIL" for status in cases.values()),
+                "skipped": sum(status == "SKIP" for status in cases.values()),
+            }
+        suite_base = path.stem
+        exit_paths = list(path.parent.glob(f"{suite_base}.exit"))
+        if not exit_paths:
+            exit_paths = list(path.parent.glob("*.exit"))
+        exit_codes = []
+        for exit_path in exit_paths:
+            match = re.search(r"(?:uml_exit=)?(-?\d+)", exit_path.read_text(errors="replace"))
             if match:
                 exit_codes.append(int(match.group(1)))
-    state = "not-collected"
-    if selected_tap:
-        if totals["failed"] or any(code != 0 for code in exit_codes):
-            state = "failed"
-        elif exit_codes:
-            state = "passed"
-        else:
-            state = "incomplete (missing exit status)"
-    return {"state": state, "counts": totals, "cases": cases}
+        state = "failed" if counts["failed"] or any(code != 0 for code in exit_codes) else (
+            "passed" if exit_codes else "incomplete (missing exit status)"
+        )
+        suites[suite_name] = {"state": state, "counts": counts, "cases": cases}
+    totals = {key: sum(item["counts"][key] for item in suites.values())
+              for key in KSELFTEST_COUNTS}
+    all_cases = {f"{suite}/{case}": status for suite, item in suites.items()
+                 for case, status in item["cases"].items()}
+    state = "not-collected" if not suites else (
+        "failed" if any(item["state"] == "failed" for item in suites.values()) else
+        "passed" if all(item["state"] == "passed" for item in suites.values()) else
+        "incomplete (missing exit status)"
+    )
+    return {"state": state, "counts": totals, "cases": all_cases, "suites": suites}
 
 
 def collect_nginx(root):
@@ -522,31 +543,6 @@ def render(snapshot, previous):
     ]
     lines.append("")
 
-    lines.extend([
-        "### LTP results",
-        "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
-        "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
-        "|---|---|---:|---:|---:|---:|---:|",
-    ])
-    for target, result in sorted(snapshot["ltp"]["targets"].items()):
-        counts = result["counts"]
-        target_name = f"[{target}]({result['url']})" if result.get("url") else target
-        alerts = result.get("alerts", [])
-        if alerts:
-            state = "🔴 " + ", ".join(alerts)
-        elif result["state"] != "complete":
-            state = f"🟠 {result['state']}"
-        elif counts["failed"]:
-            state = "🔴 complete with test failures"
-        elif counts["broken"]:
-            state = "🟠 complete with broken tests"
-        else:
-            state = "🟢 complete"
-        lines.append(f"| {target_name} | {state} | {counts['passed']} | {counts['failed']} | {counts['broken']} | {counts['skipped']} | {counts['warnings']} |")
-    if not snapshot["ltp"]["targets"]:
-        lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
-    lines.append("")
-
     profiles = [target for target, _header in LMBENCH_COLUMNS]
     getpid_values = {
         item.get("target"): item.get("value")
@@ -606,25 +602,36 @@ def render(snapshot, previous):
     nginx = snapshot.get("nginx", {"state": "not run/no results", "matrix": []})
     lines.extend(["### nginx matrix", ""])
     if nginx.get("matrix"):
-        lines.extend([
-            "| Profile | Workers | Connections | Status | Requests/s | Avg latency (ms) | Socket errors |",
-            "|---|---:|---:|---|---:|---:|---|",
-        ])
         ordered_matrix = sorted(
             nginx["matrix"],
             key=lambda item: (item.get("profile", ""), int(item.get("workers", 0)), int(item.get("connections", 0))),
         )
-        for item in ordered_matrix:
-            def cell(value):
-                return f"{value:.3f}" if isinstance(value, (int, float)) else "N/A"
-
-            socket_errors = item.get("socket_errors")
-            lines.append(
-                f"| {item.get('profile', 'unknown')} | {item.get('workers', 'N/A')} "
-                f"| {item.get('connections', 'N/A')} | {item.get('status', 'UNKNOWN')} "
-                f"| {cell(item.get('requests_per_second'))} | {cell(item.get('average_latency_ms'))} "
-                f"| {socket_errors if socket_errors is not None else 'N/A'} |"
-            )
+        by_key = {(item.get("profile"), item.get("workers"), item.get("connections")): item
+                  for item in ordered_matrix}
+        profile_labels = ["um", "um-mmu(s)", "um-nommu", "um-nommu(s)", "sas-s", "sas-z"]
+        profile_targets = [target for target, _header in LMBENCH_COLUMNS if target != "native"]
+        for worker in sorted({item.get("workers") for item in ordered_matrix}, key=lambda value: int(value or 0)):
+            lines.extend([f"#### Workers: {worker}", "",
+                          "| Connections | " + " | ".join(profile_labels) + " |",
+                          "|---:|" + "---" * len(profile_labels) + "|"])
+            for connection in sorted({item.get("connections") for item in ordered_matrix
+                                      if item.get("workers") == worker}, key=lambda value: int(value or 0)):
+                cells = []
+                for profile in profile_targets:
+                    item = by_key.get((profile, worker, connection))
+                    if not item:
+                        cells.append("N/A")
+                        continue
+                    rps = item.get("requests_per_second")
+                    latency = item.get("average_latency_ms")
+                    errors = item.get("socket_errors")
+                    status = item.get("status", "UNKNOWN")
+                    if status == "PASS" and isinstance(rps, (int, float)):
+                        cells.append(f"{rps:.1f} req/s; {latency:.2f} ms; sock {errors}")
+                    else:
+                        cells.append(f"{status}; sock {errors if errors is not None else 'N/A'}")
+                lines.append(f"| {connection} | " + " | ".join(cells) + " |")
+            lines.append("")
     else:
         lines.append(f"No nginx matrix results were collected ({nginx.get('state', 'unknown')}).")
     lines.extend(["", "<!-- report-chart:nginx-workers-1.png -->",
@@ -637,6 +644,40 @@ def render(snapshot, previous):
     else:
         kselftest_status = kselftest["state"]
     lines.extend(["### kselftest results", f"Current status: {kselftest_status}.", ""])
+    if kselftest.get("suites"):
+        lines.extend(["| Suite | State | Passed | Failed | Skipped |",
+                      "|---|---|---:|---:|---:|"])
+        for suite, result in sorted(kselftest["suites"].items()):
+            counts = result["counts"]
+            lines.append(f"| {suite} | {result['state']} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |")
+    else:
+        lines.append("No kselftest TAP artifacts were collected.")
+    lines.append("")
+
+    lines.extend([
+        "### LTP results",
+        "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
+        "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ])
+    for target, result in sorted(snapshot["ltp"]["targets"].items()):
+        counts = result["counts"]
+        target_name = f"[{target}]({result['url']})" if result.get("url") else target
+        alerts = result.get("alerts", [])
+        if alerts:
+            state = "🔴 " + ", ".join(alerts)
+        elif result["state"] != "complete":
+            state = f"🟠 {result['state']}"
+        elif counts["failed"]:
+            state = "🔴 complete with test failures"
+        elif counts["broken"]:
+            state = "🟠 complete with broken tests"
+        else:
+            state = "🟢 complete"
+        lines.append(f"| {target_name} | {state} | {counts['passed']} | {counts['failed']} | {counts['broken']} | {counts['skipped']} | {counts['warnings']} |")
+    if not snapshot["ltp"]["targets"]:
+        lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
+    lines.append("")
 
     lines.extend(["### KUnit results", ""])
     if snapshot["kunit"]["suites"]:

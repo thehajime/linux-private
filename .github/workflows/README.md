@@ -61,9 +61,11 @@ with SMP and four CPUs, and the run records the online CPU list. Each leg
 uploads raw logs and `measurement.json`; `bench-result` aggregates profile
 data and uploads `nginx-aggregate-plot` with JSON, CSV, profile plots, and
 SWMMU rootfs diagnostics. HTTP/TLS smoke checks must pass, and a wrk timeout
-or socket error fails the leg. Manual diagnostic dispatch temporarily skips
-KUnit/LTP and benchmark-2 iperf3/netperf jobs; lmbench benchmark-1 remains
-enabled. Push-triggered CI keeps normal KUnit, LTP, and network benchmark jobs.
+or socket error fails the leg. LTP build and test jobs are temporarily disabled while Task A investigates
+SAS LTP; re-enable both jobs after that investigation. The nginx matrix is a
+reusable workflow so the top-level Actions graph shows one folded node; opening
+that node shows its matrix legs. Manual diagnostic dispatch also skips benchmark-2 iperf3/netperf jobs;
+lmbench benchmark-1 remains enabled.
 The SWMMU package/rootfs build runs as root in the Alpine chroot so it can
 create the unprivileged `abuild` user, then restores runner ownership before
 uploading diagnostics.

@@ -42,6 +42,23 @@ for file in "$OUTPUT"/*-iperf3.dat; do
     fi
 done
 
+# Native iperf3 is logged per direction so failures cannot shift positions.
+for direction in forward reverse; do
+    file="$OUTPUT/native-iperf3-$direction.dat"
+    [ -f "$file" ] || continue
+    value=$(awk '/receiver/ {
+        value=$(NF-2); unit=$(NF-1)
+        if (unit == "Gbits/sec") value *= 1000
+        else if (unit == "Kbits/sec") value /= 1000
+        else if (unit == "bits/sec") value /= 1000000
+        print value
+    }' "$file" | tail -n 1)
+    case "$direction" in
+        forward) forward[native]=$value ;;
+        reverse) reverse[native]=$value ;;
+    esac
+done
+
 value_or_na() {
     [ -n "$1" ] && printf '%s' "$1" || printf 'N/A'
 }

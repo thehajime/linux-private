@@ -1,0 +1,176 @@
+name: nginx benchmark matrix
+on:
+  workflow_call:
+jobs:
+  nginx_benchmark:
+    name: "nginx benchmark"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - um-mmu
+          - um-mmu-seccomp
+          - um-nommu
+          - um-nommu-seccomp
+          - um-nommu-sas-seccomp
+          - um-nommu-sas-zpoline
+        workers: [1, 4]
+        connections: [4, 16, 64]
+        wrk_threads: [2]
+    env:
+      NGINX_IMAGE_NAME: ${{ contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
+      NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
+      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu-seccomp' && 'ncpus=4 seccomp=on' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
+    steps:
+      - name: Check out CI benchmark helpers
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
+      - name: Create per-leg output directory
+        run: mkdir -p "output/${{ matrix.profile }}/w${{ matrix.workers }}-c${{ matrix.connections }}"
+      - name: Download the shared profile rootfs
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.NGINX_ROOTFS_ARTIFACT }}
+          path: ${{ runner.temp }}/nginx-rootfs
+      - name: Download the tested UML image
+        uses: actions/download-artifact@v4
+        with:
+          name: uml-docker-image-${{ env.NGINX_IMAGE_NAME }}
+          path: ${{ runner.temp }}/uml-image
+      - name: Extract rootfs and kernel
+        run: |
+          set -euo pipefail
+          docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
+          cid=$(docker create "uml-ci/alpine:edge-${NGINX_IMAGE_NAME}")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 "$RUNNER_TEMP/vmlinux"
+          mkdir -p rootfs
+          tar -xzf "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" -C rootfs
+      - name: Install UML host networking and capability tools
+        env:
+          PROFILE: ${{ matrix.profile }}
+          WORKERS: ${{ matrix.workers }}
+          CONNECTIONS: ${{ matrix.connections }}
+        run: |
+          sudo apt-get update
+          host_tools=(iproute2 libcap2-bin)
+          if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
+            host_tools+=(tcpdump)
+            if [[ "$WORKERS" == 4 ]]; then
+              host_tools+=(gdb)
+            fi
+          fi
+          sudo apt-get install -y --no-install-recommends "${host_tools[@]}"
+      - name: Run HTTP/TLS smoke tests and wrk from a separate client container
+        env:
+          WORKERS: ${{ matrix.workers }}
+          THREADS: ${{ matrix.wrk_threads }}
+          CONNECTIONS: ${{ matrix.connections }}
+          PROFILE: ${{ matrix.profile }}
+          KERNEL_ARGS: ${{ env.NGINX_KERNEL_ARGS }}
+          NEEDS_RAWIO: ${{ env.NGINX_NEEDS_RAWIO }}
+        run: |
+          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
+          out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
+          bash .github/workflows/run-nginx-benchmark.sh \
+            --kernel "$RUNNER_TEMP/vmlinux" \
+            --rootfs rootfs \
+            --workers "$WORKERS" \
+            --threads "$THREADS" \
+            --connections "$CONNECTIONS" \
+            --duration 30 \
+            --profile "$PROFILE" \
+            --kernel-args "$KERNEL_ARGS" \
+            --needs-rawio "$NEEDS_RAWIO" \
+            --kernel-sha "$kernel_sha" \
+            --aports-sha "$aports_sha" \
+            --gcc-version "$gcc_version" \
+            --output "$out"
+      - name: Ensure a structured result exists after setup failures
+        if: always()
+        env:
+          WORKERS: ${{ matrix.workers }}
+          THREADS: ${{ matrix.wrk_threads }}
+          CONNECTIONS: ${{ matrix.connections }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
+          if [[ ! -s "$out/measurement.json" ]]; then
+            mkdir -p "$out"
+            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log host-vmlinux-backtrace.log; do
+              touch "$out/$file"
+            done
+            printf 'FAIL\n' >"$out/harness.status"
+            printf 'FAIL\n' >"$out/smoke-http.status"
+            printf 'FAIL\n' >"$out/smoke-tls.status"
+            printf '125\n' >"$out/wrk.exit-code"
+            python3 .github/workflows/parse-swmmu-nginx-measurement.py \
+              --output "$out" --workers "$WORKERS" --threads "$THREADS" \
+              --connections "$CONNECTIONS" --duration 30 \
+              --profile "$PROFILE" \
+              --kernel-sha unknown --aports-sha unknown --gcc-version unknown || true
+          fi
+      - name: Show nginx result and failure details
+        if: always()
+        env:
+          WORKERS: ${{ matrix.workers }}
+          THREADS: ${{ matrix.wrk_threads }}
+          CONNECTIONS: ${{ matrix.connections }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -uo pipefail
+          out="output/${PROFILE}/w${WORKERS}-c${CONNECTIONS}"
+          result="$out/measurement.json"
+          if [[ -s "$result" ]]; then
+            python3 - "$result" >>"$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, pathlib, sys
+          result = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print(f"### nginx: {result.get('profile')} / workers={result.get('workers')} / connections={result.get('connections')}")
+          print(f"\n**Status:** {result.get('status')}  ")
+          print(f"**Requests/sec:** {result.get('requests_per_second')}  ")
+          print(f"**Mean latency (ms):** {result.get('average_latency_ms')}  ")
+          print(f"**HTTP/TLS smoke:** {result.get('smoke_http')} / {result.get('smoke_tls')}")
+          failures = result.get('failures') or []
+          if failures:
+              print("\n<details><summary>Failure details</summary>\n")
+              for failure in failures:
+                  print(f"- {failure}")
+              print("\n</details>")
+          PY
+          else
+            printf '### nginx: %s / workers=%s / connections=%s\n\n**Status:** no measurement.json was produced.\n' \
+              "$PROFILE" "$WORKERS" "$CONNECTIONS" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ -s "$out/harness.error" ]]; then
+            printf '\nHarness error:\n' >>"$GITHUB_STEP_SUMMARY"
+            printf '\n```text\n' >>"$GITHUB_STEP_SUMMARY"
+            cat "$out/harness.error" >>"$GITHUB_STEP_SUMMARY"
+            printf '\n```\n' >>"$GITHUB_STEP_SUMMARY"
+            printf 'nginx harness failure: '
+            cat "$out/harness.error"
+          fi
+          for log in wrk-warmup.log wrk.log smoke-http.log smoke-tls.log; do
+            if [[ -s "$out/$log" ]] && { [[ "$log" == wrk-warmup.log && "$(cat "$out/wrk-warmup.status" 2>/dev/null)" == FAIL ]] || [[ "$log" == wrk.log && "$(cat "$out/harness.status" 2>/dev/null)" == FAIL ]]; }; then
+              printf '\nRelevant %s tail:\n' "$log"
+              tail -n 40 "$out/$log"
+            fi
+          done
+      - name: Upload this leg's raw logs and measurement JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nginx-${{ matrix.profile }}-w${{ matrix.workers }}-c${{ matrix.connections }}
+          path: output/${{ matrix.profile }}/w${{ matrix.workers }}-c${{ matrix.connections }}
+          if-no-files-found: error
+
