@@ -673,6 +673,43 @@ does not close broad application validation. OpenSSL has not been started.
   passed, but wrk reported zero requests in 30 seconds. Packet capture showed
   delayed responses arriving during and after the measurement. The new job-log
   streaming should make the next reproduction easier to follow.
+- [ ] **Unresolved: reproduce and root-cause the intermittent SAS/SWMMU nginx
+  worker SIGSEGV from run `38397978801`.** The CI mitigation that tolerates a
+  failed wrk warmup and extends request deadlines is not a fix for this fault.
+  Under `um-nommu-sas-seccomp`, workers=4, connections=64, the guest recorded
+  `nginx[39]: segfault at 100002fae3 ip 000000100002fae3 sp 0000001000277eb0
+  error 14`. The exact nginx ELF maps the faulting IP to `ngx_pcalloc+0x21`,
+  immediately after `nommu_swmmu_memset_dynamic` returns. This locates the
+  fault, but does not establish its cause. That run completed zero requests in
+  the measured 30-second cohort; the 64 GET payloads were TCP-acknowledged but
+  no HTTP 200 response was captured. Connections=4 also had no completed
+  warmup requests, while connections=16 had very low throughput. A search of
+  nginx CI failure logs from 2026-10-10 through 2026-10-14 found this as the
+  only confirmed natural worker SIGSEGV; four later JST 2026-10-14 runs had no
+  confirmed SIGSEGV across 12 SAS/seccomp worker=4 legs, though throughput
+  stalls continued. The run's kernel source SHA was
+  `ac5599c5de10c4180f8ebd85bffd04ac3a8ec274`. An exact-rootfs local
+  Raw-transport attempt did not reproduce it; faults from other diagnostic
+  images, injected signals, and client-side crashes are not equivalent
+  reproductions.
+  - Reproduce on a TAP-capable runner using the exact run kernel image, SAS
+    rootfs/APKs, nginx worker=4 configuration, wrk 4.1.0 client, and relevant
+    CPU/resource limits. Repeat connections=4/16/64 and include worker=1 and
+    SAS-zpoline controls.
+  - On the first natural fault, capture worker PID, signal, registers, and
+    faulting instruction; resolve RIP and fault address against the exact nginx
+    ELF. Preserve kernel console, nginx error log, wrk output, packet capture,
+    and host UML thread/stack samples for every attempt.
+  - Correlate per-second completed requests and worker lifetime with accept and
+    listen queues, TCP GET/ACK/HTTP response timestamps, host UML CPU/WCHAN, and
+    bounded SWMMU activation/map/unmap timing and counters.
+  - Distinguish a natural worker fault under load from warmup-only zero
+    throughput, timeout, HTTP client errors, startup faults, and deliberately
+    injected SIGSEGVs. Report whether the fault address follows an SWMMU alias
+    or lifetime transition, an nginx/runtime defect, or another cause.
+  - Do not close this item after one passing run or a test using a different
+    network transport. Record matching kernel/rootfs/config hashes and the
+    repeated-run denominator before estimating fault frequency.
 - [ ] Add a distinct plain-NOMMU UML + SAS profile with SWMMU disabled in a
   separate CI task. Define its kernel config, rootfs packages, and validation
   independently; do not merge it into the current SWMMU profile work.
