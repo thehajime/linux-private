@@ -70,9 +70,9 @@ jobs:
             tar -xzf "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" -C "$rootfs"
             out="$GITHUB_WORKSPACE/output/warmup-${warmup}s"
             echo "Running SAS-seccomp worker=4 c64 with ${warmup}s warmup"
-            NGINX_WRK_WARMUP_SECONDS="$warmup" \
-            NGINX_WRK_WARMUP_TIMEOUT_SECONDS="$((warmup + 75))" \
-              bash .github/workflows/run-nginx-benchmark.sh \
+            if NGINX_WRK_WARMUP_SECONDS="$warmup" \
+               NGINX_WRK_WARMUP_TIMEOUT_SECONDS="$((warmup + 75))" \
+                 bash .github/workflows/run-nginx-benchmark.sh \
                 --kernel "$RUNNER_TEMP/vmlinux" \
                 --rootfs "$rootfs" \
                 --workers "$WORKERS" \
@@ -86,8 +86,11 @@ jobs:
                 --kernel-sha "$kernel_sha" \
                 --aports-sha "$aports_sha" \
                 --gcc-version "$gcc_version" \
-                --output "$out"
-            rc=$?
+                --output "$out"; then
+              rc=0
+            else
+              rc=$?
+            fi
             printf '%s\n' "$rc" >"$out/helper-exit-code.txt"
             echo "warmup=${warmup}s helper_exit=$rc"
             sudo ip link delete dev tap100 2>/dev/null || true
