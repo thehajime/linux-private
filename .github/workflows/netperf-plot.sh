@@ -17,8 +17,11 @@ results = {}
 out_dir = os.path.join(root, "out")
 os.makedirs(out_dir, exist_ok=True)
 
-for path in glob.glob(os.path.join(root, "*-iperf3.dat")):
-    target = os.path.basename(path).removesuffix("-iperf3.dat")
+source_paths = glob.glob(os.path.join(root, "*-iperf3.dat"))
+source_paths += glob.glob(os.path.join(root, "*-netperf.dat"))
+for path in source_paths:
+    basename = os.path.basename(path)
+    target = basename.removesuffix("-iperf3.dat").removesuffix("-netperf.dat")
     if target not in profiles:
         continue
     with open(path, encoding="utf-8", errors="replace", newline="") as stream:

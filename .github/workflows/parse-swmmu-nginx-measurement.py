@@ -27,6 +27,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--workers", required=True, type=int)
+    parser.add_argument("--ncpus", required=True, type=int)
     parser.add_argument("--threads", required=True, type=int)
     parser.add_argument("--connections", required=True, type=int)
     parser.add_argument("--duration", required=True, type=int)
@@ -47,6 +48,7 @@ def main() -> int:
             "failures": [],
             "profile": args.profile,
             "workers": args.workers,
+            "ncpus": args.ncpus,
             "wrk_threads": args.threads,
             "connections": args.connections,
             "duration_seconds": args.duration,
@@ -148,6 +150,7 @@ def main() -> int:
         "failures": failures,
         "profile": args.profile,
         "workers": args.workers,
+        "ncpus": args.ncpus,
         "wrk_threads": args.threads,
         "connections": args.connections,
         "duration_seconds": args.duration,

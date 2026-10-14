@@ -3,7 +3,7 @@ set -uo pipefail
 
 usage() {
 	cat >&2 <<'EOF'
-Usage: run-nginx-benchmark.sh --kernel FILE --rootfs DIR --workers N \
+Usage: run-nginx-benchmark.sh --kernel FILE --rootfs DIR --workers N --ncpus N \
        --threads N --connections N --duration SEC --output DIR \
        --kernel-sha SHA --aports-sha SHA --gcc-version VERSION
 EOF
@@ -15,6 +15,7 @@ while (($#)); do
 	--kernel) KERNEL=$2; shift 2;;
 	--rootfs) ROOTFS=$2; shift 2;;
 	--workers) WORKERS=$2; shift 2;;
+	--ncpus) NCPUS=$2; shift 2;;
 	--threads) THREADS=$2; shift 2;;
 	--connections) CONNECTIONS=$2; shift 2;;
 	--duration) DURATION=$2; shift 2;;
@@ -36,6 +37,7 @@ ROOTFS=$(cd -- "$ROOTFS" && pwd -P) || {
 	exit 1
 }
 : "${WORKERS:?missing --workers}"
+: "${NCPUS:?missing --ncpus}"
 : "${THREADS:?missing --threads}"
 : "${CONNECTIONS:?missing --connections}"
 : "${DURATION:?missing --duration}"
@@ -55,6 +57,7 @@ mkdir -p "$OUTPUT"
 printf 'RUNNING\n' >"$OUTPUT/harness.status"
 printf 'NOT_RUN\n' >"$OUTPUT/wrk-warmup.status"
 printf '%s\n' "$WORKERS" >"$OUTPUT/workers.txt"
+printf '%s\n' "$NCPUS" >"$OUTPUT/ncpus.txt"
 printf '%s\n' "$THREADS" >"$OUTPUT/threads.txt"
 printf '%s\n' "$CONNECTIONS" >"$OUTPUT/connections.txt"
 printf '%s\n' "$DURATION" >"$OUTPUT/duration.txt"
@@ -400,8 +403,14 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		if [[ -s "$ROOTFS/run/online-cpus.txt" ]]; then
 			cp "$ROOTFS/run/online-cpus.txt" "$OUTPUT/online-cpus.txt"
 		fi
-		if [[ " $KERNEL_ARGS_TEXT " == *" ncpus=4 "* ]]; then
-			if [[ "$(tr -d '\n' <"$ROOTFS/run/online-cpus.txt" 2>/dev/null)" != "0-3" ]] && \
+		if [[ " $KERNEL_ARGS_TEXT " == *" ncpus="* ]]; then
+			online=$(tr -d '\n' <"$ROOTFS/run/online-cpus.txt" 2>/dev/null || true)
+			case "$NCPUS:$online" in
+				1:0|1:0-0) ;;
+				4:0-3) ;;
+				*) fail "UML expected $NCPUS CPUs online, observed '${online:-missing}'" ;;
+			esac
+			if [[ "$NCPUS" == 4 && "$online" != 0-3 ]] && \
 			   ! grep -Eq 'smp: Brought up [0-9]+ node, 4 CPUs' "$OUTPUT/kernel.log"; then
 				fail "SMP UML did not report all four CPUs online"
 			fi

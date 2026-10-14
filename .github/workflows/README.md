@@ -55,16 +55,18 @@ dispatch inputs and uses the selected kernel ref plus the pinned aports commit
 recorded in each rootfs manifest. APKs are built once. MMU, plain NOMMU, and
 SWMMU rootfs artifacts are each prepared once and shared across six UML
 profiles (`um-mmu`, `um-mmu-seccomp`, `um-nommu`, `um-nommu-seccomp`, SAS with
-`zpoline=0`, and SAS with `zpoline=1`). Every profile runs worker counts 1/4
-and wrk connections 4/16/64 from a separate client container. MMU UML is built
-with SMP and four CPUs, and the run records the online CPU list. Each leg
+`zpoline=0`, and SAS with `zpoline=1`). Every supported profile runs worker
+counts 1/4 and wrk connections 4/16/64 from a separate client container. MMU
+profiles cross one and four online CPUs with both worker counts and all client
+connection counts; NOMMU profiles currently run one CPU. The top-level matrix
+calls the reusable workflow per leg so GitHub can group the legs at the caller.
+The run records the online CPU list. Each leg
 uploads raw logs and `measurement.json`; `bench-result` aggregates profile
 data and uploads `nginx-aggregate-plot` with JSON, CSV, profile plots, and
 SWMMU rootfs diagnostics. HTTP/TLS smoke checks must pass, and a wrk timeout
-or socket error fails the leg. LTP build and test jobs are temporarily disabled while Task A investigates
-SAS LTP; re-enable both jobs after that investigation. The nginx matrix is a
-reusable workflow so the top-level Actions graph shows one folded node; opening
-that node shows its matrix legs. Manual diagnostic dispatch also skips benchmark-2 iperf3/netperf jobs;
+or socket error fails the leg. LTP build and test jobs are temporarily disabled
+while Task A investigates SAS LTP; re-enable both jobs after that investigation.
+Manual diagnostic dispatch also skips benchmark-2 iperf3/netperf jobs;
 lmbench benchmark-1 remains enabled.
 The SWMMU package/rootfs build runs as root in the Alpine chroot so it can
 create the unprivileged `abuild` user, then restores runner ownership before

@@ -4,6 +4,7 @@
 import argparse
 import base64
 import gzip
+import hashlib
 import json
 import math
 import re
@@ -135,8 +136,16 @@ def collect_benchmarks(root):
             match = memory_re.match(line)
             if match:
                 parsed.append(("lmbench", float(match.group(1)), "MB/sec", {"operation": "bw_mem_512k_rdwr"}))
+        statuses = {}
+        for line in path.read_text(errors="replace").splitlines():
+            match = re.search(r"lmbench measurement status: ([a-z0-9_-]+) (PASS|FAIL)(?: \(exit (\d+)\))?", line)
+            if match:
+                statuses[match.group(1)] = (match.group(2), match.group(3))
         if parsed:
-            raw_lmbench[target] = parsed
+            raw_lmbench[target] = [
+                item for item in parsed
+                if statuses.get(item[3].get("operation"), ("PASS", None))[0] == "PASS"
+            ]
 
     def add(name, target, value, unit, labels=None):
         records.append({
@@ -219,6 +228,7 @@ def collect_benchmarks(root):
 
 def collect_lmbench_table(root, benchmark_records):
     """Build the fixed comparison table, preserving unavailable and failed states."""
+    pipe_re = re.compile(rf"Pipe bandwidth: ([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?) MB/sec")
     values = {}
     for item in benchmark_records:
         if item.get("name") != "lmbench":
@@ -229,6 +239,7 @@ def collect_lmbench_table(root, benchmark_records):
 
     methods_by_target = {}
     statuses_by_target = {}
+    partial_values_by_target = {}
     for path in root.glob("*.dat"):
         target = path.stem
         methods = set()
@@ -246,6 +257,12 @@ def collect_lmbench_table(root, benchmark_records):
                 statuses[match.group(1)] = match.group(2)
         methods_by_target[target] = methods or {"fork", "vfork"}
         statuses_by_target[target] = statuses
+        partial_values = {}
+        for line in text.splitlines():
+            match = pipe_re.search(line)
+            if match:
+                partial_values["bw_pipe_64k"] = float(match.group(1))
+        partial_values_by_target[target] = partial_values
 
     table = {}
     for target, _header in LMBENCH_COLUMNS:
@@ -260,7 +277,19 @@ def collect_lmbench_table(root, benchmark_records):
                 continue
             status_key = operation
             status = statuses.get(status_key)
-            if status == "FAIL" or operation not in target_values:
+            if status == "FAIL":
+                partial = partial_values_by_target.get(target, {}).get(operation)
+                exit_code = ""
+                for path in root.glob(f"{target}.dat"):
+                    match = re.search(
+                        rf"lmbench measurement status: {re.escape(operation)} FAIL \(exit (\d+)\)",
+                        path.read_text(errors="replace"),
+                    )
+                    if match:
+                        exit_code = f"; exit {match.group(1)}"
+                suffix = f"; partial {partial:.2f}" if partial is not None else ""
+                cells[operation] = f"FAIL{exit_code}{suffix}"
+            elif operation not in target_values:
                 cells[operation] = "FAIL"
             else:
                 cells[operation] = target_values[operation]
@@ -368,9 +397,14 @@ def collect_kselftest(root):
         artifact_root = root / "kselftest"
     tap_paths = sorted(artifact_root.rglob("*.tap")) if artifact_root.exists() else []
     suites = {}
+    seen_tap_hashes = set()
     for path in tap_paths:
         text = path.read_text(errors="replace")
-        suite_name = str(path.relative_to(artifact_root).with_suffix(""))
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        if digest in seen_tap_hashes:
+            continue
+        seen_tap_hashes.add(digest)
+        suite_name = path.stem
         cases = {}
         for line in text.splitlines():
             match = re.match(r"^\s*(not )?ok\s+(\d+)(?:\s+(.*?))?\s*$", line)
@@ -604,21 +638,32 @@ def render(snapshot, previous):
     if nginx.get("matrix"):
         ordered_matrix = sorted(
             nginx["matrix"],
-            key=lambda item: (item.get("profile", ""), int(item.get("workers", 0)), int(item.get("connections", 0))),
+            key=lambda item: (item.get("profile", ""), int(item.get("ncpus", 1)),
+                              int(item.get("workers", 0)), int(item.get("connections", 0))),
         )
-        by_key = {(item.get("profile"), item.get("workers"), item.get("connections")): item
+        by_key = {(item.get("profile"), int(item.get("ncpus", 1)),
+                   item.get("workers"), item.get("connections")): item
                   for item in ordered_matrix}
-        profile_labels = ["um", "um-mmu(s)", "um-nommu", "um-nommu(s)", "sas-s", "sas-z"]
         profile_targets = [target for target, _header in LMBENCH_COLUMNS if target != "native"]
         for worker in sorted({item.get("workers") for item in ordered_matrix}, key=lambda value: int(value or 0)):
+            series = []
+            for profile in profile_targets:
+                cpu_counts = sorted({int(item.get("ncpus", 1)) for item in ordered_matrix
+                                     if item.get("profile") == profile and item.get("workers") == worker})
+                label = dict(LMBENCH_COLUMNS).get(profile, profile)
+                smp = "SMP=y" if profile.startswith("um-mmu") else "SMP=n"
+                series.extend((profile, cpus,
+                               f"{label} ({smp}, {cpus} CPU{'s' if cpus != 1 else ''})")
+                              for cpus in cpu_counts)
             lines.extend([f"#### Workers: {worker}", "",
-                          "| Connections | " + " | ".join(profile_labels) + " |",
-                          "|---:|" + "---" * len(profile_labels) + "|"])
+                          "Cells: requests/s; mean latency (ms); socket errors (connect/read/write/timeout).",
+                          "", "| Connections | " + " | ".join(item[2] for item in series) + " |",
+                          "|---:|" + "---:|" * len(series)])
             for connection in sorted({item.get("connections") for item in ordered_matrix
                                       if item.get("workers") == worker}, key=lambda value: int(value or 0)):
                 cells = []
-                for profile in profile_targets:
-                    item = by_key.get((profile, worker, connection))
+                for profile, ncpus, _label in series:
+                    item = by_key.get((profile, ncpus, worker, connection))
                     if not item:
                         cells.append("N/A")
                         continue
@@ -627,9 +672,12 @@ def render(snapshot, previous):
                     errors = item.get("socket_errors")
                     status = item.get("status", "UNKNOWN")
                     if status == "PASS" and isinstance(rps, (int, float)):
-                        cells.append(f"{rps:.1f} req/s; {latency:.2f} ms; sock {errors}")
+                        errors = "/".join(str(value) for value in errors) if isinstance(errors, list) else str(errors)
+                        cells.append(f"{rps:.1f}; {latency:.2f}; {errors}")
                     else:
-                        cells.append(f"{status}; sock {errors if errors is not None else 'N/A'}")
+                        if isinstance(errors, list):
+                            errors = "/".join(str(value) for value in errors)
+                        cells.append(f"{status}; {errors if errors is not None else 'N/A'}")
                 lines.append(f"| {connection} | " + " | ".join(cells) + " |")
             lines.append("")
     else:

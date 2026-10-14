@@ -729,11 +729,44 @@ jobs:
 
   nginx_benchmark:
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    name: "nginx benchmark matrix"
+    name: "nginx benchmark"
     needs: [build_uml, build_nginx_rootfs]
     uses: ./.github/workflows/nginx-benchmark.yml
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - um-mmu
+          - um-mmu-seccomp
+          - um-nommu
+          - um-nommu-seccomp
+          - um-nommu-sas-seccomp
+          - um-nommu-sas-zpoline
+        ncpus: [1, 4]
+        workers: [1, 4]
+        connections: [4, 16, 64]
+        wrk_threads: [2]
+        exclude:
+          # NOMMU UML currently has no SMP support. Remove these exclusions
+          # when the corresponding profile can boot with multiple CPUs.
+          - profile: um-nommu
+            ncpus: 4
+          - profile: um-nommu-seccomp
+            ncpus: 4
+          - profile: um-nommu-sas-seccomp
+            ncpus: 4
+          - profile: um-nommu-sas-zpoline
+            ncpus: 4
+    with:
+      profile: ${{ matrix.profile }}
+      cpu_count: ${{ matrix.ncpus }}
+      workers: ${{ matrix.workers }}
+      connections: ${{ matrix.connections }}
+      wrk_threads: ${{ matrix.wrk_threads }}
+      kernel_args: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      needs_rawio: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
 
   benchmark:
     runs-on: ${{ matrix.runs_on }}
@@ -1472,7 +1505,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          pattern: nginx-um-*-w*-c*
+          pattern: nginx-um-*-w*-n*-c*
           path: ${{ runner.temp }}/nginx-matrix
           merge-multiple: false
       - name: Download shared SAS rootfs diagnostics
@@ -1629,8 +1662,8 @@ jobs:
               "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
               "iperf3.png": "iperf3 forward and reverse goodput by UML profile, in Gbit/s.",
               "tcp-stream.png": "netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero. The vertical range is symmetric and includes native values when available.",
-              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
-              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). MMU UML uses CONFIG_SMP=y and compares one/four online CPUs; NOMMU uses CONFIG_SMP=n and one CPU.",
+              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). MMU UML uses CONFIG_SMP=y and compares one/four online CPUs; NOMMU uses CONFIG_SMP=n and one CPU.",
           }
           for filename, description in descriptions.items():
               marker = f"<!-- report-chart:{filename} -->"
