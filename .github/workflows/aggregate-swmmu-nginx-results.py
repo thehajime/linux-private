@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 PROFILES = (
+    "native",
     "um-mmu",
     "um-mmu-seccomp",
     "um-nommu",
@@ -18,6 +19,7 @@ PROFILES = (
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
 CPU_COUNTS = {
+    "native": (1,),
     "um-mmu": (1,),
     "um-mmu-seccomp": (1, 4),
     "um-nommu": (1,),
@@ -39,7 +41,7 @@ def main() -> int:
     output = Path(sys.argv[2])
     output.mkdir(parents=True, exist_ok=True)
     by_key = {}
-    for path in artifacts.glob("nginx-um-*-w*-n*-c*/measurement.json"):
+    for path in artifacts.glob("nginx-*-w*-n*-c*/measurement.json"):
         try:
             item = json.loads(path.read_text())
             key = (item["profile"], int(item.get("ncpus", 1)),

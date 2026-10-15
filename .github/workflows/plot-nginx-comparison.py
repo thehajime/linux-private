@@ -9,9 +9,10 @@ import sys
 from pathlib import Path
 
 PROFILES = (
-    ("um-mmu", "um", "#008000"),
-    ("um-mmu-seccomp", "um-mmu(s)", "#006400"),
-    ("um-nommu", "um-nommu", "#ff8c00"),
+    ("native", "native", "#c0392b"),
+    ("um-mmu", "um", "#27ae60"),
+    ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
+    ("um-nommu", "um-nommu", "#d68910"),
     ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
     ("um-nommu-sas-seccomp", "sas-s", "#0000ff"),
     ("um-nommu-sas-zpoline", "sas-z", "#4169e1"),
@@ -32,24 +33,31 @@ def load_measurements(source):
     rows = json.loads(source.read_text()).get("matrix", [])
     values = {}
     statuses = {}
+    host_cpu_counts = {}
     for row in rows:
         key = (row.get("profile"), int(row.get("ncpus", 1)),
                int(row.get("workers", 0)), int(row.get("connections", 0)))
         statuses[key] = row.get("status", "MISSING")
+        if row.get("profile") == "native" and isinstance(row.get("host_cpu_count"), int):
+            host_cpu_counts[row["profile"]] = row["host_cpu_count"]
         if row.get("status") == "PASS":
             values[key] = row.get("requests_per_second")
-    return values, statuses
+    return values, statuses, host_cpu_counts
 
 
-def series_for(worker, statuses):
+def series_for(worker, statuses, host_cpu_counts):
     series = []
     for profile, label, color in PROFILES:
         smp = "SMP=y" if profile.startswith("um-mmu") else "SMP=n"
         cpu_counts = sorted({key[1] for key in statuses
                              if key[0] == profile and key[2] == worker})
         for cpus in cpu_counts:
-            series.append((profile, cpus,
-                           f"{label} [{smp}, {cpus} CPU{'s' if cpus != 1 else ''}]", color))
+            if profile == "native":
+                host_cpus = host_cpu_counts.get(profile, "unknown")
+                legend = f"native [host: {host_cpus} CPUs]"
+            else:
+                legend = f"{label} [{smp}, {cpus} CPU{'s' if cpus != 1 else ''}]"
+            series.append((profile, cpus, legend, color))
     return series
 
 
@@ -66,8 +74,8 @@ def write_csv(out_dir, values, statuses):
     return path
 
 
-def write_worker_plot(out_dir, worker, values, statuses, all_values):
-    series = series_for(worker, statuses)
+def write_worker_plot(out_dir, worker, values, statuses, host_cpu_counts, all_values):
+    series = series_for(worker, statuses, host_cpu_counts)
     if not series:
         return None
     width = min(0.09, 0.72 / len(series))
@@ -128,12 +136,12 @@ def main():
         raise SystemExit("usage: plot-nginx-comparison.py AGGREGATE_JSON OUTPUT_DIR")
     source, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
     out_dir.mkdir(parents=True, exist_ok=True)
-    values, statuses = load_measurements(source)
+    values, statuses, host_cpu_counts = load_measurements(source)
     write_csv(out_dir, values, statuses)
     all_values = list(values.values())
     generated = []
     for worker in WORKERS:
-        image = write_worker_plot(out_dir, worker, values, statuses, all_values)
+        image = write_worker_plot(out_dir, worker, values, statuses, host_cpu_counts, all_values)
         if image:
             generated.append(image.name)
     status = out_dir / "plot-status.txt"
@@ -144,7 +152,8 @@ def main():
             "CPU, while um-mmu-seccomp compares one and four CPUs (solid versus "
             "patterned fill). NOMMU profiles use CONFIG_SMP=n and currently show "
             "one CPU. Add their four-CPU matrix entries when NOMMU SMP is "
-            "supported. "
+            "supported. Native is measured on the runner and its host CPU count "
+            "is recorded in the legend. "
             "Profile colors are consistent between both charts.\n"
         )
         for image in generated:

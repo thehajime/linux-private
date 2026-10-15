@@ -644,17 +644,23 @@ def render(snapshot, previous):
         by_key = {(item.get("profile"), int(item.get("ncpus", 1)),
                    item.get("workers"), item.get("connections")): item
                   for item in ordered_matrix}
-        profile_targets = [target for target, _header in LMBENCH_COLUMNS if target != "native"]
+        profile_targets = [target for target, _header in LMBENCH_COLUMNS]
         for worker in sorted({item.get("workers") for item in ordered_matrix}, key=lambda value: int(value or 0)):
             series = []
             for profile in profile_targets:
                 cpu_counts = sorted({int(item.get("ncpus", 1)) for item in ordered_matrix
                                      if item.get("profile") == profile and item.get("workers") == worker})
                 label = dict(LMBENCH_COLUMNS).get(profile, profile)
-                smp = "SMP=y" if profile.startswith("um-mmu") else "SMP=n"
-                series.extend((profile, cpus,
-                               f"{label} ({smp}, {cpus} CPU{'s' if cpus != 1 else ''})")
-                              for cpus in cpu_counts)
+                if profile == "native":
+                    host_counts = sorted({int(item.get("host_cpu_count", 0)) for item in ordered_matrix
+                                          if item.get("profile") == profile and item.get("workers") == worker})
+                    host_label = f"host, {host_counts[0]} CPUs" if host_counts and host_counts[0] else "host"
+                    series.extend((profile, cpus, f"native ({host_label})") for cpus in cpu_counts)
+                else:
+                    smp = "SMP=y" if profile.startswith("um-mmu") else "SMP=n"
+                    series.extend((profile, cpus,
+                                   f"{label} ({smp}, {cpus} CPU{'s' if cpus != 1 else ''})")
+                                  for cpus in cpu_counts)
             lines.extend([f"#### Workers: {worker}", "",
                           "Cells: requests/s; mean latency (ms); socket errors (connect/read/write/timeout).",
                           "", "| Connections | " + " | ".join(item[2] for item in series) + " |",
