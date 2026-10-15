@@ -106,12 +106,12 @@ def write_worker_plot(out_dir, worker, values, statuses, host_cpu_counts, all_va
     image = out_dir / f"nginx-workers-{worker}.png"
     script = out_dir / f"nginx-workers-{worker}.gnuplot"
     commands = (
-        "set terminal pngcairo size 2000,1100 enhanced font 'Sans,20' linewidth 2",
+        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
         f"set output {quote(image)}",
-        "set xlabel 'Client connections' font 'Sans,22'",
-        "set ylabel 'Requests per second' font 'Sans,22'",
-        "set xtics ('4' 1, '16' 2, '64' 3) font 'Sans,20'",
-        "set ytics font 'Sans,20'",
+        "set xlabel 'Client connections'",
+        "set ylabel 'Requests per second'",
+        "set xtics ('4' 1, '16' 2, '64' 3)",
+        "set ytics",
         "set xrange [0.5:3.5]",
         f"set yrange [1:{upper:.8g}]",
         "set logscale y",
@@ -121,7 +121,7 @@ def write_worker_plot(out_dir, worker, values, statuses, host_cpu_counts, all_va
         "set rmargin 2",
         "set bmargin 7",
         "set tmargin 7",
-        "set key top center horizontal maxrows 3 opaque font 'Sans,15'",
+        "set key top center horizontal maxrows 3 opaque font ',12'",
         "set tics out",
         "plot \\\n  " + ", \\\n  ".join(plot_items),
         "",
