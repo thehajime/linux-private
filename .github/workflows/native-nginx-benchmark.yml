@@ -17,13 +17,13 @@ jobs:
         connections: [4, 16, 64]
         wrk_threads: [2]
     steps:
+      - name: Check out benchmark helper
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Check out benchmark helper
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows

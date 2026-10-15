@@ -50,13 +50,13 @@ jobs:
       NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
       NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
+      - name: Check out CI benchmark helpers
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows

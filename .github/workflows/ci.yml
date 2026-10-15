@@ -261,23 +261,23 @@ jobs:
             /usr/lib/ccache \
             "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
           echo "export PATH=/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin:$PATH" >> $HOME/.bashrc
+      - name: Checkout
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+      - name: Checkout canonical CI support files
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Checkout canonical CI support files
         uses: actions/checkout@v6
         with:
           ref: ci/uml-nommu
@@ -669,13 +669,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Check out CI support files
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Check out CI support files
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows
@@ -819,13 +819,13 @@ jobs:
     name: "UML: bench (${{ matrix.testname }}) "
     timeout-minutes: 100
     steps:
+      - name: Check out CI benchmark helpers
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows
@@ -1068,16 +1068,16 @@ jobs:
             /usr/lib/ccache \
             "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
           echo "export PATH=/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin:$PATH" >> $HOME/.bashrc
+      - name: Checkout
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Checkout
-        with:
-          fetch-depth: 0
-          filter: blob:none
         uses: actions/checkout@v6
       - uses: actions/cache@v5
         with:
@@ -1307,13 +1307,13 @@ jobs:
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
       - uses: actions/checkout@v6
+      - name: Checkout LTP test support files
       - name: Restore persistent runner workspace directory ownership
         run: |
           runner_uid=$(id -u)
           runner_gid=$(id -g)
           sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
             -exec chown "$runner_uid:$runner_gid" {} +
-      - name: Checkout LTP test support files
         uses: actions/checkout@v6
         with:
           repository: thehajime/ltp
