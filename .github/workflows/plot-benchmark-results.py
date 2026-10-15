@@ -35,8 +35,8 @@ LATENCY_ROWS = (
 )
 PAYLOADS = (64, 128, 256, 512, 1024, 1500, 65507)
 BANDWIDTH_ROWS = (
-    ("bw_pipe_64k", "bw_pipe_64k"),
-    ("bw_mem_512k_rdwr", "bw_mem_512k_rdwr"),
+    ("bw_pipe_64k", "bw pipe (64 KiB)"),
+    ("bw_mem_512k_rdwr", "bw mem (512 KiB)"),
 )
 
 
