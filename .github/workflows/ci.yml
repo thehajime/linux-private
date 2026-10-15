@@ -300,7 +300,7 @@ jobs:
       - name: Install packages
         run: |
           sudo apt update -y
-          sudo apt install -y ccache iperf3 netperf iproute2 libcap-dev libcap-ng-dev libmnl-dev libmbedtls-dev liburing-dev libnuma-dev
+          sudo apt install -y ccache iperf3 netperf libcap-dev libcap-ng-dev libmnl-dev libmbedtls-dev liburing-dev libnuma-dev
       - name: Verify compiler cache wrapper
         run: |
           compiler=$(command -v gcc)
@@ -842,7 +842,7 @@ jobs:
         run: |
            set -x
            sudo apt update -y
-           sudo apt install -y iperf3 netperf iproute2 tcpdump
+           sudo apt install -y iperf3 netperf tcpdump
            if ! ss -ltnH 'sport = :12865' | grep -q LISTEN; then
              sudo service netperf start || true
            fi
@@ -1095,7 +1095,7 @@ jobs:
       - name: Install native benchmark dependencies
         run: sudo apt install -y libtirpc-dev
       - name: Install native network benchmark dependencies
-        run: sudo apt install -y iperf3 netperf iproute2
+        run: sudo apt install -y iperf3 netperf
       - name: Build lmbench for native benchmark
         run: |
           git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
