@@ -35,7 +35,7 @@ env:
 jobs:
   build_nommu_apks:
     name: "Download signed NOMMU APKs from aports prerelease"
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-22.04
     outputs:
       kernel_sha: ${{ steps.download.outputs.kernel_sha }}
       aports_sha: ${{ steps.download.outputs.aports_sha }}
@@ -198,7 +198,7 @@ jobs:
         include:
           - displayTargetName: ubuntu-22.04
             os: unix
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
@@ -209,7 +209,7 @@ jobs:
             base_image: mirror.gcr.io/library/alpine:edge
           - displayTargetName: ubuntu-22.04 (time-travel)
             os: unix
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR" CFLAGS+="-DCONFIG_UML_TIME_TRAVEL_SUPPORT" CFLAGS+="-DCONFIG_UML_MAX_USERSPACE_ITERATIONS=100000"
@@ -220,7 +220,7 @@ jobs:
             base_image: mirror.gcr.io/library/alpine:edge
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
@@ -231,7 +231,7 @@ jobs:
             base_image: mirror.gcr.io/library/alpine:edge
           - displayTargetName: ubuntu-22.04 (nommu-sas)
             os: unix
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
@@ -597,7 +597,7 @@ jobs:
   publish_uml_images:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_images
     needs: [build_uml]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       packages: write
@@ -652,7 +652,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Build shared nginx rootfs images once
     needs: [build_nommu_apks]
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-22.04
     timeout-minutes: 180
     permissions:
       contents: read
@@ -768,35 +768,35 @@ jobs:
             image_name: um-mmu
             testname: um-mmu
             vmlinux_opt: ""
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
           - displayTargetName: um-mmu-s
             image_name: um-mmu
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
           - displayTargetName: um-nommu
             image_name: um-nommu
             testname: um-nommu
             vmlinux_opt: ""
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             base_tag: edge
           - displayTargetName: um-nommu-s
             image_name: um-nommu
             testname: um-nommu-seccomp
             vmlinux_opt: "seccomp=on"
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             base_tag: edge
           - displayTargetName: um-nommu-sas-s
             image_name: um-nommu-sas
             testname: um-nommu-sas-seccomp
             vmlinux_opt: "zpoline=0"
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             base_tag: edge
           - displayTargetName: um-nommu-sas-z
             image_name: um-nommu-sas
             testname: um-nommu-sas-zpoline
             vmlinux_opt: "zpoline=1"
-            runs_on: [self-hosted, Linux, X64]
+            runs_on: ubuntu-22.04
             base_tag: edge
     name: "UML: bench (${{ matrix.testname }}) "
     timeout-minutes: 100
@@ -1030,7 +1030,7 @@ jobs:
           path: output/${{ matrix.testname }}*
 
   checkpatch:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-22.04
     name: checkpatch and co
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -1185,7 +1185,7 @@ jobs:
     uses: ./.github/workflows/ci-docker-build.yml
     name: "LTP: build"
   test_ltp:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     needs: [build_uml, build_ltp]
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 180 || 60 }}
     permissions:
@@ -1452,7 +1452,7 @@ jobs:
 
   bench-result:
     if: ${{ always() }}
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-22.04
     name: bench-result
     needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_benchmark,native_nginx_benchmark]
     permissions:
