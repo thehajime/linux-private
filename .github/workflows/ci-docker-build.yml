@@ -260,3 +260,10 @@ jobs:
       with:
         name: ltp-alpine-${{ matrix.env.NAME }}.tar.gz
         path: /ltp-alpine-${{ matrix.env.NAME }}.tar.gz
+    - name: Restore self-hosted runner workspace directory ownership
+      if: always()
+      run: |
+        runner_uid=$(stat -c '%u' "$(dirname "$GITHUB_WORKSPACE")")
+        runner_gid=$(stat -c '%g' "$(dirname "$GITHUB_WORKSPACE")")
+        find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
+          -exec chown "$runner_uid:$runner_gid" {} +
