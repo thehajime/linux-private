@@ -560,6 +560,13 @@ static void put_nommu_region(struct vm_region *region)
 	__put_nommu_region(region);
 }
 
+#ifdef CONFIG_NOMMU_SWMMU
+void nommu_swmmu_put_region(struct vm_region *region)
+{
+	put_nommu_region(region);
+}
+#endif
+
 static void setup_vma_to_mm(struct vm_area_struct *vma, struct mm_struct *mm)
 {
 	vma->vm_mm = mm;

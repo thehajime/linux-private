@@ -2616,6 +2616,171 @@ cleanup:
 	return KSFT_PASS;
 }
 
+static int test_fork_native_private_migration(void)
+{
+	size_t ps = getpagesize();
+	volatile uint64_t *native = MAP_FAILED;
+	volatile uint64_t *swmmu = MAP_FAILED;
+	int child_ready[2] = {-1, -1};
+	int parent_go[2] = {-1, -1};
+	pid_t pid = -1;
+	int status;
+	char token;
+	uint64_t checked;
+	const char *failure = NULL;
+
+	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
+		failure = "could not disable SWMMU before native mmap";
+		goto cleanup;
+	}
+
+	native = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+		      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (native == MAP_FAILED) {
+		failure = "native anonymous mmap failed";
+		goto cleanup;
+	}
+	*native = UINT64_C(0x11);
+
+	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
+		failure = "could not enable SWMMU for the mixed VMA case";
+		goto cleanup;
+	}
+
+	swmmu = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (swmmu == MAP_FAILED) {
+		failure = "SWMMU anonymous mmap failed";
+		goto cleanup;
+	}
+	if (nommu_swmmu_store_u64_checked((void *)swmmu, sizeof(*swmmu),
+					  UINT64_C(0x33))) {
+		failure = "initial SWMMU store failed";
+		goto cleanup;
+	}
+
+	errno = 0;
+	if (nommu_swmmu_load_u64_checked((const void *)native,
+					 sizeof(*native), &checked) != -EFAULT) {
+		failure = "native VMA was unexpectedly SWMMU-backed before fork";
+		goto cleanup;
+	}
+
+	if (pipe(child_ready) < 0 || pipe(parent_go) < 0) {
+		failure = "pipe creation failed";
+		goto cleanup;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		failure = "fork failed";
+		goto cleanup;
+	}
+
+	if (pid == 0) {
+		close(child_ready[0]);
+		close(parent_go[1]);
+
+		if (swmmu_get_mode() != PR_SWMMU_ON || *native != 0x11 ||
+		    nommu_swmmu_load_u64_checked((const void *)native,
+						 sizeof(*native), &checked) ||
+		    checked != 0x11 ||
+		    nommu_swmmu_load_u64_checked((const void *)swmmu,
+						 sizeof(*swmmu), &checked) ||
+		    checked != 0x33)
+			_exit(2);
+
+		*native = UINT64_C(0x22);
+		if (nommu_swmmu_store_u64_checked((void *)swmmu,
+						  sizeof(*swmmu),
+						  UINT64_C(0x44)))
+			_exit(3);
+		if (write_token(child_ready[1], 'r') < 0 ||
+		    read_token(parent_go[0], &token) < 0 || token != 'g')
+			_exit(4);
+		if (*native != 0x22 ||
+		    nommu_swmmu_load_u64_checked((const void *)swmmu,
+						 sizeof(*swmmu), &checked) ||
+		    checked != 0x44)
+			_exit(5);
+		_exit(0);
+	}
+
+	close(child_ready[1]);
+	child_ready[1] = -1;
+	close(parent_go[0]);
+	parent_go[0] = -1;
+	if (read_token(child_ready[0], &token) < 0 || token != 'r') {
+		failure = "child did not reach the isolation checkpoint";
+		goto cleanup;
+	}
+	if (swmmu_get_mode() != PR_SWMMU_ON || *native != 0x11 ||
+	    nommu_swmmu_load_u64_checked((const void *)native,
+					 sizeof(*native), &checked) ||
+	    checked != 0x11) {
+		failure = "parent native mapping did not migrate with its address and contents";
+		goto cleanup;
+	}
+	if (nommu_swmmu_load_u64_checked((const void *)swmmu,
+					 sizeof(*swmmu), &checked) || checked != 0x33) {
+		failure = "existing SWMMU VMA changed during fork";
+		goto cleanup;
+	}
+
+	*native = UINT64_C(0x55);
+	if (nommu_swmmu_store_u64_checked((void *)swmmu,
+					  sizeof(*swmmu), UINT64_C(0x66))) {
+		failure = "parent SWMMU store failed after fork";
+		goto cleanup;
+	}
+	if (write_token(parent_go[1], 'g') < 0) {
+		failure = "could not release child checkpoint";
+		goto cleanup;
+	}
+	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0) {
+		pid = -1;
+		failure = "child observed parent writes or failed its fork checks";
+		goto cleanup;
+	}
+	pid = -1;
+	if (*native != 0x55 ||
+	    nommu_swmmu_load_u64_checked((const void *)swmmu,
+					 sizeof(*swmmu), &checked) || checked != 0x66) {
+		failure = "parent mapping changed after child writes";
+		goto cleanup;
+	}
+
+cleanup:
+	if (pid > 0) {
+		if (parent_go[1] >= 0)
+			(void)write_token(parent_go[1], 'g');
+		(void)waitpid(pid, &status, 0);
+	}
+	if (child_ready[0] >= 0)
+		close(child_ready[0]);
+	if (child_ready[1] >= 0)
+		close(child_ready[1]);
+	if (parent_go[0] >= 0)
+		close(parent_go[0]);
+	if (parent_go[1] >= 0)
+		close(parent_go[1]);
+	if (native != MAP_FAILED)
+		munmap((void *)native, ps);
+	if (swmmu != MAP_FAILED)
+		munmap((void *)swmmu, ps);
+	(void)swmmu_set_mode(PR_SWMMU_OFF);
+
+	if (failure) {
+		SWMMU_TEST_FAIL("%s: %s\n", __func__, failure);
+		return KSFT_FAIL;
+	}
+
+	SWMMU_TEST_PASS(
+		"fork migrates private native mappings into isolated parent/child SWMMU views\n");
+	return KSFT_PASS;
+}
+
 static int test_standard_mmap_rejects_nonexact_old_range(void)
 {
 	size_t ps = sysconf(_SC_PAGESIZE);
@@ -3932,6 +4097,7 @@ static const swmmu_test_fn testcases[] = {
 	test_checked_access_swmmu_disabled,
 	test_fork_mode_inheritance,
 	test_fork_mapping_isolation,
+	test_fork_native_private_migration,
 	test_scalar_access,
 	test_eager_copy_fork,
 	test_repeated_fork,

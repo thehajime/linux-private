@@ -67,8 +67,22 @@ struct nommu_swmmu_clone_item {
 	struct list_head node;
 	struct vm_area_struct *src_vma;
 	struct vm_area_struct *dst_vma;
+	struct vma_iterator dst_vmi;
 	struct swmmu_pagetable_range *new_data;
 	bool published;
+};
+
+struct nommu_swmmu_native_fork_item {
+	struct list_head node;
+	struct vm_area_struct *src_vma;
+	struct vm_area_struct *parent_vma;
+	struct vm_area_struct *child_vma;
+	struct vma_iterator parent_vmi;
+	struct vma_iterator child_vmi;
+	struct swmmu_pagetable_range *parent_data;
+	struct swmmu_pagetable_range *child_data;
+	bool parent_alias_mapped;
+	unsigned long alias_pages_mapped;
 };
 
 struct nommu_swmmu_space {
@@ -702,6 +716,7 @@ static void nommu_swmmu_clone_item_abort(struct mm_struct *dst,
 	VMA_ITERATOR(vmi, dst, 0);
 
 	if (!item->published) {
+		vma_iter_free(&item->dst_vmi);
 		swmmu_pagetable_range_release_locked(dst_space, item->new_data);
 		item->new_data = NULL;
 		vm_area_free(item->dst_vma);
@@ -714,6 +729,7 @@ static void nommu_swmmu_clone_item_abort(struct mm_struct *dst,
 	if (WARN_ON_ONCE(removed != item->dst_vma))
 		return;
 
+	vma_iter_free(&item->dst_vmi);
 	nommu_swmmu_vma_close(dst, item->dst_vma);
 	dst->map_count--;
 	vm_area_free(item->dst_vma);
@@ -728,6 +744,7 @@ static int nommu_swmmu_clone_item_prepare(
 {
 	struct swmmu_pagetable_range *src_data = src_vma->vm_swmmu_pt_range;
 	struct nommu_swmmu_clone_item *item;
+	int ret;
 
 	if (!src_data || !src_data->pagetable ||
 	    src_data->first > src_data->pagetable->nr_ptes ||
@@ -761,7 +778,247 @@ static int nommu_swmmu_clone_item_prepare(
 		return -ENOMEM;
 	}
 
+	vma_iter_init(&item->dst_vmi, dst, item->dst_vma->vm_start);
+	vma_iter_config(&item->dst_vmi, item->dst_vma->vm_start,
+			item->dst_vma->vm_end);
+	ret = vma_iter_prealloc(&item->dst_vmi, item->dst_vma);
+	if (ret) {
+		vma_iter_free(&item->dst_vmi);
+		swmmu_pagetable_range_release_locked(dst_space,
+						     item->new_data);
+		vm_area_free(item->dst_vma);
+		dst_space->ops->dealloc(item);
+		return ret;
+	}
+
 	*result = item;
+	return 0;
+}
+
+static unsigned int nommu_swmmu_vma_prot(const struct vm_area_struct *vma)
+{
+	unsigned int prot = 0;
+
+	if (vma->vm_flags & VM_READ)
+		prot |= PROT_READ;
+	if (vma->vm_flags & VM_WRITE)
+		prot |= PROT_WRITE;
+	if (vma->vm_flags & VM_EXEC)
+		prot |= PROT_EXEC;
+
+	return prot;
+}
+
+static bool nommu_swmmu_native_fork_candidate(
+		const struct vm_area_struct *vma)
+{
+	return vma->vm_region && !vma->vm_swmmu_pt_range && !vma->vm_file &&
+		!vma->vm_ops && !(vma->vm_flags & VM_SHARED) &&
+		(vma->vm_region->vm_flags & VM_MAPPED_COPY) &&
+		!vma_test(vma, VMA_DONTCOPY_BIT);
+}
+
+static void nommu_swmmu_native_fork_item_abort(
+		struct nommu_swmmu_native_fork_item *item,
+		struct nommu_swmmu_space *src_space,
+		struct nommu_swmmu_space *dst_space)
+{
+	if (item->parent_vmi.mas.tree)
+		vma_iter_free(&item->parent_vmi);
+	if (item->child_vmi.mas.tree)
+		vma_iter_free(&item->child_vmi);
+
+	if (item->parent_data)
+		swmmu_pagetable_range_release_locked(src_space,
+						     item->parent_data);
+	if (item->child_data)
+		swmmu_pagetable_range_release_locked(dst_space,
+						     item->child_data);
+	if (item->parent_vma) {
+		if (item->parent_vma->vm_file)
+			fput(item->parent_vma->vm_file);
+		vm_area_free(item->parent_vma);
+	}
+	if (item->child_vma) {
+		if (item->child_vma->vm_file)
+			fput(item->child_vma->vm_file);
+		vm_area_free(item->child_vma);
+	}
+	src_space->ops->dealloc(item);
+}
+
+static int nommu_swmmu_native_fork_item_prepare(
+		struct mm_struct *dst, struct mm_struct *src,
+		struct nommu_swmmu_space *dst_space,
+		struct nommu_swmmu_space *src_space,
+		struct vm_area_struct *src_vma,
+		struct nommu_swmmu_native_fork_item **result)
+{
+	struct nommu_swmmu_native_fork_item *item;
+	struct swmmu_pagetable *pt;
+	unsigned long address;
+	unsigned long length;
+	unsigned long i;
+	int ret;
+
+	length = src_vma->vm_end - src_vma->vm_start;
+	if (!length || !PAGE_ALIGNED(src_vma->vm_start) ||
+	    !PAGE_ALIGNED(length))
+		return -EINVAL;
+
+	item = src_space->ops->zalloc(sizeof(*item), GFP_KERNEL);
+	if (!item)
+		return -ENOMEM;
+
+	item->src_vma = src_vma;
+	item->parent_vma = vm_area_dup(src_vma);
+	item->child_vma = vm_area_dup(src_vma);
+	if (!item->parent_vma || !item->child_vma) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	item->parent_vma->vm_mm = src;
+	item->child_vma->vm_mm = dst;
+	item->parent_vma->vm_region = NULL;
+	item->child_vma->vm_region = NULL;
+	item->parent_vma->vm_swmmu_pt_range = NULL;
+	item->child_vma->vm_swmmu_pt_range = NULL;
+	if (item->parent_vma->vm_file)
+		get_file(item->parent_vma->vm_file);
+	if (item->child_vma->vm_file)
+		get_file(item->child_vma->vm_file);
+
+	pt = swmmu_pagetable_alloc(src_space, length);
+	if (!pt) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	for (i = 0; i < pt->nr_ptes; i++) {
+		struct page *src_page;
+		struct page *dst_page;
+
+		address = src_vma->vm_start + i * SWMMU_PAGE_SIZE;
+		src_page = virt_to_page((void *)address);
+		dst_page = pt->ptes[i].page;
+		ret = src_space->ops->page_copy(dst_page, src_page);
+		if (ret) {
+			swmmu_pagetable_put(src_space, pt);
+			goto error;
+		}
+	}
+
+	item->parent_data = swmmu_pagetable_range_create(src_space, pt);
+	swmmu_pagetable_put(src_space, pt);
+	if (!item->parent_data) {
+		ret = -ENOMEM;
+		goto error;
+	}
+	item->parent_data->nr_ptes = length / SWMMU_PAGE_SIZE;
+	item->parent_data->prot = nommu_swmmu_vma_prot(src_vma);
+	item->parent_vma->vm_swmmu_pt_range = item->parent_data;
+
+	if (vma_test(src_vma, VMA_WIPEONFORK_BIT)) {
+		pt = swmmu_pagetable_alloc(dst_space, length);
+		if (!pt) {
+			ret = -ENOMEM;
+			goto error;
+		}
+		item->child_data = swmmu_pagetable_range_create(dst_space, pt);
+		swmmu_pagetable_put(dst_space, pt);
+		if (!item->child_data) {
+			ret = -ENOMEM;
+			goto error;
+		}
+		item->child_data->nr_ptes = length / SWMMU_PAGE_SIZE;
+		item->child_data->prot = nommu_swmmu_vma_prot(src_vma);
+	} else {
+		item->child_data = swmmu_pagetable_range_clone(
+			dst_space, item->parent_data);
+		if (!item->child_data) {
+			ret = -ENOMEM;
+			goto error;
+		}
+	}
+	item->child_vma->vm_swmmu_pt_range = item->child_data;
+
+	vma_iter_init(&item->parent_vmi, src, src_vma->vm_start);
+	vma_iter_config(&item->parent_vmi, src_vma->vm_start,
+			src_vma->vm_end);
+	ret = vma_iter_prealloc(&item->parent_vmi, item->parent_vma);
+	if (ret)
+		goto error;
+
+	vma_iter_init(&item->child_vmi, dst, item->child_vma->vm_start);
+	vma_iter_config(&item->child_vmi, item->child_vma->vm_start,
+			item->child_vma->vm_end);
+	ret = vma_iter_prealloc(&item->child_vmi, item->child_vma);
+	if (ret)
+		goto error;
+
+	*result = item;
+	return 0;
+
+error:
+	nommu_swmmu_native_fork_item_abort(item, src_space, dst_space);
+	return ret;
+}
+
+static int nommu_swmmu_native_fork_map_parent(
+		struct nommu_swmmu_native_fork_item *item,
+		struct nommu_swmmu_space *space)
+{
+	const struct nommu_swmmu_host_ops *host_ops = space->host_ops;
+	struct swmmu_pagetable_range *range = item->parent_data;
+	unsigned long i;
+	int ret;
+
+	if (!host_ops || !host_ops->map_page)
+		return -EOPNOTSUPP;
+
+	for (i = 0; i < range->nr_ptes; i++) {
+		ret = host_ops->map_page(
+			item->src_vma->vm_start + i * SWMMU_PAGE_SIZE,
+			range->pagetable->ptes[range->first + i].page,
+			range->prot);
+		if (ret)
+			return ret;
+		item->alias_pages_mapped++;
+	}
+
+	range->host_start = item->src_vma->vm_start;
+	range->host_mapped = true;
+	item->parent_alias_mapped = true;
+	return 0;
+}
+
+static int nommu_swmmu_native_fork_restore_parent(
+		struct nommu_swmmu_native_fork_item *item,
+		struct nommu_swmmu_space *space)
+{
+	const struct nommu_swmmu_host_ops *host_ops = space->host_ops;
+	unsigned int prot = nommu_swmmu_vma_prot(item->src_vma);
+	unsigned long i;
+	int ret;
+
+	if (!item->alias_pages_mapped)
+		return 0;
+
+	for (i = 0; i < item->alias_pages_mapped; i++) {
+		unsigned long address = item->src_vma->vm_start +
+					i * SWMMU_PAGE_SIZE;
+
+		ret = host_ops->map_page(address,
+					virt_to_page((void *)address), prot);
+		if (ret)
+			return ret;
+	}
+
+	item->parent_data->host_mapped = false;
+	item->parent_data->host_start = 0;
+	item->parent_alias_mapped = false;
+	item->alias_pages_mapped = 0;
 	return 0;
 }
 
@@ -1705,8 +1962,11 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 	struct nommu_swmmu_space *dst_space;
 	struct nommu_swmmu_clone_item *item;
 	struct nommu_swmmu_clone_item *tmp;
+	struct nommu_swmmu_native_fork_item *native_item;
+	struct nommu_swmmu_native_fork_item *native_tmp;
 	struct vm_area_struct *src_vma;
 	LIST_HEAD(prepared);
+	LIST_HEAD(native_prepared);
 	VMA_ITERATOR(src_vmi, src, 0);
 	int ret = 0;
 
@@ -1723,12 +1983,23 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 	if (!src_space || !dst_space || src_space == dst_space)
 		return -EINVAL;
 
-	down_read(&src_space->lock);
+	down_write(&src_space->lock);
 	down_write_nested(&dst_space->lock, SINGLE_DEPTH_NESTING);
 
 	nommu_swmmu_clear_child_vmas(dst);
 
 	for_each_vma(src_vmi, src_vma) {
+		if (nommu_swmmu_native_fork_candidate(src_vma)) {
+			ret = nommu_swmmu_native_fork_item_prepare(
+				dst, src, dst_space, src_space, src_vma,
+				&native_item);
+			if (ret)
+				goto rollback;
+
+			list_add_tail(&native_item->node, &native_prepared);
+			continue;
+		}
+
 		if (!src_vma->vm_swmmu_pt_range)
 			continue;
 
@@ -1740,22 +2011,46 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		list_add_tail(&item->node, &prepared);
 	}
 
-	/*
-	 * No operation below this point may fail.
-	 * Publish all child metadata only after every clone succeeded.
-	 */
-	list_for_each_entry(item, &prepared, node) {
-		VMA_ITERATOR(dst_vmi, dst, item->dst_vma->vm_start);
-
-		vma_iter_config(&dst_vmi,
-				item->dst_vma->vm_start,
-				item->dst_vma->vm_end);
-
-		ret = vma_iter_prealloc(&dst_vmi, item->dst_vma);
+	/* Map every parent replacement before publishing any VMA changes. */
+	list_for_each_entry(native_item, &native_prepared, node) {
+		ret = nommu_swmmu_native_fork_map_parent(native_item,
+							 src_space);
 		if (ret)
-			goto rollback;
+			goto rollback_aliases;
+	}
 
-		vma_iter_store_new(&dst_vmi, item->dst_vma);
+	/*
+	 * All allocations, Maple Tree nodes, and host aliases are ready.
+	 * Nothing below this point may fail.
+	 */
+	list_for_each_entry(native_item, &native_prepared, node) {
+		struct vm_area_struct *old_vma = native_item->src_vma;
+
+		vma_start_write(old_vma);
+		vma_start_write(native_item->parent_vma);
+		vma_mark_detached(old_vma);
+		vma_iter_store_new(&native_item->parent_vmi,
+				   native_item->parent_vma);
+		native_item->parent_vma->vm_swmmu_pt_range =
+			native_item->parent_data;
+		native_item->parent_data = NULL;
+
+		vma_iter_store_new(&native_item->child_vmi,
+				   native_item->child_vma);
+		native_item->child_vma->vm_swmmu_pt_range =
+			native_item->child_data;
+		native_item->child_data = NULL;
+		dst->map_count++;
+
+		vma_close(old_vma);
+		if (old_vma->vm_file)
+			fput(old_vma->vm_file);
+		nommu_swmmu_put_region(old_vma->vm_region);
+		vm_area_free(old_vma);
+	}
+
+	list_for_each_entry(item, &prepared, node) {
+		vma_iter_store_new(&item->dst_vmi, item->dst_vma);
 		dst->map_count++;
 
 		item->dst_vma->vm_swmmu_pt_range = item->new_data;
@@ -1763,15 +2058,44 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		item->published = true;
 	}
 
+	if (!list_empty(&native_prepared)) {
+		u64 generation = READ_ONCE(src_space->host_generation) + 1;
+
+		WRITE_ONCE(src_space->host_generation, generation);
+		WRITE_ONCE(swmmu_host_active_mm, src);
+		WRITE_ONCE(swmmu_host_active_generation, generation);
+		WRITE_ONCE(src->swmmu_mode, NOMMU_SWMMU_ON);
+		WRITE_ONCE(dst->swmmu_mode, NOMMU_SWMMU_ON);
+	}
+
 	list_for_each_entry_safe(item, tmp, &prepared, node) {
 		list_del(&item->node);
+		vma_iter_free(&item->dst_vmi);
 		dst_space->ops->dealloc(item);
+	}
+	list_for_each_entry_safe(native_item, native_tmp,
+				 &native_prepared, node) {
+		list_del(&native_item->node);
+		vma_iter_free(&native_item->parent_vmi);
+		vma_iter_free(&native_item->child_vmi);
+		src_space->ops->dealloc(native_item);
 	}
 
 	up_write(&dst_space->lock);
-	up_read(&src_space->lock);
+	up_write(&src_space->lock);
 
 	return 0;
+
+rollback_aliases:
+	list_for_each_entry_safe_reverse(native_item, native_tmp,
+					 &native_prepared, node) {
+		int restore_ret;
+
+		restore_ret = nommu_swmmu_native_fork_restore_parent(
+			native_item, src_space);
+		if (WARN_ON_ONCE(restore_ret))
+			panic("NOMMU SWMMU: failed to restore native fork mapping\n");
+	}
 
 rollback:
 	list_for_each_entry_safe(item, tmp, &prepared, node) {
@@ -1780,9 +2104,15 @@ rollback:
 		nommu_swmmu_clone_item_abort(dst, dst_space, item);
 		dst_space->ops->dealloc(item);
 	}
+	list_for_each_entry_safe(native_item, native_tmp,
+				 &native_prepared, node) {
+		list_del(&native_item->node);
+		nommu_swmmu_native_fork_item_abort(native_item,
+						   src_space, dst_space);
+	}
 
 	up_write(&dst_space->lock);
-	up_read(&src_space->lock);
+	up_write(&src_space->lock);
 
 	return ret;
 }

@@ -19,6 +19,7 @@ struct swmmu_pagetable;
 struct swmmu_pagetable_range;
 struct page;
 struct vm_area_struct;
+struct vm_region;
 
 enum nommu_swmmu_map_mode {
 	NOMMU_SWMMU_MAP_AUTO,
@@ -175,6 +176,7 @@ int nommu_swmmu_copy_from_user(void *destination,
 /* mapping API */
 int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 			struct mm_struct *src);
+void nommu_swmmu_put_region(struct vm_region *region);
 int nommu_swmmu_activate_mm(struct mm_struct *mm);
 void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm);
 
