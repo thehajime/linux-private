@@ -265,5 +265,5 @@ jobs:
       run: |
         runner_uid=$(stat -c '%u' "$(dirname "$GITHUB_WORKSPACE")")
         runner_gid=$(stat -c '%g' "$(dirname "$GITHUB_WORKSPACE")")
-        find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
+        find "$GITHUB_WORKSPACE" -xdev -type d ! -user "$runner_uid" \
           -exec chown "$runner_uid:$runner_gid" {} +
