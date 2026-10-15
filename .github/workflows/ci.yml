@@ -136,8 +136,7 @@ jobs:
                       .filename == "mm/nommu_swmmu.c"
                     )] | length == 1)
                   )
-                
-or
+                or
                   (
                     (.files | length == 6) and
                     all(.files[];
