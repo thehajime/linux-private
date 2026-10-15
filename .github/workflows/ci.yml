@@ -262,22 +262,10 @@ jobs:
             "${GITHUB_WORKSPACE}/bin" >> "$GITHUB_PATH"
           echo "export PATH=/usr/lib/ccache/bin:/usr/lib/ccache:${{ github.workspace }}/bin:$PATH" >> $HOME/.bashrc
       - name: Checkout
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
       - name: Checkout canonical CI support files
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
         uses: actions/checkout@v6
         with:
           ref: ci/uml-nommu
@@ -670,12 +658,6 @@ jobs:
       contents: read
     steps:
       - name: Check out CI support files
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows
@@ -820,12 +802,6 @@ jobs:
     timeout-minutes: 100
     steps:
       - name: Check out CI benchmark helpers
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows
@@ -1072,12 +1048,6 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
         uses: actions/checkout@v6
       - uses: actions/cache@v5
         with:
@@ -1086,11 +1056,9 @@ jobs:
           restore-keys: ${{ runner.os }}-checkpatch-ccache-build-
       - name: Install packages
         run: |
+           sudo pip install ply GitPython mypy
            sudo apt update -y
-           sudo apt install -y aspell ccache sparse python3-venv
-           python3 -m venv "$RUNNER_TEMP/checkpatch-venv"
-           "$RUNNER_TEMP/checkpatch-venv/bin/pip" install ply GitPython mypy
-           echo "$RUNNER_TEMP/checkpatch-venv/bin" >> "$GITHUB_PATH"
+           sudo apt install -y aspell ccache sparse
            git clone https://github.com/daxtens/smart-sparse-diff
       - name: Install native benchmark dependencies
         run: sudo apt install -y libtirpc-dev
@@ -1300,20 +1268,8 @@ jobs:
       - name: Pull native Alpine test image
         if: matrix.testname == 'native'
         run: docker pull mirror.gcr.io/library/alpine:edge
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
       - uses: actions/checkout@v6
       - name: Checkout LTP test support files
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
         uses: actions/checkout@v6
         with:
           repository: thehajime/ltp
@@ -1509,12 +1465,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Restore persistent runner workspace directory ownership
-        run: |
-          runner_uid=$(id -u)
-          runner_gid=$(id -g)
-          sudo find "$GITHUB_WORKSPACE" -xdev -type d ! -uid "$runner_uid" \
-            -exec chown "$runner_uid:$runner_gid" {} +
       - uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows
