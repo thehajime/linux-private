@@ -136,6 +136,22 @@ jobs:
                       .filename == "mm/nommu_swmmu.c"
                     )] | length == 1)
                   )
+                
+or
+                  (
+                    (.files | length == 6) and
+                    all(.files[];
+                      .status == "modified" and
+                      (
+                        .filename == "arch/um/include/shared/os.h" or
+                        .filename == "arch/um/os-Linux/internal.h" or
+                        .filename == "arch/x86/um/Kconfig" or
+                        .filename == "arch/um/nommu/os-Linux/seccomp.c" or
+                        .filename == "mm/nommu_swmmu.c" or
+                        .filename == "tools/testing/selftests/nommu/Makefile"
+                      )
+                    )
+                  )
                 )
               ' <<<"$compare" >/dev/null; then
                 compatible_tag=$candidate_tag
@@ -148,7 +164,7 @@ jobs:
               echo "No APK release with identical aports sources and a package-compatible kernel delta is available." >&2
               exit 1
             }
-            echo "Reusing $compatible_tag: kernel delta is limited to trap.c, the SWMMU seccomp bound fix, the selftest directory/build rules, or their exact combination, and aports SHA is unchanged."
+            echo "Reusing $compatible_tag: kernel delta is limited to trap.c, the SWMMU seccomp bound fix, plain-NOMMU SMP Kconfig/TLS guards, the selftest directory/build rules, or their exact recognized combinations, and aports SHA is unchanged."
             used_release_tag=$compatible_tag
             mkdir -p "$RUNNER_TEMP/apk-reuse"
             gh release download "$compatible_tag" --repo thehajime/aports \
