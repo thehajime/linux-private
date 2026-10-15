@@ -141,16 +141,10 @@ jobs:
 
     - name: install git (patch)
       run: |
-        if command -v apk >/dev/null 2>&1; then
-          apk update
-          apk add git patch curl
-        elif command -v apt-get >/dev/null 2>&1; then
-          apt-get update
-          apt-get install -y git patch curl
-        else
-          echo "No supported package manager found" >&2
-          exit 1
-        fi
+        apk update || true
+        apk add git patch curl || true
+        apt update || true
+        apt install -y git patch curl || true
 
     - name: Set env
       run: |
@@ -159,14 +153,14 @@ jobs:
         echo "export PATH=/work-buildroot/buildroot/output/host/bin/:$PATH" >> $HOME/.profile
 
     - name: Git checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: thehajime/ltp
         ref: ${{ matrix.env.branch }}
         submodules: 'recursive'
 
     - name: Checkout CI compatibility patches
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: thehajime/linux-private
         ref: ci/uml-nommu
@@ -262,7 +256,7 @@ jobs:
     - name: archive artifact
       run: |
         cd /github/home/ltp-install/; tar cfz /ltp-alpine-${{ matrix.env.NAME }}.tar.gz ./opt
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: ltp-alpine-${{ matrix.env.NAME }}.tar.gz
         path: /ltp-alpine-${{ matrix.env.NAME }}.tar.gz
