@@ -6,11 +6,10 @@
 #include <stub-data.h>
 #include <signal.h>
 
-/* NOMMU doesn't work with thread-local storage used in CONFIG_SMP,
- * due to the dependency on host_fs variable switch upon user/kernel
- * context so, disable TLS until NOMMU supports SMP.
+/* SAS switches FS between the guest and the single saved host FS base.
+ * Keep host-side state process-global until SAS has per-thread host FS.
  */
-#ifndef CONFIG_MMU
+#ifdef CONFIG_UML_NOMMU_SAS
 #define __thread
 #endif
 

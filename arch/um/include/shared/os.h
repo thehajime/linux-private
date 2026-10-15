@@ -221,7 +221,7 @@ extern int os_unmap_memory(void *addr, int len);
 extern int os_drop_memory(void *addr, int length);
 extern int can_drop_memory(void);
 extern int os_arch_prctl(int pid, int option, unsigned long *arg);
-#ifndef CONFIG_MMU
+#ifdef CONFIG_UML_NOMMU_SAS
 extern long long host_fs;
 #endif
 
