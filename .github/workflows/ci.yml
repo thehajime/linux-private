@@ -1439,7 +1439,7 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-22.04
     name: bench-result
-    needs: [build_uml,benchmark,checkpatch,nginx_benchmark,native_nginx_benchmark]
+    needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_benchmark,native_nginx_benchmark]
     permissions:
       actions: read
       contents: write
