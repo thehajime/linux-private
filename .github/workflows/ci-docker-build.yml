@@ -22,7 +22,6 @@ permissions:
 jobs:
   job:
     runs-on: [self-hosted, Linux, X64]
-
     strategy:
       fail-fast: false
       matrix:
