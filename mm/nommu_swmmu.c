@@ -3696,8 +3696,10 @@ static int swmmu_prepare_mprotect_range(struct mm_struct *mm,
 	int ret;
 
 	vma = vma_find(&vmi, end);
-	if (!vma || !vma->vm_swmmu_pt_range)
+	if (!vma)
 		return -EOPNOTSUPP;
+	if (!vma->vm_swmmu_pt_range)
+		return -ENOSYS;
 
 	if (start < vma->vm_start || end > vma->vm_end)
 		return -EINVAL;

@@ -2168,6 +2168,41 @@ static int test_default_mode_off(void)
 	return KSFT_PASS;
 }
 
+static int test_native_mprotect_unimplemented(void)
+{
+	long page_size = getpagesize();
+	void *p;
+	int ret;
+
+	p = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (p == MAP_FAILED) {
+		SWMMU_TEST_FAIL("native mmap failed: %s\n", strerror(errno));
+		return KSFT_FAIL;
+	}
+
+	errno = 0;
+	ret = mprotect(p, page_size, PROT_NONE);
+	if (ret != -1 || errno != ENOSYS) {
+		SWMMU_TEST_FAIL("native mprotect returned %d, errno=%d (%s); "
+				"expected ENOSYS\n", ret, errno, strerror(errno));
+		munmap(p, page_size);
+		return KSFT_FAIL;
+	}
+
+	/* The failed permission change must leave the native mapping usable. */
+	*(volatile unsigned char *)p = 0x5a;
+	if (*(volatile unsigned char *)p != 0x5a) {
+		SWMMU_TEST_FAIL("native mapping changed after failed mprotect\n");
+		munmap(p, page_size);
+		return KSFT_FAIL;
+	}
+
+	munmap(p, page_size);
+	SWMMU_TEST_PASS("native mprotect reports ENOSYS and leaves the VMA usable\n");
+	return KSFT_PASS;
+}
+
 static int test_enable_swmmu(void)
 {
 	SWMMU_TEST_REQUIRE_MODESWITCH();
@@ -4139,6 +4174,7 @@ static const swmmu_test_fn testcases[] = {
 	test_dynamic_access,
 	/* Run before fork tests migrate the process's native allocator VMAs. */
 	test_allocator_domains,
+	test_native_mprotect_unimplemented,
 	test_enable_swmmu,
 	test_enable_and_mapping,
 	test_disable_and_reenable,
@@ -4266,10 +4302,12 @@ int main(void)
 	if (result != 0)
 		return KSFT_FAIL;
 	/* Exercise native allocator paths before enabling SWMMU for the suite. */
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 4; i++) {
 		int test_result = i == 0 ? testcases[i]() :
 			run_isolated_test(testcases[i], i == 1 ?
-				"test_dynamic_access" : "test_allocator_domains");
+				"test_dynamic_access" : i == 2 ?
+				"test_allocator_domains" :
+				"test_native_mprotect_unimplemented");
 
 		if (test_result == KSFT_FAIL)
 			result = KSFT_FAIL;
@@ -4281,7 +4319,7 @@ int main(void)
 		return KSFT_SKIP;
 	}
 
-	for (int i = 3; i < ARRAY_SIZE(testcases); i++) {
+	for (int i = 4; i < ARRAY_SIZE(testcases); i++) {
 		if (testcases[i]() == KSFT_FAIL)
 			result = KSFT_FAIL;
 	}
