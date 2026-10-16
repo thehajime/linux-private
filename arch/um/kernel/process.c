@@ -85,7 +85,12 @@ struct task_struct *__switch_to(struct task_struct *from, struct task_struct *to
 void um_schedule_return(void)
 {
 #if IS_ENABLED(CONFIG_NOMMU_SWMMU)
-	if (nommu_swmmu_activate_mm(current->mm))
+	/*
+	 * Keep the last userspace aliases while scheduling kernel threads or
+	 * idle.  Unmapping here may block on an mm lock held by a sleeping
+	 * userspace task and recurse through the scheduler.
+	 */
+	if (current->mm && nommu_swmmu_activate_mm(current->mm))
 		panic("NOMMU SWMMU: failed to switch host aliases\n");
 #endif
 }
