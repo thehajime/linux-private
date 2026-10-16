@@ -102,6 +102,24 @@ For SAS mode, host aliases are active mappings for the currently running
 When the current task changes, the active host aliases must be replaced with
 the aliases belonging to the new ``mm_struct``.
 
+Per-VMA host-alias eligibility
+------------------------------
+
+An SWMMU VMA is eligible for a kernel direct alias copy only when its alias is
+currently mapped for the active ``mm_struct``, the alias starts at the VMA's
+virtual start, the range metadata covers the whole VMA, and the range
+permissions allow the requested read or write. The kernel holds the SWMMU
+space read lock while using that alias so an address-space switch cannot
+replace it during the copy. If any condition fails, the user-copy path uses
+the SWMMU pagetable translation path.
+
+This is an internal kernel user-copy path. It does not remove
+compiler-generated load/store helper calls from userspace. A userspace runtime
+fast path would also need a way to discover per-VMA eligible ranges and keep
+that information current across ``mmap()``, ``mprotect()``, ``munmap()``,
+``mremap()``, and address-space switches; the current kernel exposes no such
+ABI. KUnit coverage checks the eligibility predicate and its boundaries.
+
 Testing
 -------
 

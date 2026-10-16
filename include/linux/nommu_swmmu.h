@@ -108,6 +108,19 @@ int nommu_swmmu_kunit_store_mm(struct mm_struct *mm,
 			       size_t size,
 			       u64 value);
 
+int nommu_swmmu_kunit_dynamic_copy_to_mm(struct mm_struct *mm,
+					 unsigned long address,
+					 const void *source, size_t size);
+
+int nommu_swmmu_kunit_dynamic_copy_from_mm(struct mm_struct *mm,
+					   unsigned long address,
+					   void *destination, size_t size);
+
+bool nommu_swmmu_kunit_vma_alias_accessible(struct mm_struct *mm,
+					   unsigned long address,
+					   size_t size,
+					   unsigned int access);
+
 const void *nommu_swmmu_kunit_range_pagetable(
 	const struct swmmu_pagetable_range *range);
 

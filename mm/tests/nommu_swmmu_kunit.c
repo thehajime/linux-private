@@ -497,6 +497,60 @@ static void nommu_swmmu_mm_mapping_test(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, -EFAULT);
 }
 
+static void nommu_swmmu_vma_alias_eligibility_test(struct kunit *test)
+{
+	struct nommu_swmmu_mm_test_ctx *ctx = test->priv;
+	unsigned long address;
+	const u64 expected = 0x1122334455667788ULL;
+	u64 observed = 0;
+
+	address = nommu_swmmu_kunit_mmap_mm(
+		ctx->mm,
+		0,
+		SWMMU_PAGE_SIZE,
+		PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_GT(test, address, 0UL);
+
+	/* An unmapped alias, or a different range, is never eligible. */
+	KUNIT_EXPECT_FALSE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, sizeof(u64), PROT_READ));
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
+
+	KUNIT_EXPECT_TRUE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, sizeof(u64), PROT_READ));
+	KUNIT_EXPECT_TRUE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, sizeof(u64), PROT_WRITE));
+	KUNIT_EXPECT_FALSE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, sizeof(u64), PROT_EXEC));
+	KUNIT_EXPECT_FALSE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address + SWMMU_PAGE_SIZE, 1, PROT_READ));
+	KUNIT_EXPECT_FALSE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, 0, PROT_READ));
+
+	KUNIT_EXPECT_EQ(test,
+		nommu_swmmu_kunit_dynamic_copy_to_mm(
+			ctx->mm, address, &expected, sizeof(expected)), 0);
+	KUNIT_EXPECT_EQ(test,
+		nommu_swmmu_kunit_dynamic_copy_from_mm(
+			ctx->mm, address, &observed, sizeof(observed)), 0);
+	KUNIT_EXPECT_EQ(test, observed, expected);
+
+	KUNIT_EXPECT_EQ(test, nommu_swmmu_activate_mm(NULL), 0);
+	KUNIT_EXPECT_FALSE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, sizeof(u64), PROT_READ));
+	KUNIT_ASSERT_EQ(test,
+		nommu_swmmu_kunit_unmap_mm(ctx->mm, address,
+					   SWMMU_PAGE_SIZE), 0);
+}
+
 static void nommu_swmmu_mm_mremap_shrink_test(struct kunit *test)
 {
 	struct nommu_swmmu_mm_test_ctx *ctx = test->priv;
@@ -2306,6 +2360,7 @@ static void nommu_swmmu_mm_ctx_exit(struct kunit *test)
 
 static struct kunit_case nommu_swmmu_mm_test_cases[] = {
 	KUNIT_CASE(nommu_swmmu_mm_mapping_test),
+	KUNIT_CASE(nommu_swmmu_vma_alias_eligibility_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_shrink_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_rollback_test),
