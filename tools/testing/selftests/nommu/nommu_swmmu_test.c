@@ -33,6 +33,7 @@
 
 static bool swmmu_default_on;
 static bool swmmu_mode_switching;
+static long swmmu_initial_mode;
 
 
 #define SWMMU_LIVE_CHILDREN		8
@@ -2122,15 +2123,7 @@ static int test_standard_mmap_expand_rejects_maymove(void)
 
 static int swmmu_set_mode(unsigned long mode)
 {
-	int ret = 0;
-
-	if (mode == PR_SWMMU_OFF) {
-		errno = EOPNOTSUPP;
-		return -1;
-	}
-
-	ret = prctl(PR_SET_SWMMU, mode, 0, 0, 0);
-	return ret;
+	return prctl(PR_SET_SWMMU, mode, 0, 0, 0);
 }
 
 static int swmmu_get_mode(void)
@@ -2163,13 +2156,10 @@ static int read_token(int fd, char *token)
 
 static int test_default_mode_off(void)
 {
-	int mode = swmmu_get_mode();
-
 	SWMMU_TEST_REQUIRE_MODESWITCH();
 
-	if (mode < 0) {
-		SWMMU_TEST_FAIL("cannot query initial SWMMU mode: %s\n",
-				      strerror(errno));
+	if (swmmu_initial_mode != PR_SWMMU_OFF) {
+		SWMMU_TEST_FAIL("initial SWMMU mode was not off\n");
 		return KSFT_FAIL;
 	}
 
@@ -2629,6 +2619,8 @@ static int test_fork_native_private_migration(void)
 	uint64_t checked;
 	const char *failure = NULL;
 
+	SWMMU_TEST_REQUIRE_MODESWITCH();
+
 	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
 		failure = "could not disable SWMMU before native mmap";
 		goto cleanup;
@@ -2769,7 +2761,7 @@ cleanup:
 		munmap((void *)native, ps);
 	if (swmmu != MAP_FAILED)
 		munmap((void *)swmmu, ps);
-	(void)swmmu_set_mode(PR_SWMMU_OFF);
+	(void)swmmu_set_mode(PR_SWMMU_ON);
 
 	if (failure) {
 		SWMMU_TEST_FAIL("%s: %s\n", __func__, failure);
@@ -4162,6 +4154,7 @@ swmmu_test_init(void)
 	}
 
 	swmmu_default_on = (mode == PR_SWMMU_ON);
+	swmmu_initial_mode = mode;
 	swmmu_mode_switching = !swmmu_default_on;
 	return 0;
 }
@@ -4171,12 +4164,6 @@ int main(void)
 {
 	int result = KSFT_PASS;
 
-	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
-		ksft_test_result_skip("SWMMU prctl unavailable: %s\n",
-				strerror(errno));
-		return KSFT_SKIP;
-	}
-
 	ksft_print_header();
 	ksft_set_plan(ARRAY_SIZE(testcases));
 
@@ -4185,6 +4172,11 @@ int main(void)
 		return KSFT_SKIP;
 	if (result != 0)
 		return KSFT_FAIL;
+	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
+		ksft_test_result_skip("SWMMU prctl unavailable: %s\n",
+				strerror(errno));
+		return KSFT_SKIP;
+	}
 
 	for (int i = 0; i < ARRAY_SIZE(testcases); i++) {
 		if (testcases[i]() == KSFT_FAIL)

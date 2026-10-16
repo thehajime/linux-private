@@ -1474,12 +1474,13 @@ out:
 }
 
 static int __swmmu_check_access_mm(struct mm_struct *, unsigned long, size_t, int);
+static int __swmmu_check_dynamic_access_mm(struct mm_struct *,
+					   unsigned long, size_t, int);
 
 static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 				unsigned long address,
 				void *destination,
-				size_t size,
-				bool *swmmu_seen)
+				size_t size)
 {
 	int ret = 0;
 
@@ -1491,12 +1492,9 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 
 	mmap_read_lock(mm);
 
-	ret = __swmmu_check_access_mm(mm, address, size, false);
+	ret = __swmmu_check_dynamic_access_mm(mm, address, size, false);
 	if (ret)
 		goto out_unlock;
-
-	if (swmmu_seen)
-		*swmmu_seen = false;
 
 	while (size) {
 		struct vm_area_struct *vma;
@@ -1511,9 +1509,6 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 
 		vma = find_vma(mm, address);
 		if (vma && vma->vm_swmmu_pt_range) {
-			if (swmmu_seen)
-				*swmmu_seen = true;
-
 			source = __swmmu_translate_mm(mm, address, chunk,
 						      &ret, false);
 			if (!source)
@@ -1537,8 +1532,7 @@ out_unlock:
 static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 				    unsigned long address,
 				    const void *source,
-				    size_t size,
-				    bool *swmmu_seen)
+				    size_t size)
 {
 	int ret = 0;
 
@@ -1547,12 +1541,9 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 
 	mmap_read_lock(mm);
 
-	ret = __swmmu_check_access_mm(mm, address, size, true);
+	ret = __swmmu_check_dynamic_access_mm(mm, address, size, true);
 	if (ret)
 		goto out_unlock;
-
-	if (swmmu_seen)
-		*swmmu_seen = false;
 
 	while (size) {
 		struct vm_area_struct *vma;
@@ -1576,9 +1567,6 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 			break;
 		}
 		if (vma && vma->vm_swmmu_pt_range) {
-			if (swmmu_seen)
-				*swmmu_seen = true;
-
 			destination = __swmmu_translate_mm(mm, address, chunk,
 							  &ret, true);
 			if (!destination)
@@ -1627,6 +1615,57 @@ static int __swmmu_check_access_mm(struct mm_struct *mm,
 		if (!__swmmu_translate_mm(mm, address, chunk,
 					  &ret, write))
 			return ret ? ret : -EFAULT;
+
+		address += chunk;
+	}
+
+	return 0;
+}
+
+/*
+ * Dynamic accesses can target ordinary NOMMU mappings as well as SWMMU
+ * mappings. Validate VMA coverage for both kinds and consult the SWMMU page
+ * table only when the VMA is managed by SWMMU.
+ */
+static int __swmmu_check_dynamic_access_mm(struct mm_struct *mm,
+					   unsigned long address,
+					   size_t size,
+					   int write)
+{
+	unsigned long end;
+
+	mmap_assert_locked(mm);
+
+	if (!size)
+		return -EINVAL;
+	if (address > ULONG_MAX - size)
+		return -EOVERFLOW;
+
+	end = address + size;
+	while (address < end) {
+		struct vm_area_struct *vma;
+		unsigned long offset;
+		size_t chunk;
+		int ret = 0;
+
+		vma = find_vma(mm, address);
+		if (!vma || address < vma->vm_start)
+			return -EFAULT;
+
+		offset = address & (SWMMU_PAGE_SIZE - 1);
+		chunk = SWMMU_PAGE_SIZE - offset;
+		if (chunk > end - address)
+			chunk = end - address;
+		if (chunk > vma->vm_end - address)
+			return -EFAULT;
+
+		if (vma->vm_swmmu_pt_range) {
+			if (!__swmmu_translate_mm(mm, address, chunk, &ret, write))
+				return ret ? ret : -EFAULT;
+		} else if (write ? !(vma->vm_flags & VM_WRITE) :
+			   !(vma->vm_flags & VM_READ)) {
+			return -EACCES;
+		}
 
 		address += chunk;
 	}
@@ -1817,45 +1856,27 @@ out_unlock:
 int nommu_swmmu_copy_to_user(void __user *address, const void *source,
 			size_t size)
 {
-	bool swmmu_seen = false;
-	int ret;
-
 	if (!current->mm)
 		return -EOPNOTSUPP;
 
-	ret = swmmu_dynamic_copy_to_mm(
+	return swmmu_dynamic_copy_to_mm(
 		current->mm,
 		(unsigned long)address,
 		source,
-		size,
-		&swmmu_seen);
-
-	if (!swmmu_seen && !ret)
-		return -EOPNOTSUPP;
-
-	return ret;
+		size);
 }
 
 int nommu_swmmu_copy_from_user(void *destination, const void __user *address,
 			size_t size)
 {
-	bool swmmu_seen = false;
-	int ret;
-
 	if (!current->mm)
 		return -EOPNOTSUPP;
 
-	ret = swmmu_dynamic_copy_from_mm(
+	return swmmu_dynamic_copy_from_mm(
 		current->mm,
 		(unsigned long)address,
 		destination,
-		size,
-		&swmmu_seen);
-
-	if (!swmmu_seen && !ret)
-		return -EOPNOTSUPP;
-
-	return ret;
+		size);
 }
 
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_to_user);
@@ -3552,7 +3573,7 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 	if (flags & NOMMU_SWMMU_ACCESS_DYNAMIC) {
 		ret = swmmu_dynamic_copy_from_mm(
 			current->mm, (unsigned long)address,
-			&value, size, NULL);
+			&value, size);
 	} else {
 		ret = nommu_swmmu_load_u64_checked(
 			address, size, &value);
@@ -3584,7 +3605,7 @@ SYSCALL_DEFINE4(nommu_swmmu_store,
 	if (flags & NOMMU_SWMMU_ACCESS_DYNAMIC) {
 		ret = swmmu_dynamic_copy_to_mm(
 			current->mm, (unsigned long)address,
-			&value, size, NULL);
+			&value, size);
 	} else {
 		ret = nommu_swmmu_store_u64_checked(
 			address, size, value);
