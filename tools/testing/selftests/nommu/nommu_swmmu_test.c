@@ -2609,6 +2609,7 @@ cleanup:
 static int test_fork_native_private_migration(void)
 {
 	size_t ps = getpagesize();
+	size_t last_page = ps / sizeof(uint64_t);
 	volatile uint64_t *native = MAP_FAILED;
 	volatile uint64_t *swmmu = MAP_FAILED;
 	int child_ready[2] = {-1, -1};
@@ -2626,20 +2627,21 @@ static int test_fork_native_private_migration(void)
 		goto cleanup;
 	}
 
-	native = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+	native = mmap(NULL, ps * 2, PROT_READ | PROT_WRITE,
 		      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (native == MAP_FAILED) {
 		failure = "native anonymous mmap failed";
 		goto cleanup;
 	}
 	*native = UINT64_C(0x11);
+	native[last_page] = UINT64_C(0x12);
 
 	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
 		failure = "could not enable SWMMU for the mixed VMA case";
 		goto cleanup;
 	}
 
-	swmmu = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+	swmmu = mmap(NULL, ps * 2, PROT_READ | PROT_WRITE,
 		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (swmmu == MAP_FAILED) {
 		failure = "SWMMU anonymous mmap failed";
@@ -2648,6 +2650,11 @@ static int test_fork_native_private_migration(void)
 	if (nommu_swmmu_store_u64_checked((void *)swmmu, sizeof(*swmmu),
 					  UINT64_C(0x33))) {
 		failure = "initial SWMMU store failed";
+		goto cleanup;
+	}
+	if (nommu_swmmu_store_u64_checked((void *)&swmmu[last_page],
+					  sizeof(*swmmu), UINT64_C(0x34))) {
+		failure = "initial second-page SWMMU store failed";
 		goto cleanup;
 	}
 
@@ -2674,26 +2681,38 @@ static int test_fork_native_private_migration(void)
 		close(parent_go[1]);
 
 		if (swmmu_get_mode() != PR_SWMMU_ON || *native != 0x11 ||
+		    native[last_page] != 0x12 ||
 		    nommu_swmmu_load_u64_checked((const void *)native,
 						 sizeof(*native), &checked) ||
 		    checked != 0x11 ||
 		    nommu_swmmu_load_u64_checked((const void *)swmmu,
 						 sizeof(*swmmu), &checked) ||
-		    checked != 0x33)
+		    checked != 0x33 ||
+		    nommu_swmmu_load_u64_checked(
+			    (const void *)&swmmu[last_page], sizeof(*swmmu),
+			    &checked) || checked != 0x34)
 			_exit(2);
 
 		*native = UINT64_C(0x22);
+		native[last_page] = UINT64_C(0x23);
 		if (nommu_swmmu_store_u64_checked((void *)swmmu,
 						  sizeof(*swmmu),
 						  UINT64_C(0x44)))
 			_exit(3);
+		if (nommu_swmmu_store_u64_checked(
+			    (void *)&swmmu[last_page], sizeof(*swmmu),
+			    UINT64_C(0x45)))
+			_exit(3);
 		if (write_token(child_ready[1], 'r') < 0 ||
 		    read_token(parent_go[0], &token) < 0 || token != 'g')
 			_exit(4);
-		if (*native != 0x22 ||
+		if (*native != 0x22 || native[last_page] != 0x23 ||
 		    nommu_swmmu_load_u64_checked((const void *)swmmu,
 						 sizeof(*swmmu), &checked) ||
-		    checked != 0x44)
+		    checked != 0x44 ||
+		    nommu_swmmu_load_u64_checked(
+			    (const void *)&swmmu[last_page], sizeof(*swmmu),
+			    &checked) || checked != 0x45)
 			_exit(5);
 		_exit(0);
 	}
@@ -2707,22 +2726,35 @@ static int test_fork_native_private_migration(void)
 		goto cleanup;
 	}
 	if (swmmu_get_mode() != PR_SWMMU_ON || *native != 0x11 ||
+	    native[last_page] != 0x12 ||
 	    nommu_swmmu_load_u64_checked((const void *)native,
 					 sizeof(*native), &checked) ||
-	    checked != 0x11) {
+	    checked != 0x11 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&native[last_page], sizeof(*native), &checked) ||
+	    checked != 0x12) {
 		failure = "parent native mapping did not migrate with its address and contents";
 		goto cleanup;
 	}
 	if (nommu_swmmu_load_u64_checked((const void *)swmmu,
-					 sizeof(*swmmu), &checked) || checked != 0x33) {
+					 sizeof(*swmmu), &checked) || checked != 0x33 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&swmmu[last_page], sizeof(*swmmu), &checked) ||
+	    checked != 0x34) {
 		failure = "existing SWMMU VMA changed during fork";
 		goto cleanup;
 	}
 
 	*native = UINT64_C(0x55);
+	native[last_page] = UINT64_C(0x56);
 	if (nommu_swmmu_store_u64_checked((void *)swmmu,
 					  sizeof(*swmmu), UINT64_C(0x66))) {
 		failure = "parent SWMMU store failed after fork";
+		goto cleanup;
+	}
+	if (nommu_swmmu_store_u64_checked((void *)&swmmu[last_page],
+					  sizeof(*swmmu), UINT64_C(0x67))) {
+		failure = "parent second-page SWMMU store failed after fork";
 		goto cleanup;
 	}
 	if (write_token(parent_go[1], 'g') < 0) {
@@ -2736,10 +2768,56 @@ static int test_fork_native_private_migration(void)
 		goto cleanup;
 	}
 	pid = -1;
-	if (*native != 0x55 ||
+	if (*native != 0x55 || native[last_page] != 0x56 ||
 	    nommu_swmmu_load_u64_checked((const void *)swmmu,
-					 sizeof(*swmmu), &checked) || checked != 0x66) {
+					 sizeof(*swmmu), &checked) || checked != 0x66 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&swmmu[last_page], sizeof(*swmmu), &checked) ||
+	    checked != 0x67) {
 		failure = "parent mapping changed after child writes";
+		goto cleanup;
+	}
+
+	/* Fork again after migration to verify that later descendants stay isolated. */
+	pid = fork();
+	if (pid < 0) {
+		failure = "second fork failed after native migration";
+		goto cleanup;
+	}
+	if (pid == 0) {
+		if (*native != 0x55 || native[last_page] != 0x56 ||
+		    nommu_swmmu_load_u64_checked((const void *)swmmu,
+						 sizeof(*swmmu), &checked) ||
+		    checked != 0x66 ||
+		    nommu_swmmu_load_u64_checked(
+			    (const void *)&swmmu[last_page], sizeof(*swmmu),
+			    &checked) || checked != 0x67)
+			_exit(6);
+		*native = UINT64_C(0x77);
+		native[last_page] = UINT64_C(0x78);
+		if (nommu_swmmu_store_u64_checked((void *)swmmu,
+						  sizeof(*swmmu),
+						  UINT64_C(0x88)) ||
+		    nommu_swmmu_store_u64_checked(
+			    (void *)&swmmu[last_page], sizeof(*swmmu),
+			    UINT64_C(0x89)))
+			_exit(7);
+		_exit(0);
+	}
+	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0) {
+		pid = -1;
+		failure = "second child failed mixed-VMA isolation checks";
+		goto cleanup;
+	}
+	pid = -1;
+	if (*native != 0x55 || native[last_page] != 0x56 ||
+	    nommu_swmmu_load_u64_checked((const void *)swmmu,
+					 sizeof(*swmmu), &checked) || checked != 0x66 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&swmmu[last_page], sizeof(*swmmu), &checked) ||
+	    checked != 0x67) {
+		failure = "second child writes leaked into the parent mappings";
 		goto cleanup;
 	}
 
@@ -2758,9 +2836,9 @@ cleanup:
 	if (parent_go[1] >= 0)
 		close(parent_go[1]);
 	if (native != MAP_FAILED)
-		munmap((void *)native, ps);
+		munmap((void *)native, ps * 2);
 	if (swmmu != MAP_FAILED)
-		munmap((void *)swmmu, ps);
+		munmap((void *)swmmu, ps * 2);
 	(void)swmmu_set_mode(PR_SWMMU_ON);
 
 	if (failure) {
@@ -2769,7 +2847,7 @@ cleanup:
 	}
 
 	SWMMU_TEST_PASS(
-		"fork migrates private native mappings into isolated parent/child SWMMU views\n");
+		"mixed native/SWMMU VMAs keep fork isolation across pages and repeated forks\n");
 	return KSFT_PASS;
 }
 
