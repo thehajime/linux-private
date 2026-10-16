@@ -561,6 +561,23 @@ static void put_nommu_region(struct vm_region *region)
 }
 
 #ifdef CONFIG_NOMMU_SWMMU
+void nommu_swmmu_get_region(struct vm_region *region)
+{
+	down_write(&nommu_region_sem);
+	region->vm_usage++;
+	up_write(&nommu_region_sem);
+}
+
+bool nommu_swmmu_region_exclusive(struct vm_region *region)
+{
+	bool exclusive;
+
+	down_read(&nommu_region_sem);
+	exclusive = region->vm_usage == 1;
+	up_read(&nommu_region_sem);
+	return exclusive;
+}
+
 void nommu_swmmu_put_region(struct vm_region *region)
 {
 	put_nommu_region(region);

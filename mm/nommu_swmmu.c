@@ -19,6 +19,8 @@ struct swmmu_pagetable {
 	refcount_t refs;
 	unsigned long nr_ptes;
 	struct swmmu_pte *ptes;
+	/* Keep the original NOMMU pages reserved while aliases use their VAs. */
+	struct vm_region *guard_region;
 };
 
 struct swmmu_pagetable_range {
@@ -81,6 +83,7 @@ struct nommu_swmmu_native_fork_item {
 	struct swmmu_pagetable_range *parent_data;
 	struct swmmu_pagetable_range *child_data;
 	bool parent_alias_mapped;
+	bool child_published;
 	unsigned long alias_pages_mapped;
 };
 
@@ -92,6 +95,7 @@ struct nommu_swmmu_space {
 	const struct nommu_swmmu_host_ops *host_ops;
 
 	u64 host_generation;
+	bool has_native_guard;
 };
 
 static struct mm_struct *swmmu_host_active_mm;
@@ -201,6 +205,26 @@ static void swmmu_pagetable_put(struct nommu_swmmu_space *space,
 		if (pt->ptes[i].page)
 			space->ops->page_free(pt->ptes[i].page);
 	}
+	if (pt->guard_region) {
+		struct vm_region *region = pt->guard_region;
+
+		if (nommu_swmmu_region_exclusive(region)) {
+			unsigned long addr;
+
+			/* Restore the direct map before these pages reach the allocator. */
+			for (addr = region->vm_start; addr < region->vm_top;
+			     addr += PAGE_SIZE) {
+				int ret = space->host_ops->map_page(addr,
+					virt_to_page((void *)addr),
+					PROT_READ | PROT_WRITE | PROT_EXEC);
+
+				if (ret)
+					panic("NOMMU SWMMU: failed to restore direct map at %lx: %d\n",
+					      addr, ret);
+			}
+		}
+		nommu_swmmu_put_region(pt->guard_region);
+	}
 
 	space->ops->dealloc(pt->ptes);
 	space->ops->dealloc(pt);
@@ -209,6 +233,16 @@ static void swmmu_pagetable_put(struct nommu_swmmu_space *space,
 static void swmmu_pagetable_get(struct swmmu_pagetable *pt)
 {
 	refcount_inc(&pt->refs);
+}
+
+static void swmmu_pagetable_inherit_guard(struct swmmu_pagetable *dst,
+					 const struct swmmu_pagetable *src)
+{
+	if (!src->guard_region)
+		return;
+
+	nommu_swmmu_get_region(src->guard_region);
+	dst->guard_region = src->guard_region;
 }
 
 static void swmmu_pagetable_drop_entries(struct nommu_swmmu_space *space,
@@ -354,7 +388,9 @@ static int swmmu_host_map_mm(struct mm_struct *mm)
 	if (!mm)
 		return 0;
 
-	if (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON)
+	if (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON &&
+	    (!mm->swmmu_space ||
+	     !READ_ONCE(mm->swmmu_space->has_native_guard)))
 		return 0;
 
 	space = mm->swmmu_space;
@@ -459,7 +495,9 @@ int nommu_swmmu_activate_mm(struct mm_struct *mm)
 	old_mm = READ_ONCE(swmmu_host_active_mm);
 
 	if (!mm ||
-	    READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON) {
+	    (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON &&
+	     (!mm->swmmu_space ||
+	      !READ_ONCE(mm->swmmu_space->has_native_guard)))) {
 		if (old_mm)
 			swmmu_host_unmap_mm(old_mm);
 
@@ -645,6 +683,7 @@ static struct swmmu_pagetable_range *swmmu_pagetable_range_clone(
 			return NULL;
 		}
 	}
+	swmmu_pagetable_inherit_guard(dst->pagetable, src->pagetable);
 
 	return dst;
 }
@@ -806,6 +845,15 @@ static void nommu_swmmu_native_fork_item_abort(
 		struct nommu_swmmu_space *src_space,
 		struct nommu_swmmu_space *dst_space)
 {
+	if (item->child_published) {
+		VMA_ITERATOR(vmi, item->child_vma->vm_mm,
+			     item->child_vma->vm_start);
+
+		if (WARN_ON_ONCE(mas_erase(&vmi.mas) != item->child_vma))
+			return;
+		item->child_vma->vm_mm->map_count--;
+		item->child_vma->vm_swmmu_pt_range = NULL;
+	}
 	if (item->parent_vmi.mas.tree)
 		vma_iter_free(&item->parent_vmi);
 	if (item->child_vmi.mas.tree)
@@ -846,7 +894,10 @@ static int nommu_swmmu_native_fork_item_prepare(
 
 	length = src_vma->vm_end - src_vma->vm_start;
 	if (!length || !PAGE_ALIGNED(src_vma->vm_start) ||
-	    !PAGE_ALIGNED(length))
+	    !PAGE_ALIGNED(length) ||
+	    src_vma->vm_region->vm_start != src_vma->vm_start ||
+	    src_vma->vm_region->vm_top != src_vma->vm_end ||
+	    !nommu_swmmu_region_exclusive(src_vma->vm_region))
 		return -EINVAL;
 
 	item = src_space->ops->zalloc(sizeof(*item), GFP_KERNEL);
@@ -930,13 +981,6 @@ static int nommu_swmmu_native_fork_item_prepare(
 	vma_iter_config(&item->parent_vmi, src_vma->vm_start,
 			src_vma->vm_end);
 	ret = vma_iter_prealloc(&item->parent_vmi, item->parent_vma);
-	if (ret)
-		goto error;
-
-	vma_iter_init(&item->child_vmi, dst, item->child_vma->vm_start);
-	vma_iter_config(&item->child_vmi, item->child_vma->vm_start,
-			item->child_vma->vm_end);
-	ret = vma_iter_prealloc(&item->child_vmi, item->child_vma);
 	if (ret)
 		goto error;
 
@@ -1166,7 +1210,8 @@ nommu_swmmu_space_empty(struct nommu_swmmu_space *space)
 	mmap_assert_locked(mm);
 
 	for_each_vma(vmi, vma) {
-		if (vma->vm_swmmu_pt_range)
+		if (vma->vm_swmmu_pt_range &&
+		    !vma->vm_swmmu_pt_range->pagetable->guard_region)
 			return false;
 	}
 
@@ -2029,8 +2074,27 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		dst->map_count++;
 
 		item->dst_vma->vm_swmmu_pt_range = item->new_data;
+		if (item->new_data->pagetable->guard_region)
+			dst_space->has_native_guard = true;
 		item->new_data = NULL;
 		item->published = true;
+	}
+
+	/* Preallocate against the current child tree for every insertion. */
+	list_for_each_entry(native_item, &native_prepared, node) {
+		vma_iter_init(&native_item->child_vmi, dst,
+			      native_item->child_vma->vm_start);
+		vma_iter_config(&native_item->child_vmi,
+				native_item->child_vma->vm_start,
+				native_item->child_vma->vm_end);
+		ret = vma_iter_prealloc(&native_item->child_vmi,
+					 native_item->child_vma);
+		if (ret)
+			goto rollback;
+		vma_iter_store_new(&native_item->child_vmi,
+					 native_item->child_vma);
+		dst->map_count++;
+		native_item->child_published = true;
 	}
 
 	/* Map every parent replacement before publishing any VMA changes. */
@@ -2057,17 +2121,20 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 			native_item->parent_data;
 		native_item->parent_data = NULL;
 
-		vma_iter_store_new(&native_item->child_vmi,
-				   native_item->child_vma);
 		native_item->child_vma->vm_swmmu_pt_range =
 			native_item->child_data;
 		native_item->child_data = NULL;
-		dst->map_count++;
+
+		/* Keep the original direct-map addresses out of the allocator. */
+		native_item->parent_vma->vm_swmmu_pt_range->pagetable->guard_region =
+			old_vma->vm_region;
+		nommu_swmmu_get_region(old_vma->vm_region);
+		native_item->child_vma->vm_swmmu_pt_range->pagetable->guard_region =
+			old_vma->vm_region;
 
 		vma_close(old_vma);
 		if (old_vma->vm_file)
 			fput(old_vma->vm_file);
-		nommu_swmmu_put_region(old_vma->vm_region);
 		vm_area_free(old_vma);
 	}
 
@@ -2079,6 +2146,8 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		WRITE_ONCE(swmmu_host_active_generation, generation);
 		WRITE_ONCE(src->swmmu_mode, NOMMU_SWMMU_ON);
 		WRITE_ONCE(dst->swmmu_mode, NOMMU_SWMMU_ON);
+		src_space->has_native_guard = true;
+		dst_space->has_native_guard = true;
 	}
 
 	list_for_each_entry_safe(item, tmp, &prepared, node) {
@@ -2332,6 +2401,7 @@ static int swmmu_pagetable_resize_prepare(struct nommu_swmmu_space *space,
 			return ret;
 		}
 	}
+	swmmu_pagetable_inherit_guard(new_pt, old_pt);
 
 	tx->kind = SWMMU_TX_RESIZE;
 	tx->source = source;
@@ -2761,6 +2831,8 @@ static int swmmu_move_prepare(struct vma_remap_struct *vrm,
 			goto out_unlock_free_tx;
 		}
 	}
+	swmmu_pagetable_inherit_guard(new_range->pagetable,
+					 src_range->pagetable);
 
 	tx->new_range = new_range;
 	*dst = new_vma;

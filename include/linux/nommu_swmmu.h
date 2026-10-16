@@ -177,6 +177,8 @@ int nommu_swmmu_copy_from_user(void *destination,
 int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 			struct mm_struct *src);
 void nommu_swmmu_put_region(struct vm_region *region);
+void nommu_swmmu_get_region(struct vm_region *region);
+bool nommu_swmmu_region_exclusive(struct vm_region *region);
 int nommu_swmmu_activate_mm(struct mm_struct *mm);
 void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm);
 
