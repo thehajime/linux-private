@@ -36,7 +36,13 @@ static inline int __access_ok(const void __user *ptr, unsigned long size)
 	unsigned long addr = (unsigned long)ptr;
 	return __addr_range_nowrap(addr, size) && __under_task_size(addr, size);
 }
+#endif
 
+/*
+ * Keep UML's fault-recovery nofault accessors available without MMU too.
+ * The generic fallback treats kernel pointers as user pointers and rejects
+ * them on NOMMU, which breaks kernel path copying in hostfs.
+ */
 #define __get_kernel_nofault(dst, src, type, err_label)			\
 do {									\
 	int __faulted;							\
@@ -62,7 +68,6 @@ do {									\
 	barrier();							\
 	current->thread.segv_continue = NULL;				\
 } while (0)
-#endif
 
 #ifdef CONFIG_NOMMU_SWMMU
 
