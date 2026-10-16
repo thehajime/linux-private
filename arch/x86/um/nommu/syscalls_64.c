@@ -88,12 +88,6 @@ void arch_switch_to(struct task_struct *to)
 	current_ptregs = (long)task_pt_regs(to);
 
 	os_x86_set_hostfs();
-
-#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
-	/* Kernel user-copy can resume here before the next userspace entry. */
-	if (nommu_swmmu_activate_mm(to->mm))
-		panic("NOMMU SWMMU: failed to switch host aliases\n");
-#endif
 }
 
 static int __init um_nommu_setup_hostfs(void)

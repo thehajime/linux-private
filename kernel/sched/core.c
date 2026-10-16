@@ -40,6 +40,10 @@
 #include <linux/sched/rseq_api.h>
 #include <linux/sched/rt.h>
 
+#ifdef CONFIG_UML
+void um_schedule_return(void);
+#endif
+
 #include <linux/context_tracking.h>
 #include <linux/cpuset.h>
 #include <linux/delayacct.h>
@@ -7375,6 +7379,9 @@ asmlinkage __visible void __sched schedule(void)
 		sched_submit_work(tsk);
 	__schedule_loop(SM_NONE);
 	sched_update_worker(tsk);
+#ifdef CONFIG_UML
+	um_schedule_return();
+#endif
 }
 EXPORT_SYMBOL(schedule);
 

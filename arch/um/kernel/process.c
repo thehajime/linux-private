@@ -82,6 +82,22 @@ struct task_struct *__switch_to(struct task_struct *from, struct task_struct *to
 	return current->thread.prev_sched;
 }
 
+void um_schedule_return(void)
+{
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
+	if (nommu_swmmu_activate_mm(current->mm))
+		panic("NOMMU SWMMU: failed to switch host aliases\n");
+#endif
+}
+
+void um_syscall_enter(void)
+{
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
+	if (nommu_swmmu_activate_mm(current->mm))
+		panic("NOMMU SWMMU: failed to activate syscall aliases\n");
+#endif
+}
+
 void interrupt_end(void)
 {
 	struct pt_regs *regs = &current->thread.regs;
