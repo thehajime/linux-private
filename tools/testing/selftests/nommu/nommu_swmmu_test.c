@@ -17,8 +17,8 @@
 #include <setjmp.h>
 
 
-#include "kselftest.h"
 #include "nommu_swmmu_user.h"
+#include "kselftest.h"
 
 /*
  * FIXME: #include <linux/prctl.h>
@@ -310,6 +310,20 @@ test_scalar_access(void)
 		nommu_swmmu_free(object);
 		return KSFT_FAIL;
 	}
+
+	nommu_swmmu_store_u64(&object->value, sizeof(object->value),
+			      (uint64_t)-EFAULT);
+	value = nommu_swmmu_load_return_value(&object->value,
+					      sizeof(object->value));
+	if (value != (uint64_t)-EFAULT) {
+		SWMMU_TEST_FAIL("return-value load returned %#llx, expected %#llx\n",
+				(unsigned long long)value,
+				(unsigned long long)(uint64_t)-EFAULT);
+		nommu_swmmu_free(object);
+		return KSFT_FAIL;
+	}
+
+	nommu_swmmu_store_u64(&object->value, sizeof(object->value), 42);
 
 	value = test_swmmu_dynamic_pointer(&object->value);
 

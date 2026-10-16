@@ -28,9 +28,11 @@ UNKNOWN_ASM := $(DUMP_DIR_ABS)/swmmu_provenance_unknown.s
 
 ALL_ACCESS_SOURCE := $(TEST_DIR)/swmmu_all_access.c
 ALL_ACCESS_ASM := $(OUTPUT)/swmmu_all_access.s
+ALL_ACCESS_RETURN_ASM := $(OUTPUT)/swmmu_all_access_return_value.s
 
 
 .PHONY: all test compile dump dump-unknown-boundary clean all-access
+.PHONY: all-access-return-value
 .PHONY: $(filter test-negative%,$(MAKECMDGOALS))
 
 define check_swmmu_asm
@@ -314,6 +316,24 @@ all-access: $(ALL_ACCESS_ASM)
 	$(call check_swmmu_asm,swmmu_set_global_pointer,nommu_swmmu_store_dynamic,global pointer initialization was not lowered)
 	$(call check_swmmu_asm,swmmu_load_global_pointer_value,nommu_swmmu_load_dynamic,global pointer dereference was not lowered)
 	@echo "ok: SWMMU all-access baseline lowering"
+
+$(ALL_ACCESS_RETURN_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-return-value-load=1 \
+		-S -c $(ALL_ACCESS_SOURCE) \
+		-o $(ALL_ACCESS_RETURN_ASM)
+
+all-access-return-value: $(ALL_ACCESS_RETURN_ASM)
+	@grep -A8 'swmmu_all_access_load:' $(ALL_ACCESS_RETURN_ASM) \
+		| grep -q 'nommu_swmmu_load_return_value' || \
+		{ echo "error: all-access load did not use return-value helper"; exit 1; }
+	@grep -A8 'swmmu_all_access_store:' $(ALL_ACCESS_RETURN_ASM) \
+		| grep -q 'nommu_swmmu_store_dynamic' || \
+		{ echo "error: return-value mode changed store lowering"; exit 1; }
+	@echo "ok: return-value mode uses scalar-load helper and preserves store helper"
 
 ALL_ACCESS_BUILTIN_ASM := \
 	$(OUTPUT)/swmmu_all_access_builtin.s

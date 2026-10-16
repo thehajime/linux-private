@@ -3744,9 +3744,17 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 {
 	u64 value = 0;
 	int ret;
+	bool return_value = flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE;
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
 		return -EINVAL;
+	if (return_value &&
+	    (!(flags & NOMMU_SWMMU_ACCESS_SIGNAL) || result))
+		return -EINVAL;
+	if (return_value && sizeof(long) < sizeof(value))
+		return -EOPNOTSUPP;
+	if (!return_value && !result)
+		return -EFAULT;
 
 	if (!swmmu_valid_access_size(size))
 		return -EINVAL;
@@ -3760,8 +3768,16 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 			address, size, &value);
 	}
 
+	if (ret && return_value) {
+		force_sig_fault(SIGSEGV,
+				ret == -EACCES ? SEGV_ACCERR : SEGV_MAPERR,
+				(void __user *)address);
+		return -ERESTARTNOINTR;
+	}
 	if (ret)
 		return swmmu_signal_access_error(address, ret, flags);
+	if (return_value)
+		return (long)value;
 
 	if (copy_to_user(result, &value, sizeof(value)))
 		return -EFAULT;
@@ -3778,6 +3794,8 @@ SYSCALL_DEFINE4(nommu_swmmu_store,
 	int ret;
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
+		return -EINVAL;
+	if (flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE)
 		return -EINVAL;
 
 	if (!swmmu_valid_access_size(size))
@@ -3897,6 +3915,8 @@ SYSCALL_DEFINE5(nommu_swmmu_cmpxchg,
 	int ret;
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
+		return -EINVAL;
+	if (flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE)
 		return -EINVAL;
 
 	if (!(flags & NOMMU_SWMMU_ACCESS_DYNAMIC))

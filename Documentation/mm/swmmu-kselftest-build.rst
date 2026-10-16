@@ -2,38 +2,57 @@
 Building SWMMU NOMMU kselftests
 =============================
 
-This describes a local build of the SWMMU NOMMU selftests using a separate
-kernel output directory. It assumes the kernel tree has already been
-configured for UML NOMMU SWMMU and that the host has GCC plugin headers for
-the compiler used to build the plugin.
+Build the NOMMU selftest directly from ``tools/testing/selftests/nommu``. The
+test is not under ``tools/testing/selftests/mm`` in this tree. This procedure
+assumes a configured UML NOMMU SWMMU kernel and a musl cross compiler that uses
+the same GCC version as the GCC plugin.
 
-Build the GCC plugin with the host compiler, then build and install the
-kselftests with the same plugin and the all-access instrumentation option::
+Export the kernel UAPI headers and build the GCC plugin with the matching host
+compiler:
 
-  make -C tools/testing/selftests/mm/nommu \
-       SWMMU_BUILD_PLUGIN=1 SWMMU_HOSTCXX=g++ \
-       SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
-       swmmu-plugin
+.. code-block:: sh
 
-  make ARCH=um NOMMU=1 O=build-kselftest \
-       SWMMU_ALL_ACCESS=1 \
-       SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
-       TARGETS=mm/nommu kselftest-all kselftest-install
+   mkdir -p build-kselftest
+   make ARCH=um O=build headers_install \
+           INSTALL_HDR_PATH=build-kselftest/uapi
+   make -C tools/testing/selftests/nommu \
+           SWMMU_BUILD_PLUGIN=1 SWMMU_HOSTCXX=g++ \
+           SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           swmmu-plugin
 
-The plugin output path is explicit so the plugin can be reused by the
-selftest build. `SWMMU_ALL_ACCESS=1` is passed to the NOMMU selftest Makefile,
-which applies its plugin option to `nommu_swmmu_test`.
+Build a musl static PIE with all-access instrumentation and direct-return scalar
+loads:
 
-The installed tests are placed under
-`build-kselftest/kselftest/kselftest_install`. To stage them into a test
-rootfs, copy that directory's contents into the rootfs location expected by
-its init script. Avoid `rsync --delete` against a populated rootfs directory,
-since it removes files that are not part of the kselftest install tree.
+.. code-block:: sh
 
-For a clean rebuild, remove only the dedicated output directory before
-repeating the kernel selftest build::
+   mkdir -p build-kselftest/nommu
+   make -B -C tools/testing/selftests/nommu \
+           OUTPUT="$PWD/build-kselftest/nommu" \
+           CC=x86_64-linux-musl-gcc \
+           KHDR_INCLUDES="-I$PWD/build-kselftest/uapi/include" \
+           'USERCFLAGS=-include sys/prctl.h' \
+           USERLDFLAGS=-static-pie \
+           SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           SWMMU_ALL_ACCESS=1 SWMMU_RETURN_VALUE_LOAD=1 all
 
-  rm -rf build-kselftest
+The ``SWMMU_RETURN_VALUE_LOAD`` option is experimental. It makes plugin-lowered
+scalar loads call ``nommu_swmmu_load_return_value``. That runtime helper must
+issue the load syscall directly so 64-bit data values in the syscall errno
+range are not converted to ``errno``. The selftest runtime implements this
+helper and checks a value in that range. Store and bulk memory calls keep their
+existing ABI.
 
-The plugin can also be rebuilt independently by rerunning the first command;
-its prerequisites include the plugin source and GCC plugin headers.
+The installed or standalone test binary must run on a kernel that implements
+``NOMMU_SWMMU_ACCESS_RETURN_VALUE``. For a guest test, copy the binary into the
+test root filesystem, use an init script that records its exit code, and check
+both the guest result marker and UML host exit status. Keep the kernel build,
+cross-build, guest root filesystem, and their logs in separate output paths.
+
+The plugin lowering can be verified without booting a guest:
+
+.. code-block:: sh
+
+   make -C scripts/gcc-plugins/tests \
+           PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           OUTPUT="$PWD/build-kselftest/plugin-tests" \
+           all-access-return-value

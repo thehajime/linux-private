@@ -66,6 +66,12 @@ ifeq ($(SWMMU_ALL_ACCESS),1)
 $(OUTPUT)/nommu_swmmu_test: CFLAGS += -fplugin-arg-swmmu_plugin-all-access=1
 endif
 
+SWMMU_RETURN_VALUE_LOAD ?= 0
+ifeq ($(SWMMU_RETURN_VALUE_LOAD),1)
+$(OUTPUT)/nommu_swmmu_test: CFLAGS += \
+	-fplugin-arg-swmmu_plugin-return-value-load=1
+endif
+
 .PHONY: swmmu-plugin
 
 swmmu-plugin:

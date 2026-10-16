@@ -25,6 +25,7 @@
 #define SWMMU_MEMMOVE_NAME "nommu_swmmu_memmove"
 #define SWMMU_MEMSET_NAME "nommu_swmmu_memset"
 #define SWMMU_LOAD_DYNAMIC_NAME  "nommu_swmmu_load_dynamic"
+#define SWMMU_LOAD_RETURN_VALUE_NAME "nommu_swmmu_load_return_value"
 #define SWMMU_STORE_DYNAMIC_NAME "nommu_swmmu_store_dynamic"
 #define SWMMU_MEMCPY_DYNAMIC_NAME "nommu_swmmu_memcpy_dynamic"
 #define SWMMU_MEMMOVE_DYNAMIC_NAME "nommu_swmmu_memmove_dynamic"
@@ -40,6 +41,7 @@ static tree swmmu_memcpy_decl;
 static tree swmmu_memmove_decl;
 static tree swmmu_memset_decl;
 static tree swmmu_load_dynamic_decl;
+static tree swmmu_load_return_value_decl;
 static tree swmmu_store_dynamic_decl;
 static tree swmmu_memcpy_dynamic_decl;
 static tree swmmu_memmove_dynamic_decl;
@@ -57,6 +59,7 @@ static tree swmmu_bitfield_store_dynamic_decl;
 int plugin_is_GPL_compatible;
 
 static bool swmmu_all_access;
+static bool swmmu_return_value_load;
 static std::vector<std::string> swmmu_excluded_functions;
 
 enum swmmu_pointer_state {
@@ -146,14 +149,21 @@ static tree
 swmmu_dynamic_runtime_decl(bool store)
 {
 	tree *decl;
+	const char *name;
 
-	decl = store ? &swmmu_store_dynamic_decl :
-		       &swmmu_load_dynamic_decl;
+	if (store) {
+		decl = &swmmu_store_dynamic_decl;
+		name = SWMMU_STORE_DYNAMIC_NAME;
+	} else if (swmmu_return_value_load) {
+		decl = &swmmu_load_return_value_decl;
+		name = SWMMU_LOAD_RETURN_VALUE_NAME;
+	} else {
+		decl = &swmmu_load_dynamic_decl;
+		name = SWMMU_LOAD_DYNAMIC_NAME;
+	}
 
 	if (!*decl) {
-		*decl = find_function_decl(
-			store ? SWMMU_STORE_DYNAMIC_NAME :
-				SWMMU_LOAD_DYNAMIC_NAME);
+		*decl = find_function_decl(name);
 		if (*decl)
 			protect_runtime_decl(*decl);
 	}
@@ -505,6 +515,7 @@ is_swmmu_runtime_function(tree fndecl)
 	return !strcmp(function_name, SWMMU_LOAD_NAME) ||
 		!strcmp(function_name, SWMMU_STORE_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_NAME) ||
+		!strcmp(function_name, SWMMU_LOAD_RETURN_VALUE_NAME) ||
 		!strcmp(function_name, SWMMU_STORE_DYNAMIC_NAME) ||
 		!strcmp(function_name, SWMMU_MEMCPY_NAME) ||
 		!strcmp(function_name, SWMMU_MEMMOVE_NAME) ||
@@ -2417,6 +2428,11 @@ plugin_init(struct plugin_name_args *plugin_info,
 
 		if (!strcmp(key, "all-access")) {
 			swmmu_all_access = true;
+			continue;
+		}
+
+		if (!strcmp(key, "return-value-load")) {
+			swmmu_return_value_load = true;
 			continue;
 		}
 

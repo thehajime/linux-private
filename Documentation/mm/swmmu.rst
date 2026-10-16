@@ -24,9 +24,10 @@ SWMMU checked accesses support sizes of 1, 2, 4, and 8 bytes. The complete
 access is validated before data is copied.
 
 A successful load returns zero and writes the loaded value to the result
-argument. A successful store returns zero.
+argument unless ``NOMMU_SWMMU_ACCESS_RETURN_VALUE`` is set. A successful
+store returns zero.
 
-The access syscall supports two modes:
+The access syscall supports these flags:
 
 ``NOMMU_SWMMU_ACCESS_CHECKED``
    Return an error to the caller without delivering a signal.
@@ -34,6 +35,22 @@ The access syscall supports two modes:
 ``NOMMU_SWMMU_ACCESS_SIGNAL``
    Convert SWMMU address and permission faults into synchronous ``SIGSEGV``
    delivery.
+
+``NOMMU_SWMMU_ACCESS_DYNAMIC``
+   Allow the access to target either an ordinary NOMMU mapping or an SWMMU
+   mapping. This mode validates VMA coverage and permissions for both.
+
+``NOMMU_SWMMU_ACCESS_RETURN_VALUE``
+   For loads, return the loaded 64-bit value directly from the syscall instead
+   of copying it to the result pointer. This flag requires
+   ``NOMMU_SWMMU_ACCESS_SIGNAL`` and a NULL result pointer. Access errors are
+   delivered as ``SIGSEGV`` so a successful load can return any 64-bit value,
+   including values in the syscall error range. Userspace must issue the
+   syscall directly and must not pass its raw result through libc's
+   ``syscall()`` errno conversion. The caller must pass a valid access size and
+   flags because malformed arguments still return an errno value. This ABI is
+   available only when ``long`` is 64 bits. Stores and compare-exchange reject
+   this flag.
 
 The checked-access error contract is:
 
@@ -124,7 +141,7 @@ Testing
 -------
 
 SWMMU UML testing uses the NOMMU selftests in
-``tools/testing/selftests/mm/nommu``. Build the kernel with the SAS and SWMMU
+``tools/testing/selftests/nommu``. Build the kernel with the SAS and SWMMU
 options enabled, then build the GCC plugin and install the tests into a
 separate output directory. The host compiler must have GCC plugin headers
 installed for its GCC version.
@@ -144,24 +161,25 @@ For example, configure the kernel output directory with:
            --enable BINFMT_ELF_FDPIC
    make ARCH=um O=build -j32
 
-Build the selftest plugin and install the selftests with:
+Build the selftest plugin with:
 
 .. code-block:: sh
 
-   make -C tools/testing/selftests/mm/nommu \
+   make -C tools/testing/selftests/nommu \
            SWMMU_BUILD_PLUGIN=1 SWMMU_HOSTCXX=g++ \
            SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
            swmmu-plugin
-   make ARCH=um NOMMU=1 O=build-kselftest \
-           SWMMU_ALL_ACCESS=1 \
-           SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
-           TARGETS=mm/nommu kselftest-all kselftest-install
 
-The installed tests are under
-``build-kselftest/kselftest/kselftest_install``. Copy the installed tree into
-the test root filesystem used by the UML init script. Keep this output
-directory separate from the kernel build directory so each build can be
-cleaned independently.
+To compile all-access scalar loads to the direct-return helper, also pass
+``SWMMU_RETURN_VALUE_LOAD=1`` when building ``nommu_swmmu_test``. The plugin
+option is ``-fplugin-arg-swmmu_plugin-return-value-load=1``. The userspace
+runtime must provide ``nommu_swmmu_load_return_value`` and use a raw syscall
+instruction so data values in the errno range are preserved. This option
+changes scalar loads only; stores and bulk memory helpers retain their existing
+interfaces.
+
+The cross-build, rootfs staging, and guest run commands are documented in
+``Documentation/mm/swmmu-kselftest-build.rst``.
 
 Run the resulting UML kernel with a root filesystem containing the installed
 tests. For example, when the root filesystem is at ``rootfs``:
