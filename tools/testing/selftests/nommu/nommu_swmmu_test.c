@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -2385,6 +2386,7 @@ static int test_fork_mode_inheritance(void)
 		goto cleanup;
 	}
 
+	fflush(stdout);
 	pid = fork();
 	if (pid < 0) {
 		failure = "fork failed";
@@ -3701,7 +3703,7 @@ static int test_dynamic_access(void)
 	SWMMU_TEST_REQUIRE_MODESWITCH();
 
 	/*
-	 * Ensure malloc() returns an ordinary mapping for this test.
+	 * Create an ordinary mapping before enabling SWMMU.
 	 */
 	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
 		SWMMU_TEST_FAIL("failed to disable SWMMU: %s\n",
@@ -3709,8 +3711,9 @@ static int test_dynamic_access(void)
 		return KSFT_FAIL;
 	}
 
-	ordinary = malloc(sizeof(value));
-	if (!ordinary) {
+	ordinary = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (ordinary == MAP_FAILED) {
 		SWMMU_TEST_FAIL("ordinary allocation failed\n");
 		return KSFT_FAIL;
 	}
@@ -3720,7 +3723,7 @@ static int test_dynamic_access(void)
 	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
 		SWMMU_TEST_FAIL("failed to enable SWMMU: %s\n",
 				strerror(errno));
-		free(ordinary);
+		munmap(ordinary, ps);
 		return KSFT_FAIL;
 	}
 
@@ -3801,7 +3804,7 @@ out:
 		result = KSFT_FAIL;
 	}
 
-	free(ordinary);
+	munmap(ordinary, ps);
 
 	/*
 	 * Preserve the mode expected by subsequent SWMMU tests.
@@ -3814,108 +3817,80 @@ out:
 
 static int test_allocator_domains(void)
 {
-	pid_t pid;
-	int status;
+	void *ordinary = NULL;
+	void *dynamic = NULL;
+	size_t ps = getpagesize();
+	uint64_t value;
+	int ret;
 
 	SWMMU_TEST_REQUIRE_MODESWITCH();
 
-	pid = fork();
-	if (pid < 0) {
-		SWMMU_TEST_FAIL("fork failed: %s\n",
+	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
+		SWMMU_TEST_FAIL("failed to disable SWMMU: %s\n",
 				strerror(errno));
 		return KSFT_FAIL;
 	}
 
-	if (pid == 0) {
-		void *ordinary;
-		void *dynamic;
-		uint64_t value;
-		int ret;
-
-		/*
-		 * The first allocation should belong to the ordinary
-		 * memory domain.
-		 */
-		if (swmmu_set_mode(PR_SWMMU_OFF) < 0)
-			_exit(1);
-
-		ordinary = malloc(sizeof(value));
-		if (!ordinary)
-			_exit(2);
-
-		*(uint64_t *)ordinary = 0x1122334455667788ULL;
-
-		if (swmmu_set_mode(PR_SWMMU_ON) < 0)
-			_exit(3);
-
-		/*
-		 * Dynamic access must handle the ordinary allocation while
-		 * SWMMU is enabled.
-		 */
-		ret = nommu_swmmu_store_dynamic_checked(
-			ordinary, sizeof(value),
-			0x8877665544332211ULL);
-		if (ret)
-			_exit(4);
-
-		ret = nommu_swmmu_load_dynamic_checked(
-			ordinary, sizeof(value), &value);
-		if (ret || value != 0x8877665544332211ULL)
-			_exit(5);
-
-		/*
-		 * The second allocation is made while SWMMU is enabled.
-		 */
-		dynamic = malloc(sizeof(value));
-		if (!dynamic)
-			_exit(6);
-
-		ret = nommu_swmmu_store_dynamic_checked(
-			dynamic, sizeof(value),
-			0xaabbccddeeff0011ULL);
-		if (ret)
-			_exit(7);
-
-		ret = nommu_swmmu_load_dynamic_checked(
-			dynamic, sizeof(value), &value);
-		if (ret || value != 0xaabbccddeeff0011ULL)
-			_exit(8);
-
-		/*
-		 * Test allocator release while SWMMU remains enabled.
-		 */
-		free(ordinary);
-		free(dynamic);
-
-		if (swmmu_set_mode(PR_SWMMU_OFF) < 0)
-			_exit(9);
-
-		_exit(0);
+	ordinary = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (ordinary == MAP_FAILED) {
+		ordinary = NULL;
+		SWMMU_TEST_FAIL("ordinary allocation failed\n");
+		goto fail;
 	}
+	*(uint64_t *)ordinary = 0x1122334455667788ULL;
 
-	if (waitpid(pid, &status, 0) != pid) {
-		SWMMU_TEST_FAIL("waitpid failed: %s\n",
+	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
+		SWMMU_TEST_FAIL("failed to enable SWMMU: %s\n",
 				strerror(errno));
-		return KSFT_FAIL;
+		goto fail;
 	}
 
-	if (!WIFEXITED(status) ||
-	    WEXITSTATUS(status) != 0) {
-		if (WIFSIGNALED(status)) {
-			SWMMU_TEST_FAIL(
-				"allocator child killed by signal %d\n",
-				WTERMSIG(status));
-		} else {
-			SWMMU_TEST_FAIL(
-				"allocator child exited with status %d\n",
-				WEXITSTATUS(status));
-		}
-		return KSFT_FAIL;
+	ret = nommu_swmmu_store_dynamic_checked(
+		ordinary, sizeof(value), 0x8877665544332211ULL);
+	if (ret) {
+		SWMMU_TEST_FAIL("dynamic store to ordinary allocation failed: %s\n",
+				strerror(-ret));
+		goto fail;
 	}
+	ret = nommu_swmmu_load_dynamic_checked(ordinary, sizeof(value), &value);
+	if (ret || value != 0x8877665544332211ULL) {
+		SWMMU_TEST_FAIL("dynamic load from ordinary allocation failed\n");
+		goto fail;
+	}
+
+	dynamic = malloc(sizeof(value));
+	if (!dynamic) {
+		SWMMU_TEST_FAIL("SWMMU allocation failed\n");
+		goto fail;
+	}
+	ret = nommu_swmmu_store_dynamic_checked(
+		dynamic, sizeof(value), 0xaabbccddeeff0011ULL);
+	if (ret) {
+		SWMMU_TEST_FAIL("dynamic store to SWMMU allocation failed: %s\n",
+				strerror(-ret));
+		goto fail;
+	}
+	ret = nommu_swmmu_load_dynamic_checked(dynamic, sizeof(value), &value);
+	if (ret || value != 0xaabbccddeeff0011ULL) {
+		SWMMU_TEST_FAIL("dynamic load from SWMMU allocation failed\n");
+		goto fail;
+	}
+
+	free(dynamic);
+	munmap(ordinary, ps);
 
 	SWMMU_TEST_PASS(
 		"malloc/free work across ordinary and SWMMU domains\n");
 	return KSFT_PASS;
+
+fail:
+	if (ordinary)
+		munmap(ordinary, ps);
+	free(dynamic);
+	if (swmmu_get_mode() != PR_SWMMU_ON)
+		swmmu_set_mode(PR_SWMMU_ON);
+	return KSFT_FAIL;
 }
 
 static int test_realloc_domains(void)
@@ -4161,6 +4136,9 @@ static int test_struct_copy(void)
 typedef int (*swmmu_test_fn)(void);
 static const swmmu_test_fn testcases[] = {
 	test_default_mode_off,
+	test_dynamic_access,
+	/* Run before fork tests migrate the process's native allocator VMAs. */
+	test_allocator_domains,
 	test_enable_swmmu,
 	test_enable_and_mapping,
 	test_disable_and_reenable,
@@ -4199,9 +4177,7 @@ static const swmmu_test_fn testcases[] = {
 	test_standard_mmap_memcpy,
 	test_standard_mmap_memmove,
 	test_standard_mmap_memset,
-	test_dynamic_access,
 	test_allocator_basic,
-	test_allocator_domains,
 	test_struct_copy,
 
 	/*
@@ -4210,6 +4186,45 @@ static const swmmu_test_fn testcases[] = {
 	test_standard_mmap_exit_cleanup_churn,
 	test_standard_mmap_exit_cleanup,
 };
+
+static int run_isolated_test(swmmu_test_fn test, const char *name)
+{
+	pid_t pid;
+	int status;
+
+	pid = fork();
+	if (pid < 0) {
+		SWMMU_TEST_FAIL("isolated test fork failed: %s\n",
+				strerror(errno));
+		return KSFT_FAIL;
+	}
+	if (!pid) {
+		int nullfd = open("/dev/null", O_WRONLY);
+		int result;
+
+		if (nullfd >= 0) {
+			dup2(nullfd, STDOUT_FILENO);
+			close(nullfd);
+		}
+		result = test();
+		_exit(result == KSFT_PASS ? 0 : 1);
+	}
+
+	if (waitpid(pid, &status, 0) != pid) {
+		SWMMU_TEST_FAIL("isolated test waitpid failed: %s\n",
+				strerror(errno));
+		return KSFT_FAIL;
+	}
+
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		ksft_test_result_pass("%s completed in isolated mm\n", name);
+		return KSFT_PASS;
+	}
+
+	ksft_test_result_fail("%s isolated child failed (status %#x)\n",
+			       name, status);
+	return KSFT_FAIL;
+}
 
 static int
 swmmu_test_init(void)
@@ -4250,13 +4265,23 @@ int main(void)
 		return KSFT_SKIP;
 	if (result != 0)
 		return KSFT_FAIL;
+	/* Exercise native allocator paths before enabling SWMMU for the suite. */
+	for (int i = 0; i < 3; i++) {
+		int test_result = i == 0 ? testcases[i]() :
+			run_isolated_test(testcases[i], i == 1 ?
+				"test_dynamic_access" : "test_allocator_domains");
+
+		if (test_result == KSFT_FAIL)
+			result = KSFT_FAIL;
+	}
+
 	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
 		ksft_test_result_skip("SWMMU prctl unavailable: %s\n",
 				strerror(errno));
 		return KSFT_SKIP;
 	}
 
-	for (int i = 0; i < ARRAY_SIZE(testcases); i++) {
+	for (int i = 3; i < ARRAY_SIZE(testcases); i++) {
 		if (testcases[i]() == KSFT_FAIL)
 			result = KSFT_FAIL;
 	}

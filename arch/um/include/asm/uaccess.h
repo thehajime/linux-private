@@ -66,6 +66,12 @@ do {									\
 
 #ifdef CONFIG_NOMMU_SWMMU
 
+static inline bool
+um_nommu_swmmu_address(unsigned long address)
+{
+	return address >= UM_NOMMU_SWMMU_VA_BASE;
+}
+
 extern int nommu_swmmu_copy_to_user(void __user *address,
 				    const void *source,
 				    size_t size);
@@ -73,12 +79,7 @@ extern int nommu_swmmu_copy_to_user(void __user *address,
 extern int nommu_swmmu_copy_from_user(void *destination,
 				      const void __user *address,
 				      size_t size);
-
-static inline bool
-um_nommu_swmmu_address(unsigned long address)
-{
-	return address >= UM_NOMMU_SWMMU_VA_BASE;
-}
+extern bool nommu_swmmu_usercopy_requires_translation(unsigned long address);
 
 static inline __must_check unsigned long
 raw_copy_to_user(void __user *to,
@@ -87,7 +88,7 @@ raw_copy_to_user(void __user *to,
 {
 	int ret;
 
-	if (!um_nommu_swmmu_address((unsigned long)to)) {
+	if (!nommu_swmmu_usercopy_requires_translation((unsigned long)to)) {
 		memcpy((void __force *)to, from, n);
 		return 0;
 	}
@@ -107,7 +108,7 @@ raw_copy_from_user(void *to,
 {
 	int ret;
 
-	if (!um_nommu_swmmu_address((unsigned long)from)) {
+	if (!nommu_swmmu_usercopy_requires_translation((unsigned long)from)) {
 		memcpy(to, (const void __force *)from, n);
 		return 0;
 	}

@@ -1907,6 +1907,15 @@ int nommu_swmmu_copy_from_user(void *destination, const void __user *address,
 		size);
 }
 
+bool nommu_swmmu_usercopy_requires_translation(unsigned long address)
+{
+	struct mm_struct *mm = current->mm;
+
+	return address >= UM_NOMMU_SWMMU_VA_BASE ||
+		(mm && READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON);
+}
+EXPORT_SYMBOL_GPL(nommu_swmmu_usercopy_requires_translation);
+
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_to_user);
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_from_user);
 
