@@ -2168,13 +2168,14 @@ static int test_default_mode_off(void)
 	return KSFT_PASS;
 }
 
-static int test_native_mprotect_unimplemented(void)
+static int test_native_mprotect_access(void)
 {
 	long page_size = getpagesize();
 	void *p;
+	uint64_t value;
 	int ret;
 
-	p = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+	p = mmap(NULL, page_size, PROT_NONE,
 		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (p == MAP_FAILED) {
 		SWMMU_TEST_FAIL("native mmap failed: %s\n", strerror(errno));
@@ -2182,24 +2183,34 @@ static int test_native_mprotect_unimplemented(void)
 	}
 
 	errno = 0;
-	ret = mprotect(p, page_size, PROT_NONE);
-	if (ret != -1 || errno != ENOSYS) {
+	ret = syscall(SYS_mprotect, p, page_size, PROT_READ | PROT_WRITE);
+	if (ret < 0 && errno != ENOSYS) {
 		SWMMU_TEST_FAIL("native mprotect returned %d, errno=%d (%s); "
-				"expected ENOSYS\n", ret, errno, strerror(errno));
+				"expected success or ENOSYS\n", ret, errno,
+				strerror(errno));
 		munmap(p, page_size);
 		return KSFT_FAIL;
 	}
 
-	/* The failed permission change must leave the native mapping usable. */
-	*(volatile unsigned char *)p = 0x5a;
-	if (*(volatile unsigned char *)p != 0x5a) {
-		SWMMU_TEST_FAIL("native mapping changed after failed mprotect\n");
+	/* NOMMU dynamic accesses must match direct access to native mappings. */
+	ret = nommu_swmmu_store_dynamic_checked(p, 1, 0x5a);
+	if (ret < 0) {
+		SWMMU_TEST_FAIL("native dynamic store failed: %s\n",
+				strerror(errno));
+		munmap(p, page_size);
+		return KSFT_FAIL;
+	}
+
+	ret = nommu_swmmu_load_dynamic_checked(p, 1, &value);
+	if (ret || value != 0x5a) {
+		SWMMU_TEST_FAIL("native dynamic load returned %#llx\n",
+				(unsigned long long)value);
 		munmap(p, page_size);
 		return KSFT_FAIL;
 	}
 
 	munmap(p, page_size);
-	SWMMU_TEST_PASS("native mprotect reports ENOSYS and leaves the VMA usable\n");
+	SWMMU_TEST_PASS("native PROT_NONE mapping supports NOMMU dynamic access\n");
 	return KSFT_PASS;
 }
 
@@ -4174,7 +4185,7 @@ static const swmmu_test_fn testcases[] = {
 	test_dynamic_access,
 	/* Run before fork tests migrate the process's native allocator VMAs. */
 	test_allocator_domains,
-	test_native_mprotect_unimplemented,
+	test_native_mprotect_access,
 	test_enable_swmmu,
 	test_enable_and_mapping,
 	test_disable_and_reenable,
@@ -4303,11 +4314,11 @@ int main(void)
 		return KSFT_FAIL;
 	/* Exercise native allocator paths before enabling SWMMU for the suite. */
 	for (int i = 0; i < 4; i++) {
-		int test_result = i == 0 ? testcases[i]() :
+		int test_result = (i == 0 || i == 3) ? testcases[i]() :
 			run_isolated_test(testcases[i], i == 1 ?
 				"test_dynamic_access" : i == 2 ?
 				"test_allocator_domains" :
-				"test_native_mprotect_unimplemented");
+				"test_native_mprotect_access");
 
 		if (test_result == KSFT_FAIL)
 			result = KSFT_FAIL;

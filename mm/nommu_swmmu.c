@@ -1690,8 +1690,9 @@ static int __swmmu_check_dynamic_access_mm(struct mm_struct *mm,
 		if (vma->vm_swmmu_pt_range) {
 			if (!__swmmu_translate_mm(mm, address, chunk, &ret, write))
 				return ret ? ret : -EFAULT;
-		} else if (write ? !(vma->vm_flags & VM_WRITE) :
-			   !(vma->vm_flags & VM_READ)) {
+		} else if (READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON &&
+			   (write ? !(vma->vm_flags & VM_WRITE) :
+			    !(vma->vm_flags & VM_READ))) {
 			return -EACCES;
 		}
 
