@@ -64,7 +64,7 @@ static bool nommu_user_ip(unsigned long ip)
 	if (ip > uml_reserved && ip < high_physmem)
 		return true;
 #ifdef CONFIG_NOMMU_SWMMU
-	if (um_nommu_swmmu_address(ip) && ip < TASK_SIZE)
+	if (um_nommu_swmmu_address(ip) && ip < um_nommu_swmmu_user_end)
 		return true;
 #endif
 	return false;

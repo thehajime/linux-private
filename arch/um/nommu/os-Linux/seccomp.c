@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>   /* For SYS_xxx definitions */
 #include <init.h>
@@ -14,6 +15,47 @@
 #include <linux/seccomp.h>
 
 extern unsigned long task_size;
+
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_NOMMU_SWMMU)
+unsigned long um_nommu_swmmu_user_end;
+
+static int __init find_first_host_mapping(unsigned long *mapping_start)
+{
+	FILE *maps;
+	char line[512];
+	unsigned long start, end;
+
+	maps = fopen("/proc/self/maps", "r");
+	if (!maps) {
+		os_warn("cannot read /proc/self/maps (errno=%d)\n", errno);
+		return -errno;
+	}
+
+	while (fgets(line, sizeof(line), maps)) {
+		if (sscanf(line, "%lx-%lx", &start, &end) != 2)
+			continue;
+
+		if (end <= UM_NOMMU_SWMMU_VA_BASE)
+			continue;
+
+		*mapping_start = start > UM_NOMMU_SWMMU_VA_BASE ?
+			start : UM_NOMMU_SWMMU_VA_BASE;
+		fclose(maps);
+		return 0;
+	}
+
+	if (ferror(maps)) {
+		int err = errno ? -errno : -EIO;
+
+		fclose(maps);
+		return err;
+	}
+
+	fclose(maps);
+	*mapping_start = ~0UL;
+	return 0;
+}
+#endif
 
 static int __init os_install_seccomp_ip_filter(unsigned long userspace_start,
 					       unsigned long userspace_end)
@@ -78,6 +120,18 @@ int __init os_setup_seccomp(void)
 	unsigned long native_end = high_physmem;
 	unsigned long swmmu_start = UM_NOMMU_SWMMU_VA_BASE;
 	unsigned long swmmu_end = task_size;
+#ifdef CONFIG_NOMMU_SWMMU
+	unsigned long first_host_mapping;
+
+	err = find_first_host_mapping(&first_host_mapping);
+	if (err) {
+		os_warn("failed to determine first host mapping (err=%d)\n", err);
+		exit(1);
+	}
+	if (first_host_mapping < swmmu_end)
+		swmmu_end = first_host_mapping;
+	um_nommu_swmmu_user_end = swmmu_end;
+#endif
 #endif
 
 	err = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
@@ -119,6 +173,10 @@ int __init os_setup_seccomp(void)
 		native_start, native_end);
 	os_info("seccomp: setup SWMMU filter in the range: 0x%lx-0x%lx\n",
 		swmmu_start, swmmu_end);
+#ifdef CONFIG_NOMMU_SWMMU
+	os_info("seccomp: first host mapping starts at: 0x%lx; task_size=0x%lx\n",
+		first_host_mapping, task_size);
+#endif
 #endif
 
 	return 0;
