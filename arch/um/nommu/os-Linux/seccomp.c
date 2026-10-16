@@ -23,12 +23,12 @@ int __init os_setup_seccomp(void)
 		__userspace_end = high_physmem;
 #else
 	/*
-	 * NOMMU SWMMU mappings start at the shared user VA base and can
-	 * extend to the runtime task-size limit. Keep syscall interception
-	 * aligned with that actual address-space bound instead of a fixed
-	 * window that can exclude the interpreter or shared libraries.
+	 * Native NOMMU mappings live above uml_reserved, while SWMMU mappings
+	 * use a higher shared VA range. Cover both through task_size. The UML
+	 * host executable is below uml_reserved, and host libraries are above
+	 * task_size, so their syscalls remain outside this interval.
 	 */
-	unsigned long __userspace_start = 0x1000000000ULL,
+	unsigned long __userspace_start = uml_reserved,
 		__userspace_end = task_size;
 #endif
 	struct sock_filter filter[] = {
