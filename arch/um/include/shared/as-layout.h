@@ -32,6 +32,10 @@
 #include <linux/compiler_types.h>
 #include <sysdep/ptrace.h>
 
+#ifdef CONFIG_NOMMU_SWMMU
+#define UM_NOMMU_SWMMU_VA_BASE 0x1000000000ULL
+#endif
+
 struct task_struct;
 extern struct task_struct *cpu_tasks[];
 

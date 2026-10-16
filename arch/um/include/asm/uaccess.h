@@ -9,6 +9,7 @@
 
 #include <asm/elf.h>
 #include <linux/unaligned.h>
+#include <as-layout.h>
 #include <sysdep/faultinfo.h>
 
 #define __under_task_size(addr, size) \
@@ -64,8 +65,6 @@ do {									\
 #endif
 
 #ifdef CONFIG_NOMMU_SWMMU
-
-#define UM_NOMMU_SWMMU_VA_BASE	0x1000000000ULL
 
 extern int nommu_swmmu_copy_to_user(void __user *address,
 				    const void *source,
