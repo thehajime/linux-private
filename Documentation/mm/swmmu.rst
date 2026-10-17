@@ -167,6 +167,34 @@ Kirk Python rootfs has not identified a native-backed hot allocation class.
 Therefore this attribute is currently suitable for focused compiler tests,
 not for annotating CPython or musl pointers in a Kirk build.
 
+Experimental native automatic-storage lowering
+----------------------------------------------
+
+The plugin option ``-fplugin-arg-swmmu_plugin-native-stack=1`` treats direct
+accesses to automatic local variables, and pointers derived from their
+addresses, as native while retaining all-access helper lowering for other
+pointers. This reflects the current UML SAS execution stack and removes helper
+calls for compiler-visible local scalar, array, and aggregate storage. GIMPLE
+lifetime ``CLOBBER`` markers are metadata and are left unchanged rather than
+lowered to an aggregate helper call.
+
+This option is experimental and must be measured on the target application.
+It does not prove that allocator results, Python objects, globals, TLS, escaped
+unknown pointers, or a VMA selected only from its address are native. Those
+accesses continue to use helpers. It also does not cover stack accesses added
+after GIMPLE lowering, including target stack-clash probes. Guest runtime tests
+must cover process creation and stack switching before enabling it as a general
+userspace profile.
+
+The focused compiler check is:
+
+.. code-block:: sh
+
+   make -C scripts/gcc-plugins/tests \
+           PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           OUTPUT="$PWD/build-kselftest/plugin-tests" \
+           all-access-native-stack
+
 Testing
 -------
 

@@ -73,6 +73,30 @@ swmmu_all_access_explicit_swmmu_load(swmmu_u64_ptr pointer)
 	return *pointer;
 }
 
+struct swmmu_all_access_stack_record {
+	volatile uint64_t value;
+};
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_native_stack_record(uint64_t value)
+{
+	struct swmmu_all_access_stack_record local;
+
+	local.value = value;
+	return local.value;
+}
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_native_stack_array(uint64_t value)
+{
+	volatile uint64_t local[2];
+
+	local[1] = value;
+	return local[1];
+}
+
 struct swmmu_all_access_record {
 	uint64_t value;
 };

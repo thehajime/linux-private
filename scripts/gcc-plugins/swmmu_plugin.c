@@ -60,6 +60,7 @@ int plugin_is_GPL_compatible;
 
 static bool swmmu_all_access;
 static bool swmmu_return_value_load;
+static bool swmmu_native_stack;
 static std::vector<std::string> swmmu_excluded_functions;
 
 enum swmmu_pointer_state {
@@ -456,6 +457,18 @@ is_swmmu_native_pointer_type(tree type)
 }
 
 static bool
+is_swmmu_native_stack_decl(tree expr)
+{
+	return swmmu_native_stack &&
+	       expr &&
+	       TREE_CODE(expr) == VAR_DECL &&
+	       !TREE_STATIC(expr) &&
+	       !DECL_EXTERNAL(expr) &&
+	       DECL_CONTEXT(expr) &&
+	       TREE_CODE(DECL_CONTEXT(expr)) == FUNCTION_DECL;
+}
+
+static bool
 is_swmmu_provenance_lvalue(tree expr)
 {
 	tree address;
@@ -655,6 +668,12 @@ swmmu_pointer_state_of(
 		return SWMMU_POINTER_NATIVE;
 
 	switch (TREE_CODE(expr)) {
+	case ADDR_EXPR:
+		if (is_swmmu_native_stack_decl(TREE_OPERAND(expr, 0)))
+			return SWMMU_POINTER_NATIVE;
+		return swmmu_pointer_state_of(TREE_OPERAND(expr, 0),
+					      states);
+
 	case POINTER_PLUS_EXPR:
 	case PLUS_EXPR:
 	case MINUS_EXPR:
@@ -701,6 +720,9 @@ swmmu_lvalue_state(
 {
 	tree address;
 
+	if (is_swmmu_native_stack_decl(expr))
+		return SWMMU_POINTER_NATIVE;
+
 	if (!is_swmmu_lvalue(expr))
 		return SWMMU_POINTER_ORDINARY;
 
@@ -716,8 +738,9 @@ swmmu_lvalue_state(
 					  states);
 
 	case ARRAY_REF:
-		return swmmu_pointer_state_of(TREE_OPERAND(expr, 0),
-					      states);
+		if (is_swmmu_native_stack_decl(TREE_OPERAND(expr, 0)))
+			return SWMMU_POINTER_NATIVE;
+		return swmmu_pointer_state_of(TREE_OPERAND(expr, 0), states);
 
 	default:
 		if (is_swmmu_provenance_lvalue(expr))
@@ -1853,7 +1876,8 @@ rewrite_store(gimple_stmt_iterator *gsi,
 
 static bool
 rewrite_aggregate_zero(gimple_stmt_iterator *gsi,
-		       gassign *stmt)
+		       gassign *stmt,
+		       hash_map<tree, enum swmmu_pointer_state> &states)
 {
 	tree lhs;
 	tree rhs;
@@ -1870,6 +1894,10 @@ rewrite_aggregate_zero(gimple_stmt_iterator *gsi,
 
 	lhs = gimple_assign_lhs(stmt);
 	rhs = gimple_assign_rhs1(stmt);
+	if (TREE_CLOBBER_P(rhs))
+		return false;
+	if (swmmu_lvalue_state(lhs, states) == SWMMU_POINTER_NATIVE)
+		return false;
 
 	if (!lhs || !rhs ||
 	    !TREE_TYPE(lhs) ||
@@ -1917,7 +1945,8 @@ static bool
 rewrite_aggregate_copy(
 	gimple_stmt_iterator *gsi,
 	gassign *stmt,
-	tree runtime_decl)
+	tree runtime_decl,
+	hash_map<tree, enum swmmu_pointer_state> &states)
 {
 	tree destination;
 	tree source;
@@ -1930,6 +1959,11 @@ rewrite_aggregate_copy(
 
 	destination = gimple_assign_lhs(stmt);
 	source = gimple_assign_rhs1(stmt);
+	if (TREE_CLOBBER_P(source))
+		return false;
+	if (swmmu_lvalue_state(destination, states) == SWMMU_POINTER_NATIVE &&
+	    swmmu_lvalue_state(source, states) == SWMMU_POINTER_NATIVE)
+		return false;
 	type = TREE_TYPE(destination);
 
 	if (!AGGREGATE_TYPE_P(type))
@@ -2236,7 +2270,7 @@ swmmu_transform_function(function *fn)
 			}
 
 			if (svm_function &&
-				rewrite_aggregate_zero(&gsi, stmt)) {
+				rewrite_aggregate_zero(&gsi, stmt, states)) {
 				gsi_next(&gsi);
 				continue;
 			}
@@ -2253,7 +2287,7 @@ swmmu_transform_function(function *fn)
 						"SWMMU aggregate-copy runtime "
 						"declaration is missing");
 				} else if (rewrite_aggregate_copy(
-						&gsi, stmt, runtime_decl)) {
+						&gsi, stmt, runtime_decl, states)) {
 					gsi_next(&gsi);
 					continue;
 				}
@@ -2484,6 +2518,11 @@ plugin_init(struct plugin_name_args *plugin_info,
 
 		if (!strcmp(key, "return-value-load")) {
 			swmmu_return_value_load = true;
+			continue;
+		}
+
+		if (!strcmp(key, "native-stack")) {
+			swmmu_native_stack = true;
 			continue;
 		}
 

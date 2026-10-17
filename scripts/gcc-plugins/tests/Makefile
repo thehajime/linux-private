@@ -29,10 +29,12 @@ UNKNOWN_ASM := $(DUMP_DIR_ABS)/swmmu_provenance_unknown.s
 ALL_ACCESS_SOURCE := $(TEST_DIR)/swmmu_all_access.c
 ALL_ACCESS_ASM := $(OUTPUT)/swmmu_all_access.s
 ALL_ACCESS_RETURN_ASM := $(OUTPUT)/swmmu_all_access_return_value.s
+ALL_ACCESS_NATIVE_STACK_ASM := $(OUTPUT)/swmmu_all_access_native_stack.s
 
 
 .PHONY: all test compile dump dump-unknown-boundary clean all-access
 .PHONY: all-access-return-value
+.PHONY: all-access-native-stack
 .PHONY: $(filter test-negative%,$(MAKECMDGOALS))
 
 define check_swmmu_asm
@@ -344,6 +346,34 @@ all-access: $(ALL_ACCESS_ASM)
 		{ echo "error: native field pointee was not loaded directly"; exit 1; }
 	@echo "ok: SWMMU field fetch uses a helper and native pointee load is direct"
 	@echo "ok: SWMMU all-access baseline lowering"
+
+$(ALL_ACCESS_NATIVE_STACK_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-stack=1 \
+		-S -c $(ALL_ACCESS_SOURCE) \
+		-o $(ALL_ACCESS_NATIVE_STACK_ASM)
+
+all-access-native-stack: $(ALL_ACCESS_NATIVE_STACK_ASM)
+	@set -eu; \
+	for fn in swmmu_all_access_native_stack_record \
+		swmmu_all_access_native_stack_array; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$(ALL_ACCESS_NATIVE_STACK_ASM)"); \
+		test -n "$$body" || { echo "error: $$fn not found"; exit 1; }; \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_' && { \
+			echo "error: $$fn used a helper"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn uses native automatic storage"; \
+	done
+	@grep -A10 'swmmu_all_access_load:' $(ALL_ACCESS_NATIVE_STACK_ASM) \
+		| grep -q 'nommu_swmmu_load_dynamic' || \
+		{ echo "error: pointer load bypassed the helper"; exit 1; }
+	@echo "ok: native-stack preserves helper fallback for pointers"
 
 $(ALL_ACCESS_RETURN_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
 	@mkdir -p $(OUTPUT)
