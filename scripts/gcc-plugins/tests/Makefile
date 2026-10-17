@@ -35,6 +35,7 @@ ALL_ACCESS_NATIVE_STACK_ASM := $(OUTPUT)/swmmu_all_access_native_stack.s
 .PHONY: all test compile dump dump-unknown-boundary clean all-access
 .PHONY: all-access-return-value
 .PHONY: all-access-native-stack
+.PHONY: all-access-native-allocator-results
 .PHONY: $(filter test-negative%,$(MAKECMDGOALS))
 
 define check_swmmu_asm
@@ -374,6 +375,44 @@ all-access-native-stack: $(ALL_ACCESS_NATIVE_STACK_ASM)
 		| grep -q 'nommu_swmmu_load_dynamic' || \
 		{ echo "error: pointer load bypassed the helper"; exit 1; }
 	@echo "ok: native-stack preserves helper fallback for pointers"
+
+$(OUTPUT)/swmmu_all_access_native_allocator_results.s: $(TEST_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-allocator-results=1 \
+		-fplugin-arg-swmmu_plugin-native-allocator-function=cpython_native_allocator \
+		-fplugin-arg-swmmu_plugin-native-reallocator-function=cpython_native_reallocator \
+		-S -c $(TEST_SOURCE) -o $@
+
+all-access-native-allocator-results: $(OUTPUT)/swmmu_all_access_native_allocator_results.s
+	@set -eu; \
+	for fn in load_from_malloc store_to_malloc load_from_calloc load_from_realloc \
+		load_from_contract_malloc load_from_contract_malloc_alias \
+		store_to_contract_malloc load_from_cpython_native_allocator \
+		load_from_cpython_native_reallocator; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$<"); \
+		test -n "$$body" || { echo "error: $$fn not found"; exit 1; }; \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_' && { \
+			echo "error: $$fn did not use native allocator provenance"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn uses native allocator provenance"; \
+	done; \
+	for fn in dynamic_or_ordinary_load load_from_realloc_swmmu load_from_realloc_ordinary \
+		load_from_cpython_native_reallocator_unknown; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$<"); \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_load_dynamic' || { \
+			echo "error: $$fn lost its dynamic helper fallback"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn retains dynamic helper fallback"; \
+	done
 
 $(ALL_ACCESS_RETURN_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
 	@mkdir -p $(OUTPUT)

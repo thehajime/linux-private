@@ -61,7 +61,10 @@ int plugin_is_GPL_compatible;
 static bool swmmu_all_access;
 static bool swmmu_return_value_load;
 static bool swmmu_native_stack;
+static bool swmmu_native_allocator_results;
 static std::vector<std::string> swmmu_excluded_functions;
+static std::vector<std::string> swmmu_native_allocator_functions;
+static std::vector<std::string> swmmu_native_reallocator_functions;
 
 enum swmmu_pointer_state {
 	SWMMU_POINTER_ORDINARY,
@@ -539,15 +542,80 @@ is_swmmu_reallocator(tree fndecl)
 
 	function_name = IDENTIFIER_POINTER(name);
 
-	return !strcmp(function_name, "realloc") ||
-	       !strcmp(function_name, "__builtin_realloc");
+	if (!strcmp(function_name, "realloc") ||
+	    !strcmp(function_name, "__builtin_realloc"))
+		return true;
+	for (const std::string &reallocator :
+	     swmmu_native_reallocator_functions) {
+		if (reallocator == function_name)
+			return true;
+	}
+	return false;
 }
 
 static bool
 is_swmmu_allocator_function(tree fndecl)
 {
-	return is_swmmu_allocator_result(fndecl) ||
-	       is_swmmu_standard_allocator(fndecl);
+	tree name;
+	const char *function_name;
+
+	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
+		return false;
+
+	if (is_swmmu_allocator_result(fndecl) ||
+	    is_swmmu_standard_allocator(fndecl))
+		return true;
+
+	name = DECL_NAME(fndecl);
+	if (!name)
+		return false;
+
+	function_name = IDENTIFIER_POINTER(name);
+	for (const std::string &allocator :
+	     swmmu_native_allocator_functions) {
+		if (allocator == function_name)
+			return true;
+	}
+	for (const std::string &allocator :
+	     swmmu_native_reallocator_functions) {
+		if (allocator == function_name)
+			return true;
+	}
+
+	return false;
+}
+
+static bool
+is_swmmu_native_allocator_function(tree fndecl)
+{
+	tree name;
+	const char *function_name;
+
+	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
+		return false;
+
+	if (swmmu_native_allocator_results &&
+	    (is_swmmu_allocator_result(fndecl) ||
+	     is_swmmu_standard_allocator(fndecl)))
+		return true;
+
+	name = DECL_NAME(fndecl);
+	if (!name)
+		return false;
+
+	function_name = IDENTIFIER_POINTER(name);
+	for (const std::string &allocator :
+	     swmmu_native_allocator_functions) {
+		if (allocator == function_name)
+			return true;
+	}
+	for (const std::string &allocator :
+	     swmmu_native_reallocator_functions) {
+		if (allocator == function_name)
+			return true;
+	}
+
+	return false;
 }
 
 static bool
@@ -794,8 +862,21 @@ swmmu_record_pointer_call(
 
 	state = swmmu_pointer_state_from_type(TREE_TYPE(lhs));
 
-	if (is_swmmu_allocator_function(fndecl))
+	if (is_swmmu_allocator_function(fndecl)) {
 		state = SWMMU_POINTER_DYNAMIC;
+
+		/*
+		 * This opt-in is a caller promise that allocator results in the
+		 * selected build/runtime profile are native mappings. Keep realloc
+		 * conservative unless its input already has native provenance.
+		 */
+		if (is_swmmu_native_allocator_function(fndecl) &&
+		    (!is_swmmu_reallocator(fndecl) ||
+		     (gimple_call_num_args(call) &&
+		      swmmu_pointer_state_of(gimple_call_arg(call, 0), states) ==
+				SWMMU_POINTER_NATIVE)))
+			state = SWMMU_POINTER_NATIVE;
+	}
 	else if (state == SWMMU_POINTER_ORDINARY &&
 		 swmmu_context)
 		state = SWMMU_POINTER_UNKNOWN;
@@ -2523,6 +2604,33 @@ plugin_init(struct plugin_name_args *plugin_info,
 
 		if (!strcmp(key, "native-stack")) {
 			swmmu_native_stack = true;
+			continue;
+		}
+
+		if (!strcmp(key, "native-allocator-results")) {
+			swmmu_native_allocator_results = true;
+			continue;
+		}
+
+		if (!strcmp(key, "native-allocator-function")) {
+			if (!value || !*value) {
+				error_at(UNKNOWN_LOCATION,
+					"swmmu native-allocator-function requires a value");
+				return 1;
+			}
+
+			swmmu_native_allocator_functions.emplace_back(value);
+			continue;
+		}
+
+		if (!strcmp(key, "native-reallocator-function")) {
+			if (!value || !*value) {
+				error_at(UNKNOWN_LOCATION,
+					"swmmu native-reallocator-function requires a value");
+				return 1;
+			}
+
+			swmmu_native_reallocator_functions.emplace_back(value);
 			continue;
 		}
 

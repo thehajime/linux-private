@@ -162,10 +162,56 @@ VMA. Applying it to a pointer whose target can be an SWMMU mapping can bypass
 SWMMU translation and fault or corrupt memory. A valid contract must cover the
 target mapping's full lifetime, including allocator reuse, remapping, process
 fork behavior, and calls across library boundaries. The kernel currently has
-no userspace ABI to establish or maintain that native-VMA guarantee, and the
-Kirk Python rootfs has not identified a native-backed hot allocation class.
-Therefore this attribute is currently suitable for focused compiler tests,
-not for annotating CPython or musl pointers in a Kirk build.
+no userspace ABI to establish or maintain that native-VMA guarantee. A live
+Kirk map snapshot showed that all VMAs in the tested default-off profile were
+below the SWMMU range, but the default-on profile uses SWMMU mappings. This
+snapshot is evidence for a profile-specific experiment, not a general CPython
+or musl pointer contract.
+
+Experimental allocator-result provenance
+-----------------------------------------
+
+The all-access plugin has opt-in allocator provenance controls for a build
+whose runtime guarantees that selected allocator results always refer to
+ordinary native mappings:
+
+``-fplugin-arg-swmmu_plugin-native-allocator-results=1``
+   Treat results from ``malloc``, ``calloc``, ``realloc`` (only when its input
+   is already native), and declarations carrying ``swmmu_allocator_result`` as
+   native.
+
+``-fplugin-arg-swmmu_plugin-native-allocator-function=NAME``
+   Treat a call returning a pointer from the named function as native. Pass the
+   option once for each allocator function. This is intended for application
+   allocators such as CPython's ``PyObject_Malloc`` when the selected runtime
+   profile proves their returned arenas are native.
+
+``-fplugin-arg-swmmu_plugin-native-reallocator-function=NAME``
+   Treat a call to the named realloc function as native only when its input
+   pointer already has native provenance. This keeps unknown or SWMMU inputs
+   on the helper path.
+
+The plugin propagates this state through pointer aliases. A merge with an
+ordinary, SWMMU, or otherwise dynamic pointer keeps conservative helper
+lowering. These options are assertions made by the build profile; the compiler
+does not inspect mappings or check the allocator implementation. They are
+unsafe when an allocator can return an SWMMU mapping, including a default-on
+SWMMU heap, or when an allocator can be replaced with an implementation that
+returns a different mapping class. Validate the complete allocator family,
+including reallocations, custom hooks, mapping changes and fork behavior, for
+each runtime profile before use.
+
+The focused compiler check is:
+
+.. code-block:: sh
+
+   make -C scripts/gcc-plugins/tests \
+           PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           OUTPUT="$PWD/build-kselftest/plugin-tests" \
+           all-access-native-allocator-results
+
+This only checks generated code and conservative fallback paths. Guest tests
+must verify the allocator's actual mapping class and process behavior.
 
 Experimental native automatic-storage lowering
 ----------------------------------------------

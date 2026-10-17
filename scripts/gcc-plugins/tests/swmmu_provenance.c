@@ -244,6 +244,37 @@ uint64_t load_from_contract_malloc_alias(void)
 }
 
 extern uint64_t *ordinary_pointer(void);
+extern uint64_t *cpython_native_allocator(size_t size);
+extern uint64_t *cpython_native_reallocator(uint64_t *pointer, size_t size);
+
+__attribute__((noinline))
+uint64_t load_from_cpython_native_allocator(void)
+{
+	uint64_t *pointer;
+
+	pointer = cpython_native_allocator(sizeof(*pointer));
+	return *pointer;
+}
+
+__attribute__((noinline))
+uint64_t load_from_cpython_native_reallocator(void)
+{
+	uint64_t *pointer;
+
+	pointer = cpython_native_allocator(sizeof(*pointer));
+	pointer = cpython_native_reallocator(pointer, sizeof(*pointer));
+	return *pointer;
+}
+
+__attribute__((noinline))
+uint64_t load_from_cpython_native_reallocator_unknown(void)
+{
+	uint64_t *pointer;
+
+	pointer = ordinary_pointer();
+	pointer = cpython_native_reallocator(pointer, sizeof(*pointer));
+	return *pointer;
+}
 
 __attribute__((noinline))
 uint64_t dynamic_or_ordinary_load(swmmu_u64_ptr context,
@@ -285,12 +316,13 @@ uint64_t load_from_malloc(void)
 }
 
 __attribute__((noinline))
-void store_to_malloc(uint64_t value)
+uint64_t store_to_malloc(uint64_t value)
 {
 	uint64_t *pointer;
 
 	pointer = malloc(sizeof(*pointer));
 	*pointer = value;
+	return *pointer;
 }
 
 __attribute__((noinline))
