@@ -2575,11 +2575,25 @@ static void swmmu_expand_commit(struct vm_area_struct *vma,
 {
 	struct swmmu_pagetable_tx *tx = state;
 	struct nommu_swmmu_space *space;
+	struct swmmu_pagetable_range *range;
+	bool alias_was_mapped;
 
 	if (!tx)
 		return;
 
 	space = vma->vm_mm->swmmu_space;
+	range = tx->source;
+	alias_was_mapped = range->host_mapped;
+	if (alias_was_mapped) {
+		/*
+		 * Resize replaces every backing page. Drop the old host aliases
+		 * before committing the new page table, and invalidate the active
+		 * mm so it remaps the resized VMA before returning to userspace.
+		 */
+		swmmu_host_unmap_range(space, range);
+		WRITE_ONCE(space->host_generation,
+			   READ_ONCE(space->host_generation) + 1);
+	}
 
 	swmmu_resize_commit(space, tx);
 	kfree(tx);
