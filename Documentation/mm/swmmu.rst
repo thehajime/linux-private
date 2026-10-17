@@ -285,6 +285,10 @@ interfaces.
 The cross-build, rootfs staging, and guest run commands are documented in
 ``Documentation/mm/swmmu-kselftest-build.rst``.
 
+For the full compiler plugin option and attribute reference, including
+``all-access`` and experimental native-access options, see
+``Documentation/mm/swmmu-gcc-plugin.rst``.
+
 Run the resulting UML kernel with a root filesystem containing the installed
 tests. For example, when the root filesystem is at ``rootfs``:
 

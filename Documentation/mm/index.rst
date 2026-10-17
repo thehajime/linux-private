@@ -73,6 +73,7 @@ documentation, or deleted if it has served its purpose.
    remap_file_pages
    split_page_table_lock
    swmmu
+   swmmu-gcc-plugin
    transhuge
    unevictable-lru
    vmalloced-kernel-stacks
