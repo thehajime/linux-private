@@ -10,13 +10,16 @@ Host and guest shared-memory capacity
 =====================================
 
 LTP tests such as ``fallocate06`` can allocate large files through UML hostfs.
-The host container's ``/dev/shm`` backs those operations; a 1 GiB host tmpfs
-caused a ``Bus error`` in ``fallocate06`` in the tested setup. An 8 GiB host
-``/dev/shm`` passed that case and reached about 1.2 GiB used. Size the host
-container tmpfs accordingly, and leave enough space in the host ``/tmp`` and
-overlay tmpfs as well. This is separate from the guest's ``/dev/shm`` mount,
-which should be mounted by the guest init with ``exec`` enabled for tests that
-execute files there.
+The host container's ``/dev/shm`` backs those operations; an earlier 1 GiB host
+tmpfs attempt caused a ``Bus error`` in ``fallocate06``. Use an 8 GiB host
+``/dev/shm`` as the current test baseline, and leave enough space in the host
+``/tmp`` and overlay tmpfs as well. In the latest isolated run with the matching
+loop module, ``fallocate06`` completed in 3.46 seconds without a bus error, but
+Kirk reported the test as skipped (return code 0); this does not establish a
+passing capacity result. Record the exact test outcome and reason for each run.
+This host mount is separate from the guest's ``/dev/shm`` mount, which should be
+mounted by the guest init with ``exec`` enabled for tests that execute files
+there.
 
 For example, the Docker options used for the host container were::
 
