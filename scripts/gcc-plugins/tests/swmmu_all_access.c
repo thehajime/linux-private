@@ -3,6 +3,9 @@
 
 #include "swmmu_test_runtime.h"
 
+typedef uint64_t * __attribute__((swmmu_native_ptr)) native_u64_ptr;
+typedef uint64_t * __attribute__((swmmu_ptr)) swmmu_u64_ptr;
+
 __attribute__((noinline))
 uint64_t
 swmmu_all_access_load(const uint64_t *pointer)
@@ -15,6 +18,59 @@ void
 swmmu_all_access_store(uint64_t *pointer, uint64_t value)
 {
 	*pointer = value;
+}
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_native_load(native_u64_ptr pointer)
+{
+	return *pointer;
+}
+
+__attribute__((noinline, noipa, used))
+void
+swmmu_all_access_native_store(native_u64_ptr pointer, uint64_t value)
+{
+	*pointer = value;
+}
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_native_alias_load(native_u64_ptr pointer, size_t index)
+{
+	native_u64_ptr alias = pointer;
+
+	return alias[index];
+}
+
+struct swmmu_all_access_native_holder {
+	native_u64_ptr pointer;
+};
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_native_field_load(
+	const struct swmmu_all_access_native_holder *holder)
+{
+	return *holder->pointer;
+}
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_native_mixed_phi(native_u64_ptr native,
+				  uint64_t *unknown,
+				  int condition)
+{
+	uint64_t *selected = condition ? (uint64_t *)native : unknown;
+
+	return *selected;
+}
+
+__attribute__((noinline, noipa, used))
+uint64_t
+swmmu_all_access_explicit_swmmu_load(swmmu_u64_ptr pointer)
+{
+	return *pointer;
 }
 
 struct swmmu_all_access_record {

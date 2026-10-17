@@ -137,6 +137,36 @@ that information current across ``mmap()``, ``mprotect()``, ``munmap()``,
 ``mremap()``, and address-space switches; the current kernel exposes no such
 ABI. KUnit coverage checks the eligibility predicate and its boundaries.
 
+Explicit native-pointer compiler contract
+-----------------------------------------
+
+The SWMMU GCC plugin accepts the type attribute ``swmmu_native_ptr`` as an
+explicit assertion that a pointer always refers to memory directly accessible
+by ordinary userspace loads and stores. Under all-access instrumentation, a
+dereference through this pointer type is emitted as a native instruction;
+ordinary pointers and SWMMU pointers continue to use SWMMU helpers. Pointer
+aliases and pointer arithmetic preserve the assertion, while a control-flow
+merge with a pointer of a different state falls back to a helper. Loading a
+native pointer value from a SWMMU structure still reads that field through a
+helper and can use the native contract for the pointee; global pointer loads
+currently remain conservatively dynamic.
+
+For example, a userspace build can declare a trusted pointer type as:
+
+.. code-block:: c
+
+   typedef void * __attribute__((swmmu_native_ptr)) native_ptr;
+
+The attribute is a caller-supplied promise, not a check of the address or its
+VMA. Applying it to a pointer whose target can be an SWMMU mapping can bypass
+SWMMU translation and fault or corrupt memory. A valid contract must cover the
+target mapping's full lifetime, including allocator reuse, remapping, process
+fork behavior, and calls across library boundaries. The kernel currently has
+no userspace ABI to establish or maintain that native-VMA guarantee, and the
+Kirk Python rootfs has not identified a native-backed hot allocation class.
+Therefore this attribute is currently suitable for focused compiler tests,
+not for annotating CPython or musl pointers in a Kirk build.
+
 Testing
 -------
 

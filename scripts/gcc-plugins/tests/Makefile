@@ -253,6 +253,19 @@ $(ALL_ACCESS_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
 		-o $(ALL_ACCESS_ASM)
 
 all-access: $(ALL_ACCESS_ASM)
+	@set -eu; \
+	for fn in swmmu_all_access_native_load swmmu_all_access_native_store \
+		swmmu_all_access_native_alias_load; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$(ALL_ACCESS_ASM)"); \
+		test -n "$$body" || { echo "error: $$fn not found"; exit 1; }; \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_' && { \
+			echo "error: $$fn native contract used a helper"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn honors the explicit native-pointer contract"; \
+	done
 	@grep -A8 'swmmu_all_access_load:' $(ALL_ACCESS_ASM) \
 		| grep -q 'nommu_swmmu_load_dynamic' || \
 		{ echo "error: all-access load was not lowered"; exit 1; }
@@ -315,6 +328,21 @@ all-access: $(ALL_ACCESS_ASM)
 	$(call check_swmmu_asm,swmmu_const_hack_asm_store,nommu_swmmu_store_dynamic,const-hack asm store was not lowered)
 	$(call check_swmmu_asm,swmmu_set_global_pointer,nommu_swmmu_store_dynamic,global pointer initialization was not lowered)
 	$(call check_swmmu_asm,swmmu_load_global_pointer_value,nommu_swmmu_load_dynamic,global pointer dereference was not lowered)
+	@grep -A10 'swmmu_all_access_explicit_swmmu_load:' $(ALL_ACCESS_ASM) \
+		| grep -q 'nommu_swmmu_load_dynamic' || \
+		{ echo "error: explicit SWMMU pointer did not use a helper"; exit 1; }
+	@grep -A24 'swmmu_all_access_native_mixed_phi:' $(ALL_ACCESS_ASM) \
+		| grep -q 'nommu_swmmu_load_dynamic' || \
+		{ echo "error: mixed native/unknown phi bypassed the helper"; exit 1; }
+	@awk '/^swmmu_all_access_native_field_load:/{in_fn=1} \
+		in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]+swmmu_all_access_native_field_load,/{exit} \
+		in_fn{print}' $(ALL_ACCESS_ASM) > $(OUTPUT)/native-field.s
+	@test "$$(grep -c 'nommu_swmmu_load_dynamic' $(OUTPUT)/native-field.s)" -eq 1 || \
+		{ echo "error: native field load did not retain exactly one helper"; exit 1; }
+	@grep -Eq 'mov[qwl][[:space:]]+\([^)]*\),[[:space:]]*%[a-z0-9]+' \
+		$(OUTPUT)/native-field.s || \
+		{ echo "error: native field pointee was not loaded directly"; exit 1; }
+	@echo "ok: SWMMU field fetch uses a helper and native pointee load is direct"
 	@echo "ok: SWMMU all-access baseline lowering"
 
 $(ALL_ACCESS_RETURN_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)

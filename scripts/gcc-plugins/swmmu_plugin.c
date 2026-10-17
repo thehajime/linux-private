@@ -65,6 +65,7 @@ static std::vector<std::string> swmmu_excluded_functions;
 enum swmmu_pointer_state {
 	SWMMU_POINTER_ORDINARY,
 	SWMMU_POINTER_SWMMU,
+	SWMMU_POINTER_NATIVE,
 	SWMMU_POINTER_DYNAMIC,
 	SWMMU_POINTER_UNKNOWN,
 	SWMMU_POINTER_TLS,
@@ -294,6 +295,23 @@ handle_swmmu_memop_attribute(tree *node,
 }
 
 static tree
+handle_swmmu_native_ptr_attribute(tree *node,
+				  tree name ATTRIBUTE_UNUSED,
+				  tree args ATTRIBUTE_UNUSED,
+				  int flags ATTRIBUTE_UNUSED,
+				  bool *no_add_attrs)
+{
+	if (!POINTER_TYPE_P(*node)) {
+		*no_add_attrs = true;
+		warning(OPT_Wattributes,
+			"%qE attribute only applies to pointer types",
+			get_identifier("swmmu_native_ptr"));
+	}
+
+	return NULL_TREE;
+}
+
+static tree
 handle_swmmu_allocator_result_attribute(
 	tree *node,
 	tree name ATTRIBUTE_UNUSED,
@@ -364,6 +382,18 @@ register_swmmu_attributes(void *, void *)
 		.exclude = nullptr,
 	};
 
+	static const attribute_spec swmmu_native_ptr_attribute = {
+		.name = "swmmu_native_ptr",
+		.min_length = 0,
+		.max_length = 0,
+		.decl_required = false,
+		.type_required = true,
+		.function_type_required = false,
+		.affects_type_identity = true,
+		.handler = handle_swmmu_native_ptr_attribute,
+		.exclude = nullptr,
+	};
+
 	static const attribute_spec swmmu_allocator_result_attribute = {
 		.name = "swmmu_allocator_result",
 		.min_length = 0,
@@ -378,6 +408,7 @@ register_swmmu_attributes(void *, void *)
 
 	register_attribute(&swmmu_attribute);
 	register_attribute(&swmmu_ptr_attribute);
+	register_attribute(&swmmu_native_ptr_attribute);
 	register_attribute(&swmmu_memop_attribute);
 	register_attribute(&swmmu_allocator_result_attribute);
 }
@@ -412,6 +443,15 @@ is_swmmu_pointer_type(tree type)
 	return type &&
 	       POINTER_TYPE_P(type) &&
 	       lookup_attribute("swmmu_ptr",
+				TYPE_ATTRIBUTES(type)) != NULL_TREE;
+}
+
+static bool
+is_swmmu_native_pointer_type(tree type)
+{
+	return type &&
+	       POINTER_TYPE_P(type) &&
+	       lookup_attribute("swmmu_native_ptr",
 				TYPE_ATTRIBUTES(type)) != NULL_TREE;
 }
 
@@ -534,6 +574,8 @@ swmmu_pointer_state_from_type(tree type)
 {
 	if (is_swmmu_pointer_type(type))
 		return SWMMU_POINTER_SWMMU;
+	if (is_swmmu_native_pointer_type(type))
+		return SWMMU_POINTER_NATIVE;
 
 	return SWMMU_POINTER_ORDINARY;
 }
@@ -609,6 +651,8 @@ swmmu_pointer_state_of(
 
 	if (is_swmmu_pointer_type(TREE_TYPE(expr)))
 		return SWMMU_POINTER_SWMMU;
+	if (is_swmmu_native_pointer_type(TREE_TYPE(expr)))
+		return SWMMU_POINTER_NATIVE;
 
 	switch (TREE_CODE(expr)) {
 	case POINTER_PLUS_EXPR:
@@ -700,7 +744,8 @@ swmmu_seed_pointer_states(
 		if (!type || !POINTER_TYPE_P(type))
 			continue;
 
-		state = function_marked ?
+		state = function_marked &&
+			!is_swmmu_native_pointer_type(type) ?
 			SWMMU_POINTER_SWMMU :
 			swmmu_pointer_state_from_type(type);
 
@@ -2252,7 +2297,8 @@ swmmu_transform_function(function *fn)
 			rhs_state = swmmu_lvalue_state(rhs, states);
 			lhs_state = swmmu_lvalue_state(lhs, states);
 
-			if (svm_function) {
+			if (svm_function &&
+			    rhs_state != SWMMU_POINTER_NATIVE) {
 				tree runtime_decl;
 
 				runtime_decl = swmmu_dynamic_runtime_decl(false);
@@ -2262,11 +2308,13 @@ swmmu_transform_function(function *fn)
 				} else {
 					rewrite_load(&gsi, stmt, runtime_decl);
 				}
-			} else if (rhs_state == SWMMU_POINTER_UNKNOWN) {
+			} else if (!svm_function &&
+				   rhs_state == SWMMU_POINTER_UNKNOWN) {
 				error_at(gimple_location(stmt),
 					"SWMMU pointer state is unknown at dereference");
-			} else if (rhs_state == SWMMU_POINTER_DYNAMIC ||
-				rhs_state == SWMMU_POINTER_SWMMU) {
+			} else if (!svm_function &&
+				   (rhs_state == SWMMU_POINTER_DYNAMIC ||
+				    rhs_state == SWMMU_POINTER_SWMMU)) {
 				tree runtime_decl;
 
 				runtime_decl = svm_function ?
@@ -2280,7 +2328,8 @@ swmmu_transform_function(function *fn)
 				}
 			}
 
-			if (svm_function) {
+			if (svm_function &&
+			    lhs_state != SWMMU_POINTER_NATIVE) {
 				tree runtime_decl;
 
 				runtime_decl = swmmu_dynamic_runtime_decl(true);
@@ -2290,11 +2339,13 @@ swmmu_transform_function(function *fn)
 				} else {
 					rewrite_store(&gsi, stmt, runtime_decl);
 				}
-			} else if (lhs_state == SWMMU_POINTER_UNKNOWN) {
+			} else if (!svm_function &&
+				   lhs_state == SWMMU_POINTER_UNKNOWN) {
 				error_at(gimple_location(stmt),
 					"SWMMU pointer state is unknown at dereference");
-			} else if (lhs_state == SWMMU_POINTER_DYNAMIC ||
-				lhs_state == SWMMU_POINTER_SWMMU) {
+			} else if (!svm_function &&
+				   (lhs_state == SWMMU_POINTER_DYNAMIC ||
+				    lhs_state == SWMMU_POINTER_SWMMU)) {
 				tree runtime_decl;
 
 				runtime_decl = svm_function ?
