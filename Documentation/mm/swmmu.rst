@@ -282,11 +282,9 @@ instruction so data values in the errno range are preserved. This option
 changes scalar loads only; stores and bulk memory helpers retain their existing
 interfaces.
 
-The cross-build, rootfs staging, and guest run commands are documented in
+The Codex Cloud setup, cross-build, rootfs staging, guest run, KUnit, kselftest,
+LTP, and GDB commands are documented together in
 ``Documentation/mm/swmmu-kselftest-build.rst``.
-
-For local SAS LTP runs, including host ``/dev/shm`` capacity, SWMMU coreutils,
-and matching UML module staging, see ``Documentation/mm/swmmu-ltp.rst``.
 
 For the full compiler plugin option and attribute reference, including
 ``all-access`` and experimental native-access options, see
