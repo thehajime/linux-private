@@ -4268,7 +4268,8 @@ static int run_isolated_test(swmmu_test_fn test, const char *name)
 			close(nullfd);
 		}
 		result = test();
-		_exit(result == KSFT_PASS ? 0 : 1);
+		_exit(result == KSFT_PASS ? 0 :
+		      result == KSFT_SKIP ? KSFT_SKIP : KSFT_FAIL);
 	}
 
 	if (waitpid(pid, &status, 0) != pid) {
@@ -4280,6 +4281,10 @@ static int run_isolated_test(swmmu_test_fn test, const char *name)
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
 		ksft_test_result_pass("%s completed in isolated mm\n", name);
 		return KSFT_PASS;
+	}
+	if (WIFEXITED(status) && WEXITSTATUS(status) == KSFT_SKIP) {
+		ksft_test_result_skip("%s skipped in isolated mm\n", name);
+		return KSFT_SKIP;
 	}
 
 	ksft_test_result_fail("%s isolated child failed (status %#x)\n",
