@@ -285,6 +285,9 @@ interfaces.
 The cross-build, rootfs staging, and guest run commands are documented in
 ``Documentation/mm/swmmu-kselftest-build.rst``.
 
+For local SAS LTP runs, including host ``/dev/shm`` capacity, SWMMU coreutils,
+and matching UML module staging, see ``Documentation/mm/swmmu-ltp.rst``.
+
 For the full compiler plugin option and attribute reference, including
 ``all-access`` and experimental native-access options, see
 ``Documentation/mm/swmmu-gcc-plugin.rst``.
