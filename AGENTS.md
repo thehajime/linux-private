@@ -48,6 +48,36 @@ reproducible kselftest build instructions in
 
 ## Active TODOs
 
+### SAS/SWMMU validation update (2026-10-18)
+
+- [x] Reproduce `add_key03` in isolation with `CONFIG_KEYS=y`, loop support,
+  and the corrected SWMMU kernel. After removing alias activation from the
+  scheduler return hook, Kirk recorded 1 pass, 0 fail, and 0 broken. Earlier
+  stacks showed a waiter in `munmap()` and a second task blocked while
+  activating aliases under the same `mmap_lock`. Treat this as a promising
+  lock-inversion fix; repeat it and complete the full LTP run before closing
+  the issue.
+- [ ] Rerun the full loop-enabled SAS syscalls suite with this kernel. The
+  previous full attempt never produced a final result; `accept4_01` faulted,
+  `access02` failed, and the `add_key03` cleanup stall prevented completion.
+  Compare against the archived plain-NOMMU result only after obtaining a
+  complete run with matching skips and kernel config.
+- [x] Build a separate plain-SAS config with `MMU=n`, `NOMMU_SWMMU=n`,
+  `UML_NOMMU_SAS=y`, and vector networking, then boot it with the Alpine
+  derived rootfs and a musl static-PIE smoke init.
+- [ ] Define a fork-independent LTP subset for plain SAS before adding a full
+  CI matrix row. The existing `simple-fork` probe exits 10 when `fork()` is
+  attempted. Direct `add_key03` reaches LTP but reports `TCONF` because NOMMU
+  rejects its shared `mmap()` with `ENODEV`. A plain-SAS CI job must report
+  unsupported cases as configuration skips and must not reuse the SWMMU
+  package profile implicitly.
+- [ ] `NOMMU_SWMMU` currently depends on `!MMU`; an `MMU=y` plus SWMMU build is
+  not a supported matrix. If desired, test normal MMU fork/COW as a separate
+  control and label it clearly; it cannot validate SWMMU behavior.
+- [x] Add GDB steps for exact-rootfs ELF identity, `add-symbol-file`, ET_DYN
+  section addresses, and separately loaded FDPIC interpreter/executable to
+  `Documentation/mm/swmmu-kselftest-build.rst`.
+
 ### Immediate
 
 - [ ] Build the disposable kselftest tree described in
