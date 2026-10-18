@@ -140,6 +140,24 @@ __uml_setup("mem=", uml_mem_setup,
 );
 
 #ifdef CONFIG_NOMMU_SWMMU
+static bool uml_nommu_swmmu_alias_range_allowed(unsigned long address,
+						unsigned long length)
+{
+	if (!length || address > ULONG_MAX - length)
+		return false;
+
+	/*
+	 * SWMMU aliases share the host process address space with UML.  Never
+	 * let a guest mapping replace the host mapping used for UML's kernel
+	 * image and physical memory. This starts at uml_physmem, earlier than
+	 * start_vm (which begins only the kernel's virtual-memory area). The
+	 * seccomp setup records the first host mapping as the upper bound of the
+	 * SWMMU user range; aliases must also stay below that boundary.
+	 */
+	return (address + length <= uml_physmem || address >= end_vm) &&
+		address + length <= um_nommu_swmmu_user_end;
+}
+
 static int uml_nommu_swmmu_host_map_page(unsigned long address,
 				struct page *page, unsigned int prot)
 {
@@ -179,6 +197,7 @@ static int uml_nommu_swmmu_host_protect_range(unsigned long address,
 }
 
 static const struct nommu_swmmu_host_ops uml_nommu_swmmu_host_ops = {
+	.alias_range_allowed = uml_nommu_swmmu_alias_range_allowed,
 	.map_page = uml_nommu_swmmu_host_map_page,
 	.unmap_page = uml_nommu_swmmu_host_unmap_page,
 	.protect_range = uml_nommu_swmmu_host_protect_range,

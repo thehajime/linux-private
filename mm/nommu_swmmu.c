@@ -290,6 +290,16 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 	    !host_ops->unmap_page)
 		return -EOPNOTSUPP;
 
+	/* Keep overlapping SWMMU VMAs helper-backed instead of aliasing them. */
+	if (host_ops->alias_range_allowed &&
+	    !host_ops->alias_range_allowed(start,
+					   range->nr_ptes * SWMMU_PAGE_SIZE)) {
+		range->host_start = start;
+		range->host_mapped = false;
+		range->prot = prot;
+		return 0;
+	}
+
 	/*
 	 * VMA changes can prepare an inactive mm. Do not install its
 	 * fixed-address host aliases over those of the active mm.
@@ -1152,6 +1162,15 @@ static int nommu_swmmu_native_fork_map_parent(
 
 	if (!host_ops || !host_ops->map_page)
 		return -EOPNOTSUPP;
+
+	if (host_ops->alias_range_allowed &&
+	    !host_ops->alias_range_allowed(item->src_vma->vm_start,
+					   range->nr_ptes * SWMMU_PAGE_SIZE)) {
+		range->host_start = item->src_vma->vm_start;
+		range->host_mapped = false;
+		item->parent_alias_mapped = false;
+		return 0;
+	}
 
 	for (i = 0; i < range->nr_ptes; i++) {
 		ret = host_ops->map_page(
@@ -3402,6 +3421,10 @@ __do_mmap_swmmu(struct mm_struct *mm,
 		return -EINVAL;
 
 	mmap_assert_write_locked(mm);
+
+	/* Match the NOMMU backend's per-mm VMA limit. */
+	if (mm->map_count >= get_sysctl_max_map_count())
+		return -ENOMEM;
 
 	/*
 	 * Select start/end using VMA/range management.

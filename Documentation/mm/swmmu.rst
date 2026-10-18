@@ -130,6 +130,15 @@ space read lock while using that alias so an address-space switch cannot
 replace it during the copy. If any condition fails, the user-copy path uses
 the SWMMU pagetable translation path.
 
+In UML SAS mode, the host alias must not overlap UML's own host virtual memory
+range from ``uml_physmem`` through ``end_vm``, or reach the first host mapping
+recorded by the seccomp setup. The first range includes the UML executable
+image below ``start_vm`` and the physical-memory mapping above it. A SWMMU VMA
+that intersects a reserved range remains valid, but its host alias is left
+unmapped and accesses must use the SWMMU helper path. This prevents a
+fixed-address guest mapping from replacing UML kernel text, physical memory,
+or another host mapping in the UML process.
+
 This is an internal kernel user-copy path. It does not remove
 compiler-generated load/store helper calls from userspace. A userspace runtime
 fast path would also need a way to discover per-VMA eligible ranges and keep

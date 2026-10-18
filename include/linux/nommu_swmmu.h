@@ -40,6 +40,8 @@ struct nommu_swmmu_mem_ops {
 };
 
 struct nommu_swmmu_host_ops {
+	/* Return false when an alias would cover UML-owned host mappings. */
+	bool (*alias_range_allowed)(unsigned long address, unsigned long length);
 	int (*map_page)(unsigned long address, struct page *page,
 			unsigned int prot);
 	void (*unmap_page)(unsigned long address);
