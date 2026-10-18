@@ -711,6 +711,13 @@ void nommu_swmmu_vma_close(struct mm_struct *mm,
 		return;
 
 	space = mm->swmmu_space;
+	/*
+	 * Removing a mapped VMA drops its host aliases below. Invalidate the
+	 * active-mm cache first so the next activation remaps the surviving
+	 * ranges instead of taking the same-mm fast path with a missing alias.
+	 */
+	if (range->host_mapped)
+		nommu_swmmu_host_alias_invalidate(mm);
 	vma->vm_swmmu_pt_range = NULL;
 
 	swmmu_pagetable_range_release(space, range);
