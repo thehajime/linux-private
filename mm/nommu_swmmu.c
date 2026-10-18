@@ -92,6 +92,7 @@ struct nommu_swmmu_native_shared_item {
 	struct vm_area_struct *src_vma;
 	struct vm_area_struct *dst_vma;
 	struct vma_iterator child_vmi;
+	bool inserted;
 	bool published;
 };
 
@@ -910,7 +911,7 @@ static void swmmu_native_shared_abort(struct nommu_swmmu_native_shared_item *ite
 {
 	struct vm_area_struct *vma = item->dst_vma;
 
-	if (item->published) {
+	if (item->inserted) {
 		VMA_ITERATOR(vmi, vma->vm_mm, vma->vm_start);
 		struct vm_area_struct *removed;
 
@@ -919,6 +920,8 @@ static void swmmu_native_shared_abort(struct nommu_swmmu_native_shared_item *ite
 			return;
 
 		vma->vm_mm->map_count--;
+	}
+	if (item->published) {
 		if (vma->vm_file) {
 			struct address_space *mapping = vma->vm_file->f_mapping;
 
@@ -968,8 +971,6 @@ static void swmmu_native_shared_publish(struct nommu_swmmu_native_shared_item *i
 {
 	struct vm_area_struct *vma = item->dst_vma;
 
-	vma_iter_store_new(&item->child_vmi, vma);
-	vma->vm_mm->map_count++;
 	nommu_swmmu_get_region(vma->vm_region);
 
 	if (vma->vm_ops && vma->vm_ops->open)
@@ -2344,6 +2345,12 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 					shared_item->dst_vma);
 		if (ret)
 			goto rollback;
+
+		/* Preallocate and publish each entry before preparing the next. */
+		vma_iter_store_new(&shared_item->child_vmi,
+				   shared_item->dst_vma);
+		dst->map_count++;
+		shared_item->inserted = true;
 	}
 
 	/* Map every parent replacement before publishing any VMA changes. */
