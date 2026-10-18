@@ -266,6 +266,47 @@ Verify Build IDs before using separate debug symbols. At the first fault save
 surrounding instructions. For syscall diagnosis, record arguments and raw
 kernel and libc return values.
 
+For a fault after ``exec``, keep the exact guest executable and loader from the
+rootfs and record their hashes and Build IDs before symbolizing. Capture the
+guest ``/proc/<pid>/maps`` while the process is alive; host-side ``/proc`` shows
+the UML process, not the UML guest mappings. For ``ET_DYN`` files, calculate
+the load bias from a maps entry and the matching ``PT_LOAD`` segment's
+``p_offset``/``p_vaddr`` (account for page alignment). Then add the runtime
+address of the ELF ``.text`` section, not the load bias by itself. For
+FDPIC, use the interpreter and executable load maps captured from
+``load_elf_fdpic_binary``; their independently loaded segments do not share a
+single conventional load bias.
+
+Inspect the exact section and segment addresses before starting GDB::
+
+   readelf -hW guest-program
+   readelf -lW guest-program
+   readelf -SW guest-program
+   readelf -nW guest-program | rg 'Build ID'
+   sha256sum guest-program guest-loader
+
+For a conventional ``ET_DYN`` object, ``add-symbol-file`` takes the runtime
+address of ``.text``. Pass runtime section addresses for other relocated
+sections when needed::
+
+   gdb -q ./vmlinux
+   (gdb) set pagination off
+   (gdb) add-symbol-file /exact/rootfs/path/libpython3.so.1.0 0xTEXT_RUNTIME \
+         -s .data 0xDATA_RUNTIME -s .bss 0xBSS_RUNTIME
+   (gdb) info files
+   (gdb) info symbol 0xFAULT_IP
+   (gdb) x/12i 0xFAULT_IP-16
+   (gdb) bt
+
+Use section addresses from the exact ELF and runtime mappings; do not copy
+addresses from a different boot, rootfs, or ASLR layout. For the FDPIC
+``start_thread`` breakpoint, save the load maps and calculate each image's
+``.text`` runtime address from its own executable segment before issuing
+``add-symbol-file`` for the interpreter and then the program. A stripped
+binary can still be disassembled with its symbols loaded, but useful function
+names require a separate debug file with a matching Build ID. Keep the GDB
+command file and complete GDB/UML output with the run record.
+
 Keep the normal FSGSBASE preload/setup used by a working UML launch. A fault
 from a run that omitted it is a separate experiment.
 

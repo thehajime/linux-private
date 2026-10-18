@@ -118,9 +118,9 @@ int __init os_setup_seccomp(void)
 #else
 	unsigned long native_start = uml_reserved + 1;
 	unsigned long native_end = high_physmem;
+#ifdef CONFIG_NOMMU_SWMMU
 	unsigned long swmmu_start = UM_NOMMU_SWMMU_VA_BASE;
 	unsigned long swmmu_end = task_size;
-#ifdef CONFIG_NOMMU_SWMMU
 	unsigned long first_host_mapping;
 
 	err = find_first_host_mapping(&first_host_mapping);
@@ -154,7 +154,7 @@ int __init os_setup_seccomp(void)
 		exit(1);
 	}
 
-#ifdef CONFIG_UML_NOMMU_SAS
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_NOMMU_SWMMU)
 	err = os_install_seccomp_ip_filter(swmmu_start, swmmu_end);
 	if (err) {
 		os_warn("SECCOMP_SET_MODE_FILTER (err=%d, errno=%d)\n",
@@ -171,9 +171,9 @@ int __init os_setup_seccomp(void)
 #else
 	os_info("seccomp: setup native filter in the range: 0x%lx-0x%lx\n",
 		native_start, native_end);
+#ifdef CONFIG_NOMMU_SWMMU
 	os_info("seccomp: setup SWMMU filter in the range: 0x%lx-0x%lx\n",
 		swmmu_start, swmmu_end);
-#ifdef CONFIG_NOMMU_SWMMU
 	os_info("seccomp: first host mapping starts at: 0x%lx; task_size=0x%lx\n",
 		first_host_mapping, task_size);
 #endif
