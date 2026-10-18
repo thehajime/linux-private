@@ -87,6 +87,14 @@ struct nommu_swmmu_native_fork_item {
 	unsigned long alias_pages_mapped;
 };
 
+struct nommu_swmmu_native_shared_item {
+	struct list_head node;
+	struct vm_area_struct *src_vma;
+	struct vm_area_struct *dst_vma;
+	struct vma_iterator child_vmi;
+	bool published;
+};
+
 struct nommu_swmmu_space {
 	struct rw_semaphore lock;
 	struct mm_struct *mm;
@@ -888,6 +896,96 @@ static bool nommu_swmmu_native_fork_candidate(
 		!vma->vm_ops && !(vma->vm_flags & VM_SHARED) &&
 		(vma->vm_region->vm_flags & VM_MAPPED_COPY) &&
 		!vma_test(vma, VMA_DONTCOPY_BIT);
+}
+
+static bool swmmu_native_shared_candidate(const struct vm_area_struct *vma)
+{
+	return vma->vm_region && !vma->vm_swmmu_pt_range &&
+		(vma->vm_flags & VM_SHARED) &&
+		!vma_test(vma, VMA_DONTCOPY_BIT);
+}
+
+static void swmmu_native_shared_abort(struct nommu_swmmu_native_shared_item *item,
+				      struct nommu_swmmu_space *space)
+{
+	struct vm_area_struct *vma = item->dst_vma;
+
+	if (item->published) {
+		VMA_ITERATOR(vmi, vma->vm_mm, vma->vm_start);
+		struct vm_area_struct *removed;
+
+		removed = mas_erase(&vmi.mas);
+		if (WARN_ON_ONCE(removed != vma))
+			return;
+
+		vma->vm_mm->map_count--;
+		if (vma->vm_file) {
+			struct address_space *mapping = vma->vm_file->f_mapping;
+
+			i_mmap_lock_write(mapping);
+			flush_dcache_mmap_lock(mapping);
+			mapping_rmap_tree_remove(vma, mapping);
+			flush_dcache_mmap_unlock(mapping);
+			i_mmap_unlock_write(mapping);
+		}
+		vma_close(vma);
+		if (vma->vm_file)
+			fput(vma->vm_file);
+		nommu_swmmu_put_region(vma->vm_region);
+	}
+
+	if (item->child_vmi.mas.tree)
+		vma_iter_free(&item->child_vmi);
+	vm_area_free(vma);
+	space->ops->dealloc(item);
+}
+
+static int swmmu_native_shared_prepare(struct mm_struct *dst,
+				       struct nommu_swmmu_space *space,
+				       struct vm_area_struct *src_vma,
+				       struct nommu_swmmu_native_shared_item **result)
+{
+	struct nommu_swmmu_native_shared_item *item;
+
+	item = space->ops->zalloc(sizeof(*item), GFP_KERNEL);
+	if (!item)
+		return -ENOMEM;
+
+	item->src_vma = src_vma;
+	item->dst_vma = vm_area_dup(src_vma);
+	if (!item->dst_vma) {
+		space->ops->dealloc(item);
+		return -ENOMEM;
+	}
+
+	item->dst_vma->vm_mm = dst;
+	vma_clear_flags_mask(item->dst_vma, VMA_LOCKED_MASK);
+	*result = item;
+	return 0;
+}
+
+static void swmmu_native_shared_publish(struct nommu_swmmu_native_shared_item *item)
+{
+	struct vm_area_struct *vma = item->dst_vma;
+
+	vma_iter_store_new(&item->child_vmi, vma);
+	vma->vm_mm->map_count++;
+	nommu_swmmu_get_region(vma->vm_region);
+
+	if (vma->vm_ops && vma->vm_ops->open)
+		vma->vm_ops->open(vma);
+
+	if (vma->vm_file) {
+		struct address_space *mapping = vma->vm_file->f_mapping;
+
+		get_file(vma->vm_file);
+		i_mmap_lock_write(mapping);
+		flush_dcache_mmap_lock(mapping);
+		mapping_rmap_tree_insert_after(vma, item->src_vma, mapping);
+		flush_dcache_mmap_unlock(mapping);
+		i_mmap_unlock_write(mapping);
+	}
+	item->published = true;
 }
 
 static void nommu_swmmu_native_fork_item_abort(
@@ -2138,9 +2236,12 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 	struct nommu_swmmu_clone_item *tmp;
 	struct nommu_swmmu_native_fork_item *native_item;
 	struct nommu_swmmu_native_fork_item *native_tmp;
+	struct nommu_swmmu_native_shared_item *shared_item;
+	struct nommu_swmmu_native_shared_item *shared_tmp;
 	struct vm_area_struct *src_vma;
 	LIST_HEAD(prepared);
 	LIST_HEAD(native_prepared);
+	LIST_HEAD(shared_prepared);
 	VMA_ITERATOR(src_vmi, src, 0);
 	int ret = 0;
 
@@ -2171,6 +2272,16 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 				goto rollback;
 
 			list_add_tail(&native_item->node, &native_prepared);
+			continue;
+		}
+
+		if (swmmu_native_shared_candidate(src_vma)) {
+			ret = swmmu_native_shared_prepare(dst, dst_space, src_vma,
+							  &shared_item);
+			if (ret)
+				goto rollback;
+
+			list_add_tail(&shared_item->node, &shared_prepared);
 			continue;
 		}
 
@@ -2222,6 +2333,19 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		native_item->child_published = true;
 	}
 
+	/* Reserve every Maple Tree node before acquiring shared references. */
+	list_for_each_entry(shared_item, &shared_prepared, node) {
+		vma_iter_init(&shared_item->child_vmi, dst,
+			      shared_item->dst_vma->vm_start);
+		vma_iter_config(&shared_item->child_vmi,
+				shared_item->dst_vma->vm_start,
+				shared_item->dst_vma->vm_end);
+		ret = vma_iter_prealloc(&shared_item->child_vmi,
+					shared_item->dst_vma);
+		if (ret)
+			goto rollback;
+	}
+
 	/* Map every parent replacement before publishing any VMA changes. */
 	list_for_each_entry(native_item, &native_prepared, node) {
 		ret = nommu_swmmu_native_fork_map_parent(native_item,
@@ -2234,6 +2358,9 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 	 * All allocations, Maple Tree nodes, and host aliases are ready.
 	 * Nothing below this point may fail.
 	 */
+	list_for_each_entry(shared_item, &shared_prepared, node)
+		swmmu_native_shared_publish(shared_item);
+
 	list_for_each_entry(native_item, &native_prepared, node) {
 		struct vm_area_struct *old_vma = native_item->src_vma;
 
@@ -2286,6 +2413,12 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		vma_iter_free(&native_item->child_vmi);
 		src_space->ops->dealloc(native_item);
 	}
+	list_for_each_entry_safe(shared_item, shared_tmp,
+				 &shared_prepared, node) {
+		list_del(&shared_item->node);
+		vma_iter_free(&shared_item->child_vmi);
+		dst_space->ops->dealloc(shared_item);
+	}
 
 	up_write(&dst_space->lock);
 	up_write(&src_space->lock);
@@ -2315,6 +2448,11 @@ rollback:
 		list_del(&native_item->node);
 		nommu_swmmu_native_fork_item_abort(native_item,
 						   src_space, dst_space);
+	}
+	list_for_each_entry_safe(shared_item, shared_tmp,
+				 &shared_prepared, node) {
+		list_del(&shared_item->node);
+		swmmu_native_shared_abort(shared_item, dst_space);
 	}
 
 	up_write(&dst_space->lock);
