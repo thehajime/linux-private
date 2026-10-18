@@ -34,10 +34,12 @@ int os_x86_arch_prctl(int pid, int option, unsigned long *arg2)
 
 	switch (option) {
 	case ARCH_SET_FS:
-		wrfsbase(*arg2);
+		/* ARCH_SET_FS takes the base itself, not a pointer to it. */
+		wrfsbase((unsigned long)arg2);
 		break;
 	case ARCH_SET_GS:
-		wrgsbase(*arg2);
+		/* ARCH_SET_GS takes the base itself, not a pointer to it. */
+		wrgsbase((unsigned long)arg2);
 		break;
 	case ARCH_GET_FS:
 		*arg2 = rdfsbase();
