@@ -516,6 +516,11 @@ static void nommu_swmmu_vma_alias_eligibility_test(struct kunit *test)
 	KUNIT_EXPECT_FALSE(test,
 		nommu_swmmu_kunit_vma_alias_accessible(
 			ctx->mm, address, sizeof(u64), PROT_READ));
+	KUNIT_ASSERT_EQ(test,
+		nommu_swmmu_recover_alias_fault(ctx->mm, address, PROT_READ), 1);
+	KUNIT_EXPECT_TRUE(test,
+		nommu_swmmu_kunit_vma_alias_accessible(
+			ctx->mm, address, sizeof(u64), PROT_READ));
 	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
 
 	KUNIT_EXPECT_TRUE(test,

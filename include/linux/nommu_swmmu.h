@@ -204,6 +204,9 @@ void nommu_swmmu_put_region(struct vm_region *region);
 void nommu_swmmu_get_region(struct vm_region *region);
 bool nommu_swmmu_region_exclusive(struct vm_region *region);
 int nommu_swmmu_activate_mm(struct mm_struct *mm);
+int nommu_swmmu_recover_alias_fault(struct mm_struct *mm,
+				   unsigned long address,
+				   unsigned int access);
 void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm);
 
 struct vm_area_struct;

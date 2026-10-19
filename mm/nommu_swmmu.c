@@ -980,6 +980,55 @@ static bool swmmu_mm_alias_active(struct mm_struct *mm)
 		READ_ONCE(space->host_generation);
 }
 
+/*
+ * Recover a transient host-alias miss before treating it as a guest fault.
+ * The global alias window can be replaced while a task is descheduled; a
+ * valid SWMMU VMA then faults even though its guest backing page still exists.
+ * Return 1 when aliases were repaired, 0 when this is an ordinary fault, or
+ * a negative errno if the repair itself failed.
+ */
+int nommu_swmmu_recover_alias_fault(struct mm_struct *mm,
+				   unsigned long address,
+				   unsigned int access)
+{
+	struct swmmu_pagetable_range *range;
+	struct vm_area_struct *vma;
+	unsigned long page_index;
+	bool recover = false;
+	int ret;
+
+	if (!mm || !mm->swmmu_space)
+		return 0;
+
+	mmap_read_lock(mm);
+	vma = find_vma(mm, address);
+	if (!vma || address < vma->vm_start || address >= vma->vm_end)
+		goto out_unlock;
+
+	range = vma->vm_swmmu_pt_range;
+	if (!range || !range->pagetable ||
+	    (range->prot & access) != access ||
+	    address - vma->vm_start >= range->nr_ptes * SWMMU_PAGE_SIZE)
+		goto out_unlock;
+
+	page_index = range->first +
+		(address - vma->vm_start) / SWMMU_PAGE_SIZE;
+	if (page_index >= range->pagetable->nr_ptes ||
+	    !range->pagetable->ptes[page_index].page)
+		goto out_unlock;
+
+	recover = !swmmu_vma_alias_accessible(vma, address, 1, access) ||
+		  !swmmu_mm_alias_active(mm);
+
+out_unlock:
+	mmap_read_unlock(mm);
+	if (!recover)
+		return 0;
+
+	ret = nommu_swmmu_activate_mm(mm);
+	return ret ? ret : 1;
+}
+
 static bool nommu_swmmu_native_fork_candidate(
 		const struct vm_area_struct *vma)
 {

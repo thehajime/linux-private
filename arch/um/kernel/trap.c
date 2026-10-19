@@ -4,6 +4,8 @@
  */
 
 #include <linux/mm.h>
+#include <linux/mman.h>
+#include <linux/nommu_swmmu.h>
 #include <linux/sched/signal.h>
 #include <linux/hardirq.h>
 #include <linux/module.h>
@@ -168,6 +170,19 @@ unsigned long segv(struct faultinfo fi, unsigned long ip, int is_user,
 		panic("Kernel tried to access user memory at addr 0x%lx, ip 0x%lx",
 		       address, ip);
 	}
+
+#ifdef CONFIG_NOMMU_SWMMU
+	/* Retry a user instruction after restoring a displaced host alias. */
+	if (is_user) {
+		unsigned int access = fi.error_code & 0x10 ? PROT_EXEC :
+			(is_write ? PROT_WRITE : PROT_READ);
+
+		err = nommu_swmmu_recover_alias_fault(current->mm,
+						 address, access);
+		if (err > 0)
+			goto out;
+	}
+#endif
 
 	if (SEGV_IS_FIXABLE(&fi))
 		err = handle_page_fault(address, ip, is_write, is_user,
