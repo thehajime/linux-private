@@ -84,12 +84,10 @@ struct task_struct *__switch_to(struct task_struct *from, struct task_struct *to
 
 void um_schedule_return(void)
 {
-	/*
-	 * Do not switch SWMMU aliases from the scheduler return path.  A task
-	 * may return from schedule() while waiting for mmap_lock; activating its
-	 * mm here can recursively wait for that same lock.  Aliases are switched
-	 * at syscall entry and immediately before returning to userspace.
-	 */
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
+	if (current->mm && nommu_swmmu_activate_mm(current->mm))
+		panic("NOMMU SWMMU: failed to restore scheduled aliases\n");
+#endif
 }
 
 void um_syscall_enter(void)
