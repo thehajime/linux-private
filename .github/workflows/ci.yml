@@ -213,11 +213,12 @@ jobs:
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR" CFLAGS+="-DCONFIG_UML_TIME_TRAVEL_SUPPORT" CFLAGS+="-DCONFIG_UML_MAX_USERSPACE_ITERATIONS=100000"
-            kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n ### XXX
+            kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel ### XXX
             testname: um-mmu-tt
             mode: um-mmu
             userspace_profile: alpine
             base_image: mirror.gcr.io/library/alpine:edge
+            tt_mode: time-travel
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
@@ -229,6 +230,18 @@ jobs:
             mode: um-nommu
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
+          - displayTargetName: ubuntu-22.04 (nommu, time-travel)
+            os: unix
+            runs_on: ubuntu-22.04
+            shell: bash
+            defconfig: x86_64_defconfig
+            add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR" CFLAGS+="-DCONFIG_UML_TIME_TRAVEL_SUPPORT"
+            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel
+            testname: um-nommu-tt
+            mode: um-nommu
+            userspace_profile: nommu-plain
+            base_image: mirror.gcr.io/library/alpine:edge
+            tt_mode: time-travel
           - displayTargetName: ubuntu-22.04 (nommu-sas)
             os: unix
             runs_on: ubuntu-22.04
@@ -326,7 +339,6 @@ jobs:
              libcap-ng-dev
              iproute2
       - name: build bench tools
-        if: matrix.testname != 'um-mmu-tt'
         run: |
           git clone --depth 1 --branch "$LMBENCH_REF" https://github.com/thehajime/lmbench-NoMMU.git lmbench
           patch --forward --fuzz=0 -d lmbench -p1 < .github/workflows/patches/lmbench-lat-udp-signal-handler.patch
@@ -364,7 +376,7 @@ jobs:
            sudo ip link set up dev tap100
            iperf3 -s &
       - name: (FIXME) defconfig rewrite for nommu
-        if: matrix.testname == 'um-nommu'
+        if: matrix.testname == 'um-nommu' || matrix.testname == 'um-nommu-tt'
         run: |
           echo "# CONFIG_MMU is not set" >> arch/um/configs/x86_64_defconfig
           echo "# CONFIG_NOMMU_SWMMU_DEFAULT_ON is not set" >> arch/um/configs/x86_64_defconfig
@@ -378,7 +390,7 @@ jobs:
           curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
           cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }} O=build
-          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+          if [[ "${{ matrix.testname }}" == "um-nommu" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
             scripts/config --file build/.config --disable NOMMU_SWMMU_DEFAULT_ON
             scripts/config --file build/.config --disable NOMMU_SWMMU
             make ARCH=um O=build olddefconfig
@@ -404,7 +416,6 @@ jobs:
         if: always()
         run: ccache --show-stats
       - name: prep for docker build
-        if: matrix.testname != 'um-mmu-tt'
         run: |
            make -j8 ARCH=um O=build modules_install INSTALL_MOD_PATH=`pwd`/.github/workflows
            cp build/vmlinux .github/workflows/
@@ -413,7 +424,6 @@ jobs:
            ls .github/workflows/
            ls .github/workflows/lib/modules
       - name: Build and push Docker image (no push)
-        if: matrix.testname != 'um-mmu-tt'
         uses: docker/build-push-action@v7
         env:
           DOCKER_BUILD_SUMMARY: false
@@ -428,17 +438,14 @@ jobs:
           tags: |
             uml-ci/alpine:edge-${{ matrix.testname }}
       - name: Save tested UML image for downstream jobs
-        if: matrix.testname != 'um-mmu-tt'
         run: docker save uml-ci/alpine:edge-${{ matrix.testname }} -o "$RUNNER_TEMP/uml-image.tar"
       - name: Upload tested UML image
-        if: matrix.testname != 'um-mmu-tt'
         uses: actions/upload-artifact@v4
         with:
           name: uml-docker-image-${{ matrix.testname }}
           path: ${{ runner.temp }}/uml-image.tar
           if-no-files-found: error
       - name: image for test
-        if: matrix.testname != 'um-mmu-tt'
         run: |
           docker create --name alpine-nommu uml-ci/alpine:edge-${{ matrix.testname }}
           docker start alpine-nommu
@@ -457,21 +464,19 @@ jobs:
           sudo tar -xf alpine.tar -C rootfs
           sudo chown -R ${USER} rootfs
       - name: test-0 (static)
-        if: matrix.testname != 'um-mmu-tt'
         run: |
           sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
           set +e
-          timeout --signal=TERM 30s faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt
+          timeout --signal=TERM 30s faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty ${{ matrix.tt_mode }} init=/sbin/init 2>&1 | tee /tmp/log.txt
           rc=${PIPESTATUS[0]}
           set -e
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
-          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+          if [[ "${{ matrix.testname }}" == "um-nommu" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
             grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
           fi
           echo "========="
           cat /tmp/log.txt
       - name: kunit test
-        if: ${{ matrix.testname != 'um-mmu-tt' }}
         run: |
           mkdir -p output/kunit
           for config in `find . -path './ci-config' -prune -o -name .kunitconfig -print | grep -v -E "kfence|sunrpc|handshake|kcsan|gpu|damon|rust|android|sound|hid|firewire|iommu|nvme|mac80211|irqchip|spi" `; do \
@@ -491,7 +496,7 @@ jobs:
           curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
           cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }}
-          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+          if [[ "${{ matrix.testname }}" == "um-nommu" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
             scripts/config --disable NOMMU_SWMMU_DEFAULT_ON --disable NOMMU_SWMMU
             make ARCH=um olddefconfig
             ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' .config
@@ -508,6 +513,7 @@ jobs:
             grep -q '^CONFIG_SMP=y$' .config
             grep -q '^CONFIG_NR_CPUS=4$' .config
           fi
+          sed -i 's/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/' .config
           make -j8 ARCH=um ${{ matrix.add_configs }}
       - name: Install UML UAPI headers for SWMMU kselftest
         if: matrix.testname == 'um-nommu-sas'
@@ -571,23 +577,20 @@ jobs:
             rootfs/tests/nommu_swmmu_test.exit
           if-no-files-found: warn
       - name: test-1
-        if: matrix.testname != 'um-mmu-tt'
         run: |
           set +e
-          timeout --signal=TERM 30s faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt
+          timeout --signal=TERM 30s faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty ${{ matrix.tt_mode }} init=/sbin/init 2>&1 | tee /tmp/log.txt
           rc=${PIPESTATUS[0]}
           set -e
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
-          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
+          if [[ "${{ matrix.testname }}" == "um-nommu" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
             grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
           fi
           echo "========="
           cat /tmp/log.txt
       - name: Pack tested image context
-        if: matrix.testname != 'um-mmu-tt'
         run: tar -czf "$RUNNER_TEMP/uml-image-context.tar.gz" -C .github/workflows .
       - name: Upload tested image context
-        if: matrix.testname != 'um-mmu-tt'
         uses: actions/upload-artifact@v4
         with:
           name: uml-image-context-${{ matrix.testname }}
@@ -608,6 +611,14 @@ jobs:
           - testname: um-mmu
             mode: um-mmu
             userspace_profile: alpine
+            base_tag: edge
+          - testname: um-mmu-tt
+            mode: um-mmu
+            userspace_profile: alpine
+            base_tag: edge
+          - testname: um-nommu-tt
+            mode: um-nommu
+            userspace_profile: nommu-plain
             base_tag: edge
           - testname: um-nommu
             mode: um-nommu
@@ -774,10 +785,21 @@ jobs:
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
             runs_on: ubuntu-22.04
+          - displayTargetName: um-mmu-tt
+            image_name: um-mmu-tt
+            testname: um-mmu-tt
+            vmlinux_opt: "time-travel"
+            runs_on: ubuntu-22.04
           - displayTargetName: um-nommu
             image_name: um-nommu
             testname: um-nommu
             vmlinux_opt: ""
+            runs_on: ubuntu-22.04
+            base_tag: edge
+          - displayTargetName: um-nommu-tt
+            image_name: um-nommu-tt
+            testname: um-nommu-tt
+            vmlinux_opt: "time-travel"
             runs_on: ubuntu-22.04
             base_tag: edge
           - displayTargetName: um-nommu-s
@@ -1207,11 +1229,23 @@ jobs:
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
             name: um-mmu
+          - displayTargetName: um-mmu-tt
+            image_name: uml-ci/alpine:edge-um-mmu-tt
+            image_artifact: uml-docker-image-um-mmu-tt
+            testname: um-mmu-tt
+            vmlinux_opt: "time-travel"
+            name: um-mmu
           - displayTargetName: um-nommu
             image_name: uml-ci/alpine:edge-um-nommu
             image_artifact: uml-docker-image-um-nommu
             testname: um-nommu
             vmlinux_opt: ""
+            name: um-nommu
+          - displayTargetName: um-nommu-tt
+            image_name: uml-ci/alpine:edge-um-nommu-tt
+            image_artifact: uml-docker-image-um-nommu-tt
+            testname: um-nommu-tt
+            vmlinux_opt: "time-travel"
             name: um-nommu
           - displayTargetName: um-nommu-s
             image_name: uml-ci/alpine:edge-um-nommu

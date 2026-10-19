@@ -15,8 +15,10 @@ jobs:
       matrix:
         profile:
           - um-mmu
+          - um-mmu-tt
           - um-mmu-seccomp
           - um-nommu
+          - um-nommu-tt
           - um-nommu-seccomp
           - um-nommu-sas-seccomp
           - um-nommu-sas-zpoline
@@ -25,6 +27,8 @@ jobs:
         connections: [4, 16, 64]
         wrk_threads: [2]
         exclude:
+          - profile: um-mmu-tt
+            ncpus: 4
           # PTRACE userspace rejects CONFIG_SMP with more than one CPU.
           # Keep the four-CPU comparison on the seccomp UML profile below.
           - profile: um-mmu
@@ -32,6 +36,8 @@ jobs:
           # NOMMU UML currently has no SMP support. Remove these exclusions
           # when the corresponding profile can boot with multiple CPUs.
           - profile: um-nommu
+            ncpus: 4
+          - profile: um-nommu-tt
             ncpus: 4
           - profile: um-nommu-seccomp
             ncpus: 4
@@ -45,9 +51,9 @@ jobs:
       NGINX_WORKERS: ${{ matrix.workers }}
       NGINX_CONNECTIONS: ${{ matrix.connections }}
       NGINX_THREADS: ${{ matrix.wrk_threads }}
-      NGINX_IMAGE_NAME: ${{ contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
+      NGINX_IMAGE_NAME: ${{ matrix.profile == 'um-mmu-tt' && 'um-mmu-tt' || matrix.profile == 'um-nommu-tt' && 'um-nommu-tt' || contains(matrix.profile, 'sas') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || 'um-nommu' }}
       NGINX_ROOTFS_ARTIFACT: ${{ contains(matrix.profile, 'sas') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
-      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-mmu-tt' && format('ncpus={0} time-travel', matrix.ncpus) || matrix.profile == 'um-nommu-tt' && 'time-travel' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
       NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers
@@ -100,7 +106,7 @@ jobs:
           CONNECTIONS: ${{ matrix.connections }}
           PROFILE: ${{ matrix.profile }}
           NCPUS: ${{ matrix.ncpus }}
-          KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+          KERNEL_ARGS: ${{ matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-mmu-tt' && format('ncpus={0} time-travel', matrix.ncpus) || matrix.profile == 'um-nommu-tt' && 'time-travel' || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
           NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
           # SAS/SWMMU may need longer request deadlines than other UML profiles.
           NGINX_WRK_WARMUP_SECONDS: "15"
