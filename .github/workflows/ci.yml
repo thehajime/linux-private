@@ -47,7 +47,7 @@ jobs:
         id: download
         env:
           GH_TOKEN: ${{ github.token }}
-          KERNEL_REF: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+          KERNEL_REF: ${{ inputs.kernel_ref || ((github.ref_name == 'ci/uml-nommu' || github.ref_name == 'codex/uml-tt-ci') && 'feature-swmmu-nommu') || github.ref }}
           APORTS_REF: ${{ inputs.aports_ref || '1879b74ea2b540f5951fd3a2125bcf424b170a46' }}
         run: |
           set -euo pipefail
@@ -277,11 +277,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+          ref: ${{ inputs.kernel_ref || ((github.ref_name == 'ci/uml-nommu' || github.ref_name == 'codex/uml-tt-ci') && 'feature-swmmu-nommu') || github.ref }}
       - name: Checkout canonical CI support files
         uses: actions/checkout@v6
         with:
-          ref: ci/uml-nommu
+          ref: ${{ github.ref_name == 'codex/uml-tt-ci' && github.sha || 'ci/uml-nommu' }}
           path: ci-config
           sparse-checkout: .github/workflows
       - name: Install canonical CI support files
