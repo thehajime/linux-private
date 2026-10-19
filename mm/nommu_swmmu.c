@@ -494,6 +494,17 @@ out_unlock:
 	up_write(&space->lock);
 	mmap_read_unlock(mm);
 	preempt_enable();
+	/*
+	 * preempt_enable() may switch to another task, which can install a
+	 * different mm's aliases before this task resumes.  Recheck after it
+	 * returns so activate_mm() retries instead of returning with stale
+	 * aliases for the current task.
+	 */
+	if (!ret &&
+	    (READ_ONCE(swmmu_host_active_mm) != mm ||
+	     READ_ONCE(swmmu_host_active_generation) !=
+					READ_ONCE(space->host_generation)))
+		ret = SWMMU_HOST_OWNER_CHANGED;
 	return ret;
 }
 
@@ -581,6 +592,16 @@ retry:
 		READ_ONCE(swmmu_host_active_generation) ==
 		READ_ONCE(space->host_generation);
 	preempt_enable();
+	/*
+	 * The snapshot above can become stale if preempt_enable() schedules a
+	 * task that switches the process-wide host aliases.  Do not take the
+	 * unchanged fast path unless ownership still matches after rescheduling.
+	 */
+	if (unchanged &&
+	    (READ_ONCE(swmmu_host_active_mm) != mm ||
+	     READ_ONCE(swmmu_host_active_generation) !=
+					READ_ONCE(space->host_generation)))
+		unchanged = false;
 
 	if (unchanged) {
 		mmput(old_mm);
