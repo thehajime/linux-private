@@ -2301,6 +2301,71 @@ bool nommu_swmmu_usercopy_requires_translation(unsigned long address)
 }
 EXPORT_SYMBOL_GPL(nommu_swmmu_usercopy_requires_translation);
 
+int nommu_swmmu_get_user_pages(unsigned long start, int nr_pages,
+			       unsigned int gup_flags, bool pin,
+			       struct page **pages)
+{
+	struct mm_struct *mm = current->mm;
+	unsigned long address = start;
+	int i, ret = 0;
+
+	if (!mm || !pages || nr_pages <= 0)
+		return -EINVAL;
+	if (start < SWMMU_VA_BASE)
+		return -EOPNOTSUPP;
+
+	mmap_read_lock(mm);
+	for (i = 0; i < nr_pages; i++, address += PAGE_SIZE) {
+		struct swmmu_pagetable_range *range;
+		struct swmmu_pagetable *pt;
+		struct vm_area_struct *vma;
+		struct page *page;
+		unsigned long index;
+		unsigned int prot = (gup_flags & FOLL_WRITE) ?
+			PROT_WRITE : PROT_READ;
+
+		if (address > ULONG_MAX - PAGE_SIZE) {
+			ret = -EFAULT;
+			break;
+		}
+
+		vma = find_vma(mm, address);
+		if (!vma || address < vma->vm_start ||
+		    !vma->vm_swmmu_pt_range) {
+			ret = i ? -EFAULT : -EOPNOTSUPP;
+			break;
+		}
+		range = vma->vm_swmmu_pt_range;
+		if (!(range->prot & prot)) {
+			ret = -EFAULT;
+			break;
+		}
+		pt = range->pagetable;
+		index = range->first +
+			((address - vma->vm_start) >> PAGE_SHIFT);
+		if (index >= pt->nr_ptes || !pt->ptes[index].page) {
+			ret = -EFAULT;
+			break;
+		}
+
+		page = pt->ptes[index].page;
+		ret = try_grab_folio(page_folio(page), 1,
+				     (pin ? FOLL_PIN : FOLL_GET) |
+				     (gup_flags & FOLL_PCI_P2PDMA));
+		if (ret)
+			break;
+		pages[i] = page;
+	}
+	if (pin)
+		mm_flags_set(MMF_HAS_PINNED, mm);
+	mmap_read_unlock(mm);
+
+	if (ret)
+		return i ? i : ret;
+	return i;
+}
+EXPORT_SYMBOL_GPL(nommu_swmmu_get_user_pages);
+
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_to_user);
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_from_user);
 
