@@ -541,6 +541,38 @@ static void nommu_swmmu_vma_alias_eligibility_test(struct kunit *test)
 		nommu_swmmu_kunit_dynamic_copy_from_mm(
 			ctx->mm, address, &observed, sizeof(observed)), 0);
 	KUNIT_EXPECT_EQ(test, observed, expected);
+	KUNIT_EXPECT_EQ(test,
+		nommu_swmmu_kunit_dynamic_copy_from_mm(
+			ctx->mm, address + SWMMU_PAGE_SIZE,
+			&observed, 1), -EFAULT);
+	KUNIT_EXPECT_EQ(test,
+		nommu_swmmu_kunit_dynamic_copy_to_mm(
+			ctx->mm, address + SWMMU_PAGE_SIZE,
+			&expected, 1), -EFAULT);
+	/* The cross-page path must validate both pages before writing. */
+	{
+		u32 tail = 0x76543210;
+		u32 after = 0;
+
+		KUNIT_ASSERT_EQ(test,
+			nommu_swmmu_kunit_dynamic_copy_to_mm(
+				ctx->mm, address + SWMMU_PAGE_SIZE -
+				sizeof(tail), &tail, sizeof(tail)), 0);
+		KUNIT_EXPECT_EQ(test,
+			nommu_swmmu_kunit_dynamic_copy_to_mm(
+				ctx->mm, address + SWMMU_PAGE_SIZE - 4,
+				&expected, sizeof(expected)), -EFAULT);
+		KUNIT_ASSERT_EQ(test,
+			nommu_swmmu_kunit_dynamic_copy_from_mm(
+				ctx->mm, address + SWMMU_PAGE_SIZE -
+				sizeof(after), &after, sizeof(after)), 0);
+		KUNIT_EXPECT_EQ(test, after, tail);
+	}
+	observed = 0;
+	KUNIT_EXPECT_EQ(test,
+		nommu_swmmu_kunit_dynamic_copy_from_mm(
+			ctx->mm, address, &observed, sizeof(observed)), 0);
+	KUNIT_EXPECT_EQ(test, observed, expected);
 
 	KUNIT_EXPECT_EQ(test, nommu_swmmu_activate_mm(NULL), 0);
 	KUNIT_EXPECT_FALSE(test,

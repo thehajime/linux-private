@@ -1680,6 +1680,7 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 {
 	struct nommu_swmmu_space *space;
 	bool alias_locked = false;
+	bool single_page;
 	int ret = 0;
 
 	if (!mm || !size)
@@ -1687,6 +1688,11 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 
 	if (unlikely(!address || address < SWMMU_PAGE_SIZE))
 		return -EFAULT;
+	if (address > ULONG_MAX - size)
+		return -EOVERFLOW;
+
+	single_page = size <= SWMMU_PAGE_SIZE -
+		(address & (SWMMU_PAGE_SIZE - 1));
 
 	mmap_read_lock(mm);
 	space = mm->swmmu_space;
@@ -1697,9 +1703,13 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 		space = NULL;
 	}
 
-	ret = __swmmu_check_dynamic_access_mm(mm, address, size, false);
-	if (ret)
-		goto out_unlock;
+	/* A single-page access can be checked while it is copied. */
+	if (!single_page) {
+		ret = __swmmu_check_dynamic_access_mm(mm, address, size,
+						      false);
+		if (ret)
+			goto out_unlock;
+	}
 
 	while (size) {
 		struct vm_area_struct *vma;
@@ -1713,6 +1723,17 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 			chunk = size;
 
 		vma = find_vma(mm, address);
+		if (single_page && (!vma || address < vma->vm_start ||
+		    chunk > vma->vm_end - address)) {
+			ret = -EFAULT;
+			break;
+		}
+		if (single_page && !vma->vm_swmmu_pt_range &&
+		    READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON &&
+		    !(vma->vm_flags & VM_READ)) {
+			ret = -EACCES;
+			break;
+		}
 		if (vma && vma->vm_swmmu_pt_range && alias_locked &&
 		    swmmu_vma_alias_accessible(vma, address, chunk, PROT_READ)) {
 			source = (const void *)address;
@@ -1747,10 +1768,16 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 {
 	struct nommu_swmmu_space *space;
 	bool alias_locked = false;
+	bool single_page;
 	int ret = 0;
 
 	if (!mm || !size)
 		return -EINVAL;
+	if (address > ULONG_MAX - size)
+		return -EOVERFLOW;
+
+	single_page = size <= SWMMU_PAGE_SIZE -
+		(address & (SWMMU_PAGE_SIZE - 1));
 
 	mmap_read_lock(mm);
 	space = mm->swmmu_space;
@@ -1761,9 +1788,12 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 		space = NULL;
 	}
 
-	ret = __swmmu_check_dynamic_access_mm(mm, address, size, true);
-	if (ret)
-		goto out_unlock;
+	if (!single_page) {
+		ret = __swmmu_check_dynamic_access_mm(mm, address, size,
+						      true);
+		if (ret)
+			goto out_unlock;
+	}
 
 	while (size) {
 		struct vm_area_struct *vma;
@@ -1784,6 +1814,12 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 					    "address=%lx\n",
 					    cpu_tasks[0]->pid, mm, address);
 			ret = -EFAULT;
+			break;
+		}
+		if (single_page && !vma->vm_swmmu_pt_range &&
+		    READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON &&
+		    !(vma->vm_flags & VM_WRITE)) {
+			ret = -EACCES;
 			break;
 		}
 		if (vma->vm_swmmu_pt_range && alias_locked &&

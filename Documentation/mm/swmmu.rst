@@ -139,6 +139,15 @@ unmapped and accesses must use the SWMMU helper path. This prevents a
 fixed-address guest mapping from replacing UML kernel text, physical memory,
 or another host mapping in the UML process.
 
+This fallback is insufficient for a VMA converted from native memory during
+fork when userspace still executes ordinary instructions against it. The VMA
+keeps its virtual address, but compiler-generated stack frames, returns, and
+assembly can access the old native mapping without a helper. In a default-off
+mixed-VMA run, the alias guard refused the VMA containing both the executable
+and user stack; the forked selftest then returned through executable bytes in
+place of its stack frame. Supporting arbitrary mixed native/SWMMU fork
+requires a coherent directly accessible stack and native view across fork.
+
 This is an internal kernel user-copy path. It does not remove
 compiler-generated load/store helper calls from userspace. A userspace runtime
 fast path would also need a way to discover per-VMA eligible ranges and keep

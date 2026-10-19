@@ -19,6 +19,48 @@ pointer is native or SWMMU-backed. It only uses compiler-visible pointer types,
 known allocator calls, local-variable addresses, and explicit build-time
 assertions described below.
 
+Build-wide profile
+==================
+
+A package can opt in using the plugin CFLAGS alone, with the matching SWMMU
+runtime and headers installed in the toolchain sysroot::
+
+   -include /path/to/swmmu-runtime-decls.h \
+   -fplugin=/path/to/swmmu_plugin.so \
+   -fplugin-arg-swmmu_plugin-all-access=1
+
+The forced include must declare the runtime load/store functions with the
+signatures expected by the plugin. The UAPI ``linux/nommu_swmmu.h`` alone
+only declares flags and is insufficient. No source filename, directory,
+allocator name, or application-specific pointer annotation is needed. The
+kernel dynamic helpers dispatch each access
+using the current VMA. For scalar accesses contained in one page, the kernel
+checks the VMA and copies in one traversal; accesses crossing a page retain
+preflight validation before any write. The userspace runtime must actually
+call these helpers for uncertain pointers: a low-address direct-access
+shortcut can bypass the kernel check after fork.
+
+This build profile does not yet make mixed native/SWMMU fork a general
+production configuration. The fork path may convert a native stack to SWMMU
+at the same address while UML refuses a host alias that would overlap its own
+physical-memory mapping. The plugin does not transform compiler-generated
+prologue/epilogue stack accesses or assembly instructions. Those native CPU
+accesses cannot follow an aliasless SWMMU stack. Before enabling default-off
+SWMMU for arbitrary fork-using programs, the kernel and compiler must provide
+a directly accessible stack across fork or otherwise handle every such access.
+
+This profile retains a syscall for an access whose pointer cannot be proved
+native by the compiler. Its speed must be measured on the deployed workload.
+The experimental ``native-range-guard`` and ``native-source-*`` options can
+remove more calls, but a numerical address alone is not a durable native VMA
+property. A native private mapping can be converted to an SWMMU VMA at fork
+without changing its address. An SWMMU VMA may also have no host alias when
+it intersects UML's reserved host range. A general direct-access optimization
+therefore needs kernel-maintained, per-mm eligibility information that stays
+current across fork, mmap, mprotect, munmap, mremap, and mm activation. The
+current kernel does not expose such an ABI; do not treat the experimental
+options as a build-wide production policy.
+
 All-access mode
 ===============
 

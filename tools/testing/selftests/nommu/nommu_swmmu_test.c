@@ -4333,6 +4333,12 @@ int main(void)
 		return KSFT_FAIL;
 	/* Exercise native allocator paths before enabling SWMMU for the suite. */
 	for (int i = 0; i < 4; i++) {
+		if (!swmmu_mode_switching && (i == 1 || i == 2)) {
+			ksft_test_result_skip("%s: SWMMU mode switching is unavailable in default-on profile\n",
+				i == 1 ? "test_dynamic_access" :
+				"test_allocator_domains");
+			continue;
+		}
 		int test_result = (i == 0 || i == 3) ? testcases[i]() :
 			run_isolated_test(testcases[i], i == 1 ?
 				"test_dynamic_access" : i == 2 ?
