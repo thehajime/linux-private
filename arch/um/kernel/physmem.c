@@ -180,10 +180,29 @@ static void uml_nommu_swmmu_host_unmap_page(unsigned long address)
 {
 	int ret;
 
+	if (address >= um_nommu_swmmu_direct_start &&
+	    address < um_nommu_swmmu_direct_end) {
+		/* Keep holes unavailable to both guest accesses and host mmap. */
+		ret = os_reserve_memory((void *)address, PAGE_SIZE, 1);
+		if (ret)
+			panic("SWMMU: cannot restore direct-window guard: %d\n", ret);
+		return;
+	}
+
 	ret = os_unmap_memory((void *)address, PAGE_SIZE);
 	if (ret)
 		pr_warn("SWMMU: failed to unmap host page %lx: %d\n",
 			address, ret);
+}
+
+static int uml_nommu_swmmu_direct_window(unsigned long *start,
+					unsigned long *end)
+{
+	if (!um_nommu_swmmu_direct_end)
+		return -EOPNOTSUPP;
+	*start = um_nommu_swmmu_direct_start;
+	*end = um_nommu_swmmu_direct_end;
+	return 0;
 }
 
 static int uml_nommu_swmmu_host_protect_range(unsigned long address,
@@ -197,6 +216,7 @@ static int uml_nommu_swmmu_host_protect_range(unsigned long address,
 }
 
 static const struct nommu_swmmu_host_ops uml_nommu_swmmu_host_ops = {
+	.direct_window = uml_nommu_swmmu_direct_window,
 	.alias_range_allowed = uml_nommu_swmmu_alias_range_allowed,
 	.map_page = uml_nommu_swmmu_host_map_page,
 	.unmap_page = uml_nommu_swmmu_host_unmap_page,

@@ -155,6 +155,52 @@ that information current across ``mmap()``, ``mprotect()``, ``munmap()``,
 ``mremap()``, and address-space switches; the current kernel exposes no such
 ABI. KUnit coverage checks the eligibility predicate and its boundaries.
 
+Reserved direct alias window (experimental)
+-------------------------------------------
+
+On single-CPU x86_64 UML SAS, ``swmmu_direct=1`` requests an exclusively
+guest-owned host virtual-address reservation starting at the SWMMU VA base.
+It is capped at 1 TiB and at the first existing host mapping, and is refused
+if it would overlap UML's physical or virtual memory range. Reservation uses
+``MAP_FIXED_NOREPLACE`` and ``PROT_NONE``; failure leaves the optimization
+disabled. It reserves address space, without committing 1 TiB of memory.
+
+Every page in the reserved window is either a current guest host alias or an
+inaccessible guard. Removing an alias restores ``PROT_NONE`` with a fixed
+anonymous reservation instead of leaving a hole that an unrelated host mmap
+could reuse. Failure to restore this invariant is fatal. Address-space
+activation replaces aliases with the active mm's backing before userspace
+runs. Mapping permissions remain enforced by the host. Current private fork
+clones copy backing eagerly; any future lazy COW implementation must protect
+shared host pages before permitting direct stores. Native physical addresses
+outside the window retain their existing helper path.
+
+The ``nommu_swmmu_load`` syscall accepts the standalone query flag
+``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` with a null address, a size of 16, and an
+output pointer to two ``u64`` values. It returns the immutable inclusive start
+and exclusive end, or ``-EOPNOTSUPP`` when the backend or boot configuration
+does not provide the reservation. Other combinations with this flag are
+invalid. This geometry remains valid across mapping changes and fork; the
+actual host mapping at an address supplies its current backing and permission.
+It is not a cache of mutable VMA permissions. Code must not infer eligibility
+for addresses outside the returned interval.
+
+The matching runtime can initialize zero bounds on its first fallback access,
+publish start followed by a release-store of end, and use inline scalar
+load/store guards thereafter. Readers acquire-load end before reading start.
+The reference compiler header limits direct scalar accesses to one 4 KiB page
+and sizes 1, 2, 4 or 8; other operations keep the syscall path. This optional
+backend optimization is separate from the unresolved default-off migration of
+native stacks without aliases.
+
+``tools/testing/selftests/nommu/nommu_swmmu_direct_test`` exercises the query,
+direct/helper backing agreement, repeated parent/child isolation, protection
+fault codes, inaccessible holes, fixed replacement, and mapping growth. Build
+it with the documented musl toolchain and run in a default-on guest with
+``swmmu_direct=1``. It intentionally executes direct instructions to test the
+backend contract, independently of compiler instrumentation. An unavailable
+query causes a skip.
+
 Explicit native-pointer compiler contract
 -----------------------------------------
 

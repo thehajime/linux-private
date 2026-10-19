@@ -31,6 +31,8 @@ struct swmmu_pagetable_range {
 
 	unsigned long host_start;
 	bool host_mapped;
+	/* Some pages may have been removed by overlapping range teardown. */
+	bool host_dirty;
 };
 
 enum swmmu_pagetable_tx_kind {
@@ -331,14 +333,18 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 
 	range->host_start = start;
 	range->host_mapped = true;
+	range->host_dirty = false;
 	range->prot = prot;
 	return 0;
 
 rollback:
-	while (i--)
+	/* A repair may have started with a partially installed old alias. */
+	for (i = 0; i < range->nr_ptes; i++)
 		host_ops->unmap_page(start + i * SWMMU_PAGE_SIZE);
 
+	range->host_start = 0;
 	range->host_mapped = false;
+	range->host_dirty = false;
 	return ret;
 }
 
@@ -368,9 +374,27 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 			range->host_start + i * SWMMU_PAGE_SIZE);
 	}
 
+	/* A detached old range may overlap freshly published replacement VMAs. */
+	if (space->mm) {
+		unsigned long start = range->host_start;
+		unsigned long end = start + range->nr_ptes * SWMMU_PAGE_SIZE;
+		VMA_ITERATOR(vmi, space->mm, start);
+		struct vm_area_struct *vma;
+
+		for_each_vma(vmi, vma) {
+			struct swmmu_pagetable_range *overlap = vma->vm_swmmu_pt_range;
+
+			if (vma->vm_start >= end)
+				break;
+			if (overlap && overlap->host_mapped)
+				overlap->host_dirty = true;
+		}
+	}
+
 clear_mapping_state:
 	range->host_start = 0;
 	range->host_mapped = false;
+	range->host_dirty = false;
 }
 
 void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm)
@@ -385,18 +409,15 @@ void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm)
 		WRITE_ONCE(space->host_generation,
 			   READ_ONCE(space->host_generation) + 1);
 
-	if (READ_ONCE(swmmu_host_active_mm) != mm)
-		return;
-
 	/*
-	 * The VMA teardown path will unmap each range through
-	 * nommu_swmmu_vma_close(). Only invalidate the active-mm cache here.
+	 * Retain the actual owner while its generation is dirty. Range teardown
+	 * clears the affected aliases; same-mm activation only repairs those
+	 * ranges. Clearing the owner here used to force a whole-mm remap after
+	 * every munmap, including allocator and loader cleanup.
 	 */
-	WRITE_ONCE(swmmu_host_active_mm, NULL);
-	WRITE_ONCE(swmmu_host_active_generation, 0);
 }
 
-static int swmmu_host_map_mm(struct mm_struct *mm)
+static int swmmu_host_map_mm(struct mm_struct *mm, bool repair_only)
 {
 	struct nommu_swmmu_space *space;
 	VMA_ITERATOR(vmi, mm, 0);
@@ -424,6 +445,9 @@ static int swmmu_host_map_mm(struct mm_struct *mm)
 
 		range = vma->vm_swmmu_pt_range;
 		if (!range)
+			continue;
+		if (repair_only && range->host_mapped && !range->host_dirty &&
+		    range->host_start == vma->vm_start)
 			continue;
 
 		ret = swmmu_host_map_range(space, range, vma->vm_start,
@@ -535,6 +559,13 @@ int nommu_swmmu_activate_mm(struct mm_struct *mm)
 	    READ_ONCE(swmmu_host_active_generation) == generation)
 		return 0;
 
+	if (old_mm == mm) {
+		ret = swmmu_host_map_mm(mm, true);
+		if (!ret)
+			WRITE_ONCE(swmmu_host_active_generation, generation);
+		return ret;
+	}
+
 	if (old_mm)
 		swmmu_host_unmap_mm(old_mm);
 
@@ -547,7 +578,7 @@ int nommu_swmmu_activate_mm(struct mm_struct *mm)
 	 */
 	swmmu_host_unmap_mm(mm);
 
-	ret = swmmu_host_map_mm(mm);
+	ret = swmmu_host_map_mm(mm, false);
 	if (ret)
 		return ret;
 
@@ -870,7 +901,8 @@ static bool swmmu_vma_alias_accessible(const struct vm_area_struct *vma,
 		vma->vm_swmmu_pt_range;
 	unsigned long length;
 
-	if (!range || !range->host_mapped || !range->pagetable || !size ||
+	if (!range || !range->host_mapped || range->host_dirty ||
+	    !range->pagetable || !size ||
 	    address < vma->vm_start || address > vma->vm_end ||
 	    address > ULONG_MAX - size ||
 	    size > vma->vm_end - address ||
@@ -1340,6 +1372,10 @@ void nommu_swmmu_space_detach(struct mm_struct *mm)
 	space = mm->swmmu_space;
 	if (!space)
 		return;
+	if (READ_ONCE(swmmu_host_active_mm) == mm) {
+		WRITE_ONCE(swmmu_host_active_mm, NULL);
+		WRITE_ONCE(swmmu_host_active_generation, 0);
+	}
 
 	if (space->mm == mm)
 		space->mm = NULL;
@@ -2156,6 +2192,12 @@ EXPORT_SYMBOL_GPL(nommu_swmmu_copy_from_user);
 
 
 #if IS_ENABLED(CONFIG_NOMMU_SWMMU_KUNIT_TEST)
+void nommu_swmmu_kunit_set_host_ops(struct nommu_swmmu_space *space,
+				 const struct nommu_swmmu_host_ops *ops)
+{
+	space->host_ops = ops;
+}
+
 int nommu_swmmu_kunit_load_mm(struct mm_struct *mm,
 			      uintptr_t address,
 			      size_t size,
@@ -2929,6 +2971,7 @@ static void swmmu_split_commit(struct vm_area_struct *vma,
 		tx->source->host_start = vma->vm_start;
 		tx->new_range->host_start = new->vm_start;
 		tx->new_range->host_mapped = true;
+		tx->new_range->host_dirty = tx->source->host_dirty;
 	}
 
 	new->vm_swmmu_pt_range = tx->new_range;
@@ -3970,6 +4013,24 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 	u64 value = 0;
 	int ret;
 	bool return_value = flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE;
+
+	if (flags == NOMMU_SWMMU_QUERY_DIRECT_WINDOW) {
+		struct nommu_swmmu_space *space = current->mm->swmmu_space;
+		unsigned long start, end;
+		u64 bounds[2];
+
+		if (address || size != sizeof(bounds) || !result)
+			return -EINVAL;
+		if (!space || !space->host_ops ||
+		    !space->host_ops->direct_window)
+			return -EOPNOTSUPP;
+		ret = space->host_ops->direct_window(&start, &end);
+		if (ret)
+			return ret;
+		bounds[0] = start;
+		bounds[1] = end;
+		return copy_to_user(result, bounds, sizeof(bounds)) ? -EFAULT : 0;
+	}
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
 		return -EINVAL;

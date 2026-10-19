@@ -40,6 +40,8 @@ struct nommu_swmmu_mem_ops {
 };
 
 struct nommu_swmmu_host_ops {
+	/* Immutable, exclusively guest-owned alias window, or -EOPNOTSUPP. */
+	int (*direct_window)(unsigned long *start, unsigned long *end);
 	/* Return false when an alias would cover UML-owned host mappings. */
 	bool (*alias_range_allowed)(unsigned long address, unsigned long length);
 	int (*map_page)(unsigned long address, struct page *page,
@@ -63,6 +65,9 @@ const struct nommu_swmmu_mem_ops *nommu_swmmu_arch_mem_ops(void);
 struct nommu_swmmu_space *
 nommu_swmmu_space_create_with_ops(
 	const struct nommu_swmmu_mem_ops *mem_ops);
+
+void nommu_swmmu_kunit_set_host_ops(struct nommu_swmmu_space *space,
+				 const struct nommu_swmmu_host_ops *ops);
 
 int nommu_swmmu_kunit_pagetable_alloc(
 	struct nommu_swmmu_space *space,

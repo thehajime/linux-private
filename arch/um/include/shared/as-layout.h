@@ -46,6 +46,8 @@ extern unsigned long uml_physmem;
 extern unsigned long uml_reserved;
 #if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_NOMMU_SWMMU)
 extern unsigned long um_nommu_swmmu_user_end;
+extern unsigned long um_nommu_swmmu_direct_start;
+extern unsigned long um_nommu_swmmu_direct_end;
 #endif
 extern unsigned long end_vm;
 extern unsigned long start_vm;

@@ -5,6 +5,10 @@
 
 TEST_GEN_PROGS += nommu_swmmu_test
 TEST_GEN_PROGS += nommu_swmmu_expand_test
+TEST_GEN_PROGS += nommu_swmmu_direct_test
+
+$(OUTPUT)/nommu_swmmu_direct_test: CFLAGS += \
+	-I$(top_srcdir)/include/uapi $(KHDR_INCLUDES) $(TOOLS_INCLUDES)
 
 $(OUTPUT)/nommu_swmmu_test: nommu_swmmu_test.c nommu_swmmu_user.c
 $(OUTPUT)/nommu_swmmu_expand_test: nommu_swmmu_expand_test.c nommu_swmmu_user.c

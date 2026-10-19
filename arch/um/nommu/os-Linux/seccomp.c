@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
@@ -18,6 +19,20 @@ extern unsigned long task_size;
 
 #if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_NOMMU_SWMMU)
 unsigned long um_nommu_swmmu_user_end;
+unsigned long um_nommu_swmmu_direct_start;
+unsigned long um_nommu_swmmu_direct_end;
+static int swmmu_direct_requested;
+
+static int __init swmmu_direct_setup(char *line, int *add)
+{
+	*add = 0;
+	swmmu_direct_requested = !strcmp(line, "1");
+	return 0;
+}
+__uml_setup("swmmu_direct=", swmmu_direct_setup,
+"swmmu_direct=1\n"
+"    Reserve an experimental guest-only SWMMU direct-access alias window.\n\n"
+);
 
 static int __init find_first_host_mapping(unsigned long *mapping_start)
 {
@@ -131,6 +146,25 @@ int __init os_setup_seccomp(void)
 	if (first_host_mapping < swmmu_end)
 		swmmu_end = first_host_mapping;
 	um_nommu_swmmu_user_end = swmmu_end;
+	if (swmmu_direct_requested && !IS_ENABLED(CONFIG_SMP) &&
+	    swmmu_start >= end_vm &&
+	    swmmu_end > swmmu_start) {
+		unsigned long length = swmmu_end - swmmu_start;
+
+		/* Bound the reservation to 1 TiB; never reserve host-owned space. */
+		if (length > (1UL << 40))
+			length = 1UL << 40;
+		length &= ~4095UL;
+		err = os_reserve_memory((void *)swmmu_start, length, 0);
+		if (!err) {
+			um_nommu_swmmu_direct_start = swmmu_start;
+			um_nommu_swmmu_direct_end = swmmu_start + length;
+			os_info("SWMMU direct window: %lx-%lx\n",
+				swmmu_start, swmmu_start + length);
+		} else {
+			os_warn("SWMMU direct window unavailable: %d\n", err);
+		}
+	}
 #endif
 #endif
 

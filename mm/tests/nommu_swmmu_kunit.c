@@ -832,6 +832,88 @@ KUNIT_DEFINE_ACTION_WRAPPER(
 	nommu_swmmu_mm_ctx_destroy,
 	struct nommu_swmmu_mm_test_ctx *);
 
+static const struct nommu_swmmu_host_ops *alias_test_real_ops;
+static struct nommu_swmmu_host_ops alias_test_ops;
+static unsigned long alias_test_base, alias_test_installed, alias_test_maps;
+
+static int alias_test_map(unsigned long address, struct page *page,
+			  unsigned int prot)
+{
+	int ret = alias_test_real_ops->map_page(address, page, prot);
+
+	if (!ret && address >= alias_test_base &&
+	    address - alias_test_base < 8 * SWMMU_PAGE_SIZE) {
+		alias_test_maps++;
+		alias_test_installed |= 1UL <<
+			((address - alias_test_base) / SWMMU_PAGE_SIZE);
+	}
+	return ret;
+}
+
+static void alias_test_unmap(unsigned long address)
+{
+	alias_test_real_ops->unmap_page(address);
+	if (address >= alias_test_base &&
+	    address - alias_test_base < 8 * SWMMU_PAGE_SIZE)
+		alias_test_installed &= ~(1UL <<
+			((address - alias_test_base) / SWMMU_PAGE_SIZE));
+}
+
+static void nommu_swmmu_mm_alias_repair_test(struct kunit *test)
+{
+	struct nommu_swmmu_mm_test_ctx *ctx = test->priv;
+	struct nommu_swmmu_mm_test_ctx *other;
+	unsigned long address, separate, maps, replaced;
+
+	other = kunit_kzalloc(test, sizeof(*other), GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, other);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_mm_ctx_create(other, test), 0);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test,
+		nommu_swmmu_mm_ctx_destroy_action, other), 0);
+	alias_test_real_ops = nommu_swmmu_arch_host_ops();
+	KUNIT_ASSERT_NOT_NULL(test, alias_test_real_ops);
+	alias_test_ops = *alias_test_real_ops;
+	alias_test_ops.map_page = alias_test_map;
+	alias_test_ops.unmap_page = alias_test_unmap;
+	nommu_swmmu_kunit_set_host_ops(ctx->space, &alias_test_ops);
+
+	address = nommu_swmmu_kunit_mmap_mm(ctx->mm, 0,
+		4 * SWMMU_PAGE_SIZE, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_GT(test, address, 0UL);
+	separate = nommu_swmmu_kunit_mmap_mm(ctx->mm, 0,
+		SWMMU_PAGE_SIZE, PROT_READ | PROT_WRITE,
+		MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_GT(test, separate, 0UL);
+	alias_test_base = address;
+	alias_test_installed = alias_test_maps = 0;
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
+	maps = alias_test_maps;
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_store_mm(ctx->mm,
+		address, sizeof(u64), 41), 0);
+
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_unmap_mm(ctx->mm,
+		separate, SWMMU_PAGE_SIZE), 0);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
+	KUNIT_EXPECT_EQ(test, alias_test_maps, maps);
+	KUNIT_EXPECT_EQ(test, READ_ONCE(*(u64 *)address), 41ULL);
+
+	/* Switch owners before repairing a detached overlapping replacement. */
+	replaced = nommu_swmmu_kunit_mmap_mm(ctx->mm,
+		address + SWMMU_PAGE_SIZE, SWMMU_PAGE_SIZE,
+		PROT_READ | PROT_WRITE,
+		MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_EQ(test, replaced, address + SWMMU_PAGE_SIZE);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(other->mm), 0);
+	KUNIT_EXPECT_EQ(test, alias_test_installed, 0UL);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
+	KUNIT_EXPECT_EQ(test, alias_test_installed & 15UL, 15UL);
+	KUNIT_EXPECT_EQ(test, READ_ONCE(*(u64 *)address), 41ULL);
+	KUNIT_EXPECT_EQ(test, READ_ONCE(*(u64 *)replaced), 0ULL);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(NULL), 0);
+	nommu_swmmu_kunit_set_host_ops(ctx->space, alias_test_real_ops);
+}
+
 static void nommu_swmmu_mm_fork_clone_test(struct kunit *test)
 {
 	struct nommu_swmmu_mm_test_ctx *parent;
@@ -2393,6 +2475,7 @@ static void nommu_swmmu_mm_ctx_exit(struct kunit *test)
 static struct kunit_case nommu_swmmu_mm_test_cases[] = {
 	KUNIT_CASE(nommu_swmmu_mm_mapping_test),
 	KUNIT_CASE(nommu_swmmu_vma_alias_eligibility_test),
+	KUNIT_CASE(nommu_swmmu_mm_alias_repair_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_shrink_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_rollback_test),
