@@ -70,6 +70,7 @@ static bool swmmu_return_value_load;
 static bool swmmu_native_stack;
 static bool swmmu_native_allocator_results;
 static bool swmmu_native_range_guard;
+static bool swmmu_post_scalar;
 static std::vector<std::string> swmmu_excluded_functions;
 static std::vector<std::string> swmmu_native_allocator_functions;
 static std::vector<std::string> swmmu_native_reallocator_functions;
@@ -651,6 +652,11 @@ is_swmmu_runtime_function(tree fndecl)
 	function_name = IDENTIFIER_POINTER(name);
 
 	return !strcmp(function_name, SWMMU_LOAD_NAME) ||
+		!strcmp(function_name, "nommu_swmmu_native_range") ||
+		!strcmp(function_name, "nommu_swmmu_direct_span") ||
+		!strcmp(function_name, "nommu_swmmu_native_load") ||
+		!strcmp(function_name, "nommu_swmmu_native_store") ||
+		!strcmp(function_name, "nommu_swmmu_native_cmpxchg_u32") ||
 		!strcmp(function_name, SWMMU_STORE_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_GUARDED_NAME) ||
@@ -2571,6 +2577,10 @@ swmmu_late_function_transform(struct cgraph_node *node)
 	if (!node->has_gimple_body_p())
 		return 0;
 
+	/* The scalar-optimization pipeline is not run for -O0 functions. */
+	if (swmmu_post_scalar && opt_for_fn(node->decl, optimize))
+		return 0;
+
 	fn = DECL_STRUCT_FUNCTION(node->decl);
 	if (!fn)
 		return 0;
@@ -2614,6 +2624,38 @@ public:
 		opt_pass *clone() override
 		{
 			return new swmmu_pass(m_ctxt);
+		}
+	};
+
+	static const pass_data swmmu_post_scalar_pass_data = {
+		GIMPLE_PASS,
+		"swmmu_post_scalar",
+		OPTGROUP_NONE,
+		TV_NONE,
+		PROP_cfg | PROP_ssa,
+		0, 0, 0,
+		TODO_update_ssa,
+	};
+
+	class swmmu_post_scalar_pass : public gimple_opt_pass {
+public:
+		explicit swmmu_post_scalar_pass(gcc::context *ctx)
+			: gimple_opt_pass(swmmu_post_scalar_pass_data, ctx) {}
+
+		unsigned int execute(function *fn) override
+		{
+			swmmu_transform_function(fn);
+			/*
+			 * GCC removed callgraph edges on entry to local scalar
+			 * optimization and freed IPA call summaries. Recreating
+			 * edges here makes local-pure-const use those freed tables.
+			 */
+			return TODO_update_ssa;
+		}
+
+		opt_pass *clone() override
+		{
+			return new swmmu_post_scalar_pass(m_ctxt);
 		}
 	};
 
@@ -2666,6 +2708,17 @@ plugin_init(struct plugin_name_args *plugin_info,
 
 		if (!strcmp(key, "all-access")) {
 			swmmu_all_access = true;
+			continue;
+		}
+
+		if (!strcmp(key, "post-scalar")) {
+			swmmu_post_scalar = true;
+			continue;
+		}
+
+		if (!strcmp(key, "direct-window")) {
+			/* The matching header reads kernel-authorized runtime bounds. */
+			swmmu_native_range_guard = true;
 			continue;
 		}
 
@@ -2753,6 +2806,24 @@ plugin_init(struct plugin_name_args *plugin_info,
 		error_at(UNKNOWN_LOCATION,
 			 "swmmu native-range-guard cannot be combined with return-value-load");
 		return 1;
+	}
+
+	if (swmmu_post_scalar &&
+	    (!swmmu_all_access || swmmu_native_range_guard)) {
+		error_at(UNKNOWN_LOCATION,
+			 "swmmu post-scalar requires all-access without native-range-guard");
+		return 1;
+	}
+
+	if (swmmu_post_scalar) {
+		static register_pass_info scalar_pass_info;
+
+		scalar_pass_info.pass = new swmmu_post_scalar_pass(g);
+		scalar_pass_info.reference_pass_name = "pre";
+		scalar_pass_info.ref_pass_instance_number = 1;
+		scalar_pass_info.pos_op = PASS_POS_INSERT_AFTER;
+		register_callback(plugin_info->base_name,
+				PLUGIN_PASS_MANAGER_SETUP, NULL, &scalar_pass_info);
 	}
 
 	if (!swmmu_all_access || swmmu_native_range_guard) {

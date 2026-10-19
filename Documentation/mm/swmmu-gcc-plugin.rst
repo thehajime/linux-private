@@ -58,8 +58,9 @@ without changing its address. An SWMMU VMA may also have no host alias when
 it intersects UML's reserved host range. A general direct-access optimization
 therefore needs kernel-maintained, per-mm eligibility information that stays
 current across fork, mmap, mprotect, munmap, mremap, and mm activation. The
-current kernel does not expose such an ABI; do not treat the experimental
-options as a build-wide production policy.
+current kernel does not expose that mutable per-mm ABI. The optional reserved
+alias window described below provides a narrower backend guarantee. The
+numerical native-range and source assertions remain experimental.
 
 All-access mode
 ===============
@@ -121,6 +122,44 @@ Attributes
 
 Options
 =======
+
+``-fplugin-arg-swmmu_plugin-post-scalar=1``
+   Experimental all-access lowering after GCC's ``pre`` pass, before loop
+   vectorization. Scalar redundancy elimination and scalar replacement can run
+   before accesses become opaque calls. Functions compiled at ``-O0`` retain
+   the existing IPA lowering. The late GIMPLE pass must not recreate callgraph
+   edges after GCC has released IPA summaries. This option cannot be combined
+   with either guarded lowering mode below. It needs workload measurements;
+   fewer calls in a loop do not guarantee a faster complete application.
+
+``-fplugin-arg-swmmu_plugin-direct-window=1``
+   Select the early, inline guarded lowering using a matching runtime header
+   that reads kernel-authorized bounds. The reference header is
+   ``scripts/gcc-plugins/tests/swmmu_direct_window_guard.h``. It uses no source
+   lists or application-specific address constants. The runtime initially
+   publishes zero bounds and falls back to helpers. It may publish nonzero
+   bounds only after a successful ``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` query.
+   Publication is one-time: write start first, then release-store end; readers
+   acquire-load end before reading start. This is distinct from a mutable VMA
+   eligibility cache. See the reserved alias-window contract in ``swmmu.rst``.
+
+   On the currently supported x86_64 UML backend, scalar accesses entirely
+   within one 4 KiB page and this window execute ordinary CPU instructions.
+   Others retain the dynamic helper path. The matching libc must export
+   ``nommu_swmmu_direct_start`` and ``nommu_swmmu_direct_end``. While building
+   libc itself, the reference header uses hidden aliases under
+   ``SWMMU_BUILDING_LIBC`` so its bootstrap does not require relocated GOT
+   entries. Package CFLAGS can be supplied by one common toolchain wrapper::
+
+      -include /path/to/swmmu-runtime-decls.h \
+      -include /path/to/swmmu_direct_window_guard.h \
+      -fplugin=/path/to/swmmu_plugin.so \
+      -fplugin-arg-swmmu_plugin-all-access=1 \
+      -fplugin-arg-swmmu_plugin-direct-window=1
+
+   The default-off native-to-SWMMU fork limitation described above still
+   applies outside this window. This option does not certify native physical
+   addresses or resolve aliasless native stack migration.
 
 ``-fplugin-arg-swmmu_plugin-return-value-load=1``
    In all-access mode, lower scalar loads to

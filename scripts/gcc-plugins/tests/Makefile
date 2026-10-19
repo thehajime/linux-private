@@ -3,6 +3,7 @@
 # Standalone compile-only tests for the SWMMU GCC plugin.
 
 SHELL := /bin/sh
+.DEFAULT_GOAL := all
 
 TEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SRCTREE := $(abspath $(TEST_DIR)/../../..)
@@ -38,6 +39,38 @@ ALL_ACCESS_NATIVE_STACK_ASM := $(OUTPUT)/swmmu_all_access_native_stack.s
 .PHONY: all-access-native-allocator-results
 .PHONY: all-access-native-source-file
 .PHONY: all-access-native-range-guard
+.PHONY: all-access-post-scalar
+.PHONY: all-access-direct-window
+
+all-access-direct-window:
+	@mkdir -p $(OUTPUT)
+	$(CC) -O2 -ffunction-sections -fdata-sections \
+		-fplugin=$(PLUGIN) -fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-direct-window=1 \
+		-include $(TEST_DIR)/swmmu_direct_window_guard.h \
+		-c $(TEST_DIR)/swmmu_post_scalar.c -o $(OUTPUT)/direct-window.o
+	$(CC) -O2 -Wl,--gc-sections -DSWMMU_TEST_DIRECT_WINDOW \
+		$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+		$(OUTPUT)/direct-window.o -o $(OUTPUT)/direct-window
+	$(OUTPUT)/direct-window
+
+# The fixture uses addresses that cannot be dereferenced on the host. The
+# uninstrumented runtime translates these tokens to its private backing array.
+all-access-post-scalar:
+	@mkdir -p $(OUTPUT)
+	@set -eu; for opt in 0 1 2 3 s; do \
+		$(CC) -O$$opt -ffunction-sections -fdata-sections \
+			-fplugin=$(PLUGIN) \
+			-fplugin-arg-swmmu_plugin-all-access=1 \
+			-fplugin-arg-swmmu_plugin-post-scalar=1 \
+			-c $(TEST_DIR)/swmmu_post_scalar.c \
+			-o $(OUTPUT)/post-scalar-$$opt.o; \
+		$(CC) -O2 -Wl,--gc-sections \
+			$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+			$(OUTPUT)/post-scalar-$$opt.o \
+			-o $(OUTPUT)/post-scalar-$$opt; \
+		$(OUTPUT)/post-scalar-$$opt; \
+	done
 .PHONY: $(filter test-negative%,$(MAKECMDGOALS))
 
 define check_swmmu_asm
