@@ -880,6 +880,47 @@ static void alias_test_unmap_range(unsigned long address, unsigned long length)
 	}
 }
 
+static struct mm_struct *alias_owner_ref_mm;
+static int alias_owner_ref_users;
+
+static void alias_owner_ref_unmap(unsigned long address, unsigned long length)
+{
+	if (alias_owner_ref_mm)
+		alias_owner_ref_users = atomic_read(&alias_owner_ref_mm->mm_users);
+	alias_test_real_ops->unmap_range(address, length);
+}
+
+static void nommu_swmmu_mm_alias_owner_ref_test(struct kunit *test)
+{
+	struct nommu_swmmu_mm_test_ctx *ctx = test->priv;
+	unsigned long address;
+	int users, ret;
+
+	alias_test_real_ops = nommu_swmmu_arch_host_ops();
+	if (!alias_test_real_ops || !alias_test_real_ops->unmap_range) {
+		kunit_skip(test, "backend lacks bulk unmap");
+		return;
+	}
+	alias_test_ops = *alias_test_real_ops;
+	alias_test_ops.unmap_range = alias_owner_ref_unmap;
+	nommu_swmmu_kunit_set_host_ops(ctx->space, &alias_test_ops);
+	address = nommu_swmmu_kunit_mmap_mm(ctx->mm, 0, SWMMU_PAGE_SIZE,
+		PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_FALSE(test, IS_ERR_VALUE(address));
+	KUNIT_ASSERT_NE(test, address, 0UL);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
+
+	users = atomic_read(&ctx->mm->mm_users);
+	alias_owner_ref_users = 0;
+	alias_owner_ref_mm = ctx->mm;
+	ret = nommu_swmmu_activate_mm(NULL);
+	alias_owner_ref_mm = NULL;
+	KUNIT_ASSERT_EQ(test, ret, 0);
+	KUNIT_EXPECT_GT(test, alias_owner_ref_users, users);
+	KUNIT_EXPECT_EQ(test, atomic_read(&ctx->mm->mm_users), users);
+	nommu_swmmu_kunit_set_host_ops(ctx->space, alias_test_real_ops);
+}
+
 static void nommu_swmmu_mm_alias_bulk_rollback_test(struct kunit *test)
 {
 	struct nommu_swmmu_mm_test_ctx *ctx = test->priv;
@@ -2548,6 +2589,7 @@ static struct kunit_case nommu_swmmu_mm_test_cases[] = {
 	KUNIT_CASE(nommu_swmmu_vma_alias_eligibility_test),
 	KUNIT_CASE(nommu_swmmu_mm_alias_repair_test),
 	KUNIT_CASE(nommu_swmmu_mm_alias_bulk_rollback_test),
+	KUNIT_CASE(nommu_swmmu_mm_alias_owner_ref_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_shrink_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_rollback_test),

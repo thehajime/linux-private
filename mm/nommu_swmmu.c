@@ -5,6 +5,8 @@
 #include <linux/highmem.h>
 #include <linux/syscalls.h>
 #include <linux/mman.h>
+#include <linux/preempt.h>
+#include <linux/sched/mm.h>
 
 #include "internal.h"
 
@@ -427,33 +429,43 @@ void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm)
 	 */
 }
 
+/* Host callbacks return zero or a negative errno, leaving this internal retry. */
+enum { SWMMU_HOST_OWNER_CHANGED = 1 };
+
 static int swmmu_host_map_mm(struct mm_struct *mm, bool repair_only)
 {
-	struct nommu_swmmu_space *space;
+	struct nommu_swmmu_space *space = mm->swmmu_space;
 	VMA_ITERATOR(vmi, mm, 0);
 	VMA_ITERATOR(rollback_vmi, mm, 0);
 	struct vm_area_struct *vma;
 	int ret = 0;
 
-	if (!mm)
-		return 0;
-
-	if (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON &&
-	    (!mm->swmmu_space ||
-	     !READ_ONCE(mm->swmmu_space->has_native_guard)))
-		return 0;
-
-	space = mm->swmmu_space;
 	if (!space || !space->host_ops)
 		return -EOPNOTSUPP;
 
 	mmap_read_lock(mm);
 	down_write(&space->lock);
+	/* Lock acquisition may have scheduled another alias owner. */
+	preempt_disable();
+	if (READ_ONCE(swmmu_host_active_mm) != (repair_only ? mm : NULL) ||
+	    (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON &&
+	     !READ_ONCE(space->has_native_guard))) {
+		ret = SWMMU_HOST_OWNER_CHANGED;
+		goto out_unlock;
+	}
+
+	if (!repair_only) {
+		/* Clear aliases prepared during exec without a published owner. */
+		for_each_vma(vmi, vma) {
+			if (vma->vm_swmmu_pt_range)
+				swmmu_host_unmap_range(space, vma->vm_swmmu_pt_range);
+		}
+		vma_iter_init(&vmi, mm, 0);
+	}
 
 	for_each_vma(vmi, vma) {
-		struct swmmu_pagetable_range *range;
+		struct swmmu_pagetable_range *range = vma->vm_swmmu_pt_range;
 
-		range = vma->vm_swmmu_pt_range;
 		if (!range)
 			continue;
 		if (repair_only && range->host_mapped && !range->host_dirty &&
@@ -466,54 +478,56 @@ static int swmmu_host_map_mm(struct mm_struct *mm, bool repair_only)
 			goto rollback;
 	}
 
+	WRITE_ONCE(swmmu_host_active_mm, mm);
+	WRITE_ONCE(swmmu_host_active_generation, READ_ONCE(space->host_generation));
 	goto out_unlock;
 
 rollback:
 	for_each_vma(rollback_vmi, vma) {
-		struct swmmu_pagetable_range *range;
-
-		range = vma->vm_swmmu_pt_range;
-		if (!range)
-			continue;
-
-		swmmu_host_unmap_range(space, range);
+		if (vma->vm_swmmu_pt_range)
+			swmmu_host_unmap_range(space, vma->vm_swmmu_pt_range);
 	}
+	WRITE_ONCE(swmmu_host_active_mm, NULL);
+	WRITE_ONCE(swmmu_host_active_generation, 0);
 
 out_unlock:
 	up_write(&space->lock);
 	mmap_read_unlock(mm);
-
+	preempt_enable();
 	return ret;
 }
 
-static void swmmu_host_unmap_mm(struct mm_struct *mm)
+static int swmmu_host_unmap_mm(struct mm_struct *mm)
 {
-	struct nommu_swmmu_space *space;
+	struct nommu_swmmu_space *space = mm->swmmu_space;
 	VMA_ITERATOR(vmi, mm, 0);
 	struct vm_area_struct *vma;
-
-	if (!mm)
-		return;
-
-	space = mm->swmmu_space;
-	if (!space)
-		return;
+	int ret = 0;
 
 	mmap_read_lock(mm);
-	down_write(&space->lock);
-
-	for_each_vma(vmi, vma) {
-		struct swmmu_pagetable_range *range;
-
-		range = vma->vm_swmmu_pt_range;
-		if (!range)
-			continue;
-
-		swmmu_host_unmap_range(space, range);
+	if (space)
+		down_write(&space->lock);
+	preempt_disable();
+	if (READ_ONCE(swmmu_host_active_mm) != mm) {
+		ret = SWMMU_HOST_OWNER_CHANGED;
+		goto out_unlock;
 	}
 
-	up_write(&space->lock);
+	if (space) {
+		for_each_vma(vmi, vma) {
+			if (vma->vm_swmmu_pt_range)
+				swmmu_host_unmap_range(space, vma->vm_swmmu_pt_range);
+		}
+	}
+	WRITE_ONCE(swmmu_host_active_mm, NULL);
+	WRITE_ONCE(swmmu_host_active_generation, 0);
+
+out_unlock:
+	if (space)
+		up_write(&space->lock);
 	mmap_read_unlock(mm);
+	preempt_enable();
+	return ret;
 }
 
 static int swmmu_host_protect_range(struct nommu_swmmu_space *space,
@@ -542,60 +556,63 @@ int nommu_swmmu_activate_mm(struct mm_struct *mm)
 {
 	struct nommu_swmmu_space *space;
 	struct mm_struct *old_mm;
-	u64 generation;
+	bool enabled, unchanged;
 	int ret;
 
+retry:
+	/*
+	 * The active owner is a raw pointer cleared by space_detach(). Pin its
+	 * users before taking any sleeping lock: an exec/exit may otherwise
+	 * free both the mm and its space while this task waits for mmap_lock.
+	 * The backend is single-CPU; prevent preemption across pointer lookup
+	 * and mmget_not_zero(), and revalidate ownership after sleeping locks.
+	 */
+	preempt_disable();
 	old_mm = READ_ONCE(swmmu_host_active_mm);
+	if (old_mm && !mmget_not_zero(old_mm)) {
+		preempt_enable();
+		cond_resched();
+		goto retry;
+	}
+	space = mm ? mm->swmmu_space : NULL;
+	enabled = mm && (READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON ||
+			 (space && READ_ONCE(space->has_native_guard)));
+	unchanged = enabled && space && old_mm == mm &&
+		READ_ONCE(swmmu_host_active_generation) ==
+		READ_ONCE(space->host_generation);
+	preempt_enable();
 
-	if (!mm ||
-	    (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON &&
-	     (!mm->swmmu_space ||
-	      !READ_ONCE(mm->swmmu_space->has_native_guard)))) {
-		if (old_mm)
-			swmmu_host_unmap_mm(old_mm);
-
-		WRITE_ONCE(swmmu_host_active_mm, NULL);
-		WRITE_ONCE(swmmu_host_active_generation, 0);
+	if (unchanged) {
+		mmput(old_mm);
 		return 0;
 	}
-
-	space = mm->swmmu_space;
-	if (!space)
+	if (!enabled) {
+		ret = old_mm ? swmmu_host_unmap_mm(old_mm) : 0;
+		if (old_mm)
+			mmput(old_mm);
+		if (ret == SWMMU_HOST_OWNER_CHANGED ||
+		    (!ret && READ_ONCE(swmmu_host_active_mm)))
+			goto retry;
+		return ret;
+	}
+	if (!space) {
+		if (old_mm)
+			mmput(old_mm);
 		return -EINVAL;
-
-	generation = READ_ONCE(space->host_generation);
-
-	if (old_mm == mm &&
-	    READ_ONCE(swmmu_host_active_generation) == generation)
-		return 0;
-
+	}
 	if (old_mm == mm) {
 		ret = swmmu_host_map_mm(mm, true);
+		mmput(old_mm);
+	} else {
+		ret = old_mm ? swmmu_host_unmap_mm(old_mm) : 0;
+		if (old_mm)
+			mmput(old_mm);
 		if (!ret)
-			WRITE_ONCE(swmmu_host_active_generation, generation);
-		return ret;
+			ret = swmmu_host_map_mm(mm, false);
 	}
-
-	if (old_mm)
-		swmmu_host_unmap_mm(old_mm);
-
-	WRITE_ONCE(swmmu_host_active_mm, NULL);
-	WRITE_ONCE(swmmu_host_active_generation, 0);
-
-	/*
-	 * This also clears aliases that may have been created during
-	 * exec setup while the mm was not marked active.
-	 */
-	swmmu_host_unmap_mm(mm);
-
-	ret = swmmu_host_map_mm(mm, false);
-	if (ret)
-		return ret;
-
-	WRITE_ONCE(swmmu_host_active_mm, mm);
-	WRITE_ONCE(swmmu_host_active_generation, generation);
-
-	return 0;
+	if (ret == SWMMU_HOST_OWNER_CHANGED)
+		goto retry;
+	return ret;
 }
 
 static struct swmmu_pagetable_range *swmmu_pagetable_range_create(
