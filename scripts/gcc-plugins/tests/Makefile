@@ -36,6 +36,8 @@ ALL_ACCESS_NATIVE_STACK_ASM := $(OUTPUT)/swmmu_all_access_native_stack.s
 .PHONY: all-access-return-value
 .PHONY: all-access-native-stack
 .PHONY: all-access-native-allocator-results
+.PHONY: all-access-native-source-file
+.PHONY: all-access-native-range-guard
 .PHONY: $(filter test-negative%,$(MAKECMDGOALS))
 
 define check_swmmu_asm
@@ -413,6 +415,42 @@ all-access-native-allocator-results: $(OUTPUT)/swmmu_all_access_native_allocator
 			printf '%s\n' "$$body"; exit 1; }; \
 		echo "ok: $$fn retains dynamic helper fallback"; \
 	done
+
+$(OUTPUT)/swmmu_all_access_native_source_file.s: $(ALL_ACCESS_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-source-file=swmmu_all_access.c \
+		-S -c $(ALL_ACCESS_SOURCE) -o $@
+
+all-access-native-source-file: $(OUTPUT)/swmmu_all_access_native_source_file.s
+	@if grep -qE '(call|jmp)[[:space:]].*nommu_swmmu_' "$<"; then \
+		echo "error: native source file still calls SWMMU runtime"; \
+		exit 1; \
+	fi
+	@echo "ok: native source file bypasses SWMMU lowering"
+
+$(OUTPUT)/swmmu_all_access_native_range_guard.s: $(ALL_ACCESS_SOURCE) $(PLUGIN) \
+		$(TEST_DIR)/swmmu_native_range_guard.h
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-builtin \
+		-DSWMMU_NATIVE_VA_BASE=0x1000000000ULL \
+		-include $(TEST_DIR)/swmmu_native_range_guard.h \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-range-guard=1 \
+		-S -c $(ALL_ACCESS_SOURCE) -o $@
+
+all-access-native-range-guard: $(OUTPUT)/swmmu_all_access_native_range_guard.s
+	@if grep -qE '(call|jmp)[[:space:]].*dynamic_guarded' "$<"; then \
+		echo "error: native range guard was not inlined"; exit 1; \
+	fi
+	@grep -q 'nommu_swmmu_load_dynamic' "$<" || \
+		{ echo "error: native range load lost helper fallback"; exit 1; }
+	@grep -q 'nommu_swmmu_store_dynamic' "$<" || \
+		{ echo "error: native range store lost helper fallback"; exit 1; }
+	@echo "ok: native range guard is inline with dynamic helper fallback"
 
 $(ALL_ACCESS_RETURN_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
 	@mkdir -p $(OUTPUT)

@@ -7,6 +7,7 @@
 #include "basic-block.h"
 #include "value-range.h"
 #include "tree-ssanames.h"
+#include "tree-into-ssa.h"
 #include "cgraph.h"
 
 #include "gimplify.h"
@@ -25,8 +26,12 @@
 #define SWMMU_MEMMOVE_NAME "nommu_swmmu_memmove"
 #define SWMMU_MEMSET_NAME "nommu_swmmu_memset"
 #define SWMMU_LOAD_DYNAMIC_NAME  "nommu_swmmu_load_dynamic"
+#define SWMMU_LOAD_DYNAMIC_GUARDED_NAME \
+	"nommu_swmmu_load_dynamic_guarded"
 #define SWMMU_LOAD_RETURN_VALUE_NAME "nommu_swmmu_load_return_value"
 #define SWMMU_STORE_DYNAMIC_NAME "nommu_swmmu_store_dynamic"
+#define SWMMU_STORE_DYNAMIC_GUARDED_NAME \
+	"nommu_swmmu_store_dynamic_guarded"
 #define SWMMU_MEMCPY_DYNAMIC_NAME "nommu_swmmu_memcpy_dynamic"
 #define SWMMU_MEMMOVE_DYNAMIC_NAME "nommu_swmmu_memmove_dynamic"
 #define SWMMU_MEMSET_DYNAMIC_NAME "nommu_swmmu_memset_dynamic"
@@ -41,8 +46,10 @@ static tree swmmu_memcpy_decl;
 static tree swmmu_memmove_decl;
 static tree swmmu_memset_decl;
 static tree swmmu_load_dynamic_decl;
+static tree swmmu_load_dynamic_guarded_decl;
 static tree swmmu_load_return_value_decl;
 static tree swmmu_store_dynamic_decl;
+static tree swmmu_store_dynamic_guarded_decl;
 static tree swmmu_memcpy_dynamic_decl;
 static tree swmmu_memmove_dynamic_decl;
 static tree swmmu_memset_dynamic_decl;
@@ -62,9 +69,12 @@ static bool swmmu_all_access;
 static bool swmmu_return_value_load;
 static bool swmmu_native_stack;
 static bool swmmu_native_allocator_results;
+static bool swmmu_native_range_guard;
 static std::vector<std::string> swmmu_excluded_functions;
 static std::vector<std::string> swmmu_native_allocator_functions;
 static std::vector<std::string> swmmu_native_reallocator_functions;
+static std::vector<std::string> swmmu_native_source_files;
+static std::vector<std::string> swmmu_native_source_directories;
 
 enum swmmu_pointer_state {
 	SWMMU_POINTER_ORDINARY,
@@ -157,8 +167,15 @@ swmmu_dynamic_runtime_decl(bool store)
 	const char *name;
 
 	if (store) {
-		decl = &swmmu_store_dynamic_decl;
-		name = SWMMU_STORE_DYNAMIC_NAME;
+		decl = swmmu_native_range_guard ?
+			&swmmu_store_dynamic_guarded_decl :
+			&swmmu_store_dynamic_decl;
+		name = swmmu_native_range_guard ?
+			SWMMU_STORE_DYNAMIC_GUARDED_NAME :
+			SWMMU_STORE_DYNAMIC_NAME;
+	} else if (swmmu_native_range_guard) {
+		decl = &swmmu_load_dynamic_guarded_decl;
+		name = SWMMU_LOAD_DYNAMIC_GUARDED_NAME;
 	} else if (swmmu_return_value_load) {
 		decl = &swmmu_load_return_value_decl;
 		name = SWMMU_LOAD_RETURN_VALUE_NAME;
@@ -169,7 +186,7 @@ swmmu_dynamic_runtime_decl(bool store)
 
 	if (!*decl) {
 		*decl = find_function_decl(name);
-		if (*decl)
+		if (*decl && !swmmu_native_range_guard)
 			protect_runtime_decl(*decl);
 	}
 
@@ -636,8 +653,10 @@ is_swmmu_runtime_function(tree fndecl)
 	return !strcmp(function_name, SWMMU_LOAD_NAME) ||
 		!strcmp(function_name, SWMMU_STORE_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_NAME) ||
+		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_GUARDED_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_RETURN_VALUE_NAME) ||
 		!strcmp(function_name, SWMMU_STORE_DYNAMIC_NAME) ||
+		!strcmp(function_name, SWMMU_STORE_DYNAMIC_GUARDED_NAME) ||
 		!strcmp(function_name, SWMMU_MEMCPY_NAME) ||
 		!strcmp(function_name, SWMMU_MEMMOVE_NAME) ||
 		!strcmp(function_name, SWMMU_MEMSET_NAME) ||
@@ -2242,6 +2261,49 @@ swmmu_function_is_excluded(tree fndecl)
 }
 
 static bool
+swmmu_function_source_is_native(tree fndecl)
+{
+	const char *source;
+
+	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
+		return false;
+
+	source = DECL_SOURCE_FILE(fndecl);
+	if (!source)
+		return false;
+
+	for (const std::string &native_source : swmmu_native_source_files) {
+		size_t source_len = strlen(source);
+		size_t native_len = native_source.length();
+
+		if (source_len < native_len)
+			continue;
+		if (strcmp(source + source_len - native_len,
+			   native_source.c_str()))
+			continue;
+		if (source_len == native_len ||
+		    source[source_len - native_len - 1] == '/')
+			return true;
+	}
+
+	for (const std::string &native_dir : swmmu_native_source_directories) {
+		const char *match = source;
+		size_t native_len = native_dir.length();
+
+		while ((match = strstr(match, native_dir.c_str()))) {
+			bool left_boundary = match == source || match[-1] == '/';
+			bool right_boundary = match[native_len] == '/';
+
+			if (left_boundary && right_boundary)
+				return true;
+			match++;
+		}
+	}
+
+	return false;
+}
+
+static bool
 swmmu_asm_reads_fs0(gasm *stmt)
 {
 	const char *text = gimple_asm_string(stmt);
@@ -2263,7 +2325,8 @@ swmmu_transform_function(function *fn)
 	bool swmmu_context;
 	hash_map<tree, enum swmmu_pointer_state> states;
 
-	if (swmmu_function_is_excluded(fn->decl))
+	if (swmmu_function_is_excluded(fn->decl) ||
+	    swmmu_function_source_is_native(fn->decl))
 		return 0;
 
 	if (swmmu_all_access &&
@@ -2480,12 +2543,21 @@ swmmu_transform_function(function *fn)
 	}
 
 	debug_print(stderr, "[swmmu] leave %s\n", name);
+	FOR_ALL_BB_FN(bb, fn) {
+		for (gimple_stmt_iterator gsi = gsi_start_bb(bb);
+		     !gsi_end_p(gsi);
+		     gsi_next(&gsi))
+			update_stmt(gsi_stmt(gsi));
+	}
 	bool invalid = verify_gimple_in_cfg(cfun, true, true);
 
 	debug_print(stderr,
 		"[swmmu] GIMPLE verification for %s: %s\n",
 		name,
 		invalid ? "FAILED" : "OK");
+
+	/* Rebuild memory SSA after replacing memory references with calls. */
+	mark_virtual_operands_for_renaming(fn);
 
 	return TODO_rebuild_cgraph_edges;
 }
@@ -2607,6 +2679,11 @@ plugin_init(struct plugin_name_args *plugin_info,
 			continue;
 		}
 
+		if (!strcmp(key, "native-range-guard")) {
+			swmmu_native_range_guard = true;
+			continue;
+		}
+
 		if (!strcmp(key, "native-allocator-results")) {
 			swmmu_native_allocator_results = true;
 			continue;
@@ -2634,6 +2711,28 @@ plugin_init(struct plugin_name_args *plugin_info,
 			continue;
 		}
 
+		if (!strcmp(key, "native-source-file")) {
+			if (!value || !*value) {
+				error_at(UNKNOWN_LOCATION,
+					 "swmmu native-source-file requires a value");
+				return 1;
+			}
+
+			swmmu_native_source_files.emplace_back(value);
+			continue;
+		}
+
+		if (!strcmp(key, "native-source-directory")) {
+			if (!value || !*value) {
+				error_at(UNKNOWN_LOCATION,
+					 "swmmu native-source-directory requires a value");
+				return 1;
+			}
+
+			swmmu_native_source_directories.emplace_back(value);
+			continue;
+		}
+
 		if (!strcmp(key, "exclude-function")) {
 			if (!value || !*value) {
 				error_at(UNKNOWN_LOCATION,
@@ -2650,7 +2749,13 @@ plugin_init(struct plugin_name_args *plugin_info,
 		return 1;
 	}
 
-	if (!swmmu_all_access) {
+	if (swmmu_native_range_guard && swmmu_return_value_load) {
+		error_at(UNKNOWN_LOCATION,
+			 "swmmu native-range-guard cannot be combined with return-value-load");
+		return 1;
+	}
+
+	if (!swmmu_all_access || swmmu_native_range_guard) {
 		static register_pass_info pass_info;
 
 		pass_info.pass = new swmmu_pass(g);
@@ -2664,7 +2769,7 @@ plugin_init(struct plugin_name_args *plugin_info,
 				&pass_info);
 	}
 
-	if (swmmu_all_access) {
+	if (swmmu_all_access && !swmmu_native_range_guard) {
 		static register_pass_info late_pass_info;
 
 		late_pass_info.pass = new swmmu_late_pass(g);

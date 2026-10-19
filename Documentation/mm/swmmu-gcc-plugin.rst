@@ -110,6 +110,30 @@ Options
    Treat a result from the named reallocator as native only when its input
    pointer is already known native. Repeat for each reallocator function.
 
+``-fplugin-arg-swmmu_plugin-native-source-file=SUFFIX``
+   Treat every function whose source filename equals ``SUFFIX`` or ends in
+   ``/SUFFIX`` as native and leave its memory accesses uninstrumented. Repeat
+   the option for each source file. This is a narrow build-profile assertion
+   intended for source units whose complete pointer input and allocation
+   closure is known to remain native. It does not inspect the functions,
+   pointers, VMAs, callbacks, or headers included by the source file.
+
+``-fplugin-arg-swmmu_plugin-native-source-directory=NAME``
+   Apply the same assertion to functions whose source path contains ``NAME``
+   as a complete directory component. This also covers inline functions whose
+   declarations come from headers in that directory. Directory matching is
+   intentionally explicit and does not infer that included code is native.
+
+``-fplugin-arg-swmmu_plugin-native-range-guard``
+   Lower scalar loads and stores through the always-inline
+   ``nommu_swmmu_load_dynamic_guarded`` and
+   ``nommu_swmmu_store_dynamic_guarded`` runtime entry points. The runtime
+   header must define these wrappers and directly access only an address range
+   that the kernel guarantees is native; all other addresses must fall back to
+   the dynamic helpers. This option runs before the normal optimization passes
+   so the wrappers and their native branches can be inlined and optimized.
+   It cannot be combined with ``return-value-load``.
+
 The allocator options propagate known native state through aliases. A merge
 with a SWMMU, ordinary, or dynamic pointer does not make the merged pointer
 native. The options cannot detect allocator replacement, custom allocator
@@ -146,7 +170,8 @@ include:
            OUTPUT="$PWD/build-kselftest/plugin-tests" all-access-native-allocator-results
 
 These tests do not validate the mapping promises made by native-pointer,
-native-stack, or allocator options. Validate those promises with the actual
+native-stack, allocator, or native-source-file options. Validate those
+promises with the actual
 userspace, kernel, fork/mapping behavior, and workload before relying on them.
 
 For release-facing behavior and the userspace runtime ABI, see
