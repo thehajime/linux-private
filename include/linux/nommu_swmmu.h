@@ -57,6 +57,7 @@ struct nommu_swmmu_space *nommu_swmmu_space_create(void);
 int nommu_swmmu_space_attach(struct mm_struct *mm,
 			struct nommu_swmmu_space *space);
 void nommu_swmmu_space_detach(struct mm_struct *mm);
+void nommu_swmmu_mm_users_zero(struct mm_struct *mm);
 void nommu_swmmu_space_get(struct nommu_swmmu_space *space);
 void nommu_swmmu_space_put(struct nommu_swmmu_space *space);
 

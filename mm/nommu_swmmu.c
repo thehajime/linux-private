@@ -1386,6 +1386,23 @@ int nommu_swmmu_space_attach(struct mm_struct *mm,
 	return 0;
 }
 
+void nommu_swmmu_mm_users_zero(struct mm_struct *mm)
+{
+	int ret;
+
+	if (!mm || READ_ONCE(swmmu_host_active_mm) != mm)
+		return;
+
+	/*
+	 * mm_users reaching zero means nobody can execute this address space
+	 * again. Drop its host aliases now, before __mmput() tears down the
+	 * VMAs. space_detach() runs later at mm_count zero, which can be delayed
+	 * by active_mm references and is too late to release the alias owner.
+	 */
+	ret = swmmu_host_unmap_mm(mm);
+	WARN_ON_ONCE(ret && ret != SWMMU_HOST_OWNER_CHANGED);
+}
+
 /*
  * Detach and release the mm_struct-owned reference to its SWMMU space.
  */

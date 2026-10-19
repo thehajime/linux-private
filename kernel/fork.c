@@ -1210,6 +1210,9 @@ static inline void __mmput(struct mm_struct *mm)
 {
 	VM_BUG_ON(atomic_read(&mm->mm_users));
 
+#ifdef CONFIG_NOMMU_SWMMU
+	nommu_swmmu_mm_users_zero(mm);
+#endif
 	uprobe_clear_state(mm);
 	exit_aio(mm);
 	ksm_exit(mm);
