@@ -277,6 +277,21 @@ static void swmmu_pagetable_drop_entries(struct nommu_swmmu_space *space,
 	}
 }
 
+static void swmmu_host_unmap_pages(const struct nommu_swmmu_host_ops *ops,
+				   unsigned long start, unsigned long nr_pages)
+{
+	unsigned long i;
+
+	if (!nr_pages)
+		return;
+	if (ops->unmap_range) {
+		ops->unmap_range(start, nr_pages * SWMMU_PAGE_SIZE);
+		return;
+	}
+	for (i = 0; i < nr_pages; i++)
+		ops->unmap_page(start + i * SWMMU_PAGE_SIZE);
+}
+
 static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 				struct swmmu_pagetable_range *range,
 				unsigned long start,
@@ -339,8 +354,7 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 
 rollback:
 	/* A repair may have started with a partially installed old alias. */
-	for (i = 0; i < range->nr_ptes; i++)
-		host_ops->unmap_page(start + i * SWMMU_PAGE_SIZE);
+	swmmu_host_unmap_pages(host_ops, start, range->nr_ptes);
 
 	range->host_start = 0;
 	range->host_mapped = false;
@@ -353,7 +367,6 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 {
 	const struct nommu_swmmu_host_ops *host_ops;
 	struct mm_struct *active_mm;
-	unsigned long i;
 
 	host_ops = space->host_ops;
 	if (!range->host_mapped ||
@@ -369,10 +382,7 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 	if (active_mm && active_mm != space->mm)
 		goto clear_mapping_state;
 
-	for (i = 0; i < range->nr_ptes; i++) {
-		host_ops->unmap_page(
-			range->host_start + i * SWMMU_PAGE_SIZE);
-	}
+	swmmu_host_unmap_pages(host_ops, range->host_start, range->nr_ptes);
 
 	/* A detached old range may overlap freshly published replacement VMAs. */
 	if (space->mm) {

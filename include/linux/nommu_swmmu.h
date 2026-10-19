@@ -47,6 +47,8 @@ struct nommu_swmmu_host_ops {
 	int (*map_page)(unsigned long address, struct page *page,
 			unsigned int prot);
 	void (*unmap_page)(unsigned long address);
+	/* Optional bulk equivalent, including restoration of alias guards. */
+	void (*unmap_range)(unsigned long address, unsigned long length);
 	int (*protect_range)(unsigned long address, unsigned long length,
 			unsigned int prot);
 };

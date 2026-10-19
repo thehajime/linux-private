@@ -195,6 +195,36 @@ static void uml_nommu_swmmu_host_unmap_page(unsigned long address)
 			address, ret);
 }
 
+static void uml_nommu_swmmu_host_unmap_range(unsigned long address,
+					    unsigned long length)
+{
+	unsigned long offset;
+	int ret;
+
+	if (!length)
+		return;
+	if (address >= um_nommu_swmmu_direct_start &&
+	    address < um_nommu_swmmu_direct_end &&
+	    length <= um_nommu_swmmu_direct_end - address) {
+		ret = os_reserve_memory((void *)address, length, 1);
+		if (ret)
+			panic("SWMMU: cannot restore direct-window guard: %d\n", ret);
+		return;
+	}
+	if (address >= um_nommu_swmmu_direct_end ||
+	    (address < um_nommu_swmmu_direct_start &&
+	     length <= um_nommu_swmmu_direct_start - address)) {
+		ret = os_unmap_memory((void *)address, length);
+		if (ret)
+			pr_warn("SWMMU: failed to unmap host range %lx+%lx: %d\n",
+				address, length, ret);
+		return;
+	}
+	/* Preserve page handling for ranges crossing the reservation boundary. */
+	for (offset = 0; offset < length; offset += PAGE_SIZE)
+		uml_nommu_swmmu_host_unmap_page(address + offset);
+}
+
 static int uml_nommu_swmmu_direct_window(unsigned long *start,
 					unsigned long *end)
 {
@@ -220,6 +250,7 @@ static const struct nommu_swmmu_host_ops uml_nommu_swmmu_host_ops = {
 	.alias_range_allowed = uml_nommu_swmmu_alias_range_allowed,
 	.map_page = uml_nommu_swmmu_host_map_page,
 	.unmap_page = uml_nommu_swmmu_host_unmap_page,
+	.unmap_range = uml_nommu_swmmu_host_unmap_range,
 	.protect_range = uml_nommu_swmmu_host_protect_range,
 };
 
