@@ -136,20 +136,43 @@ Options
    Select the early, inline guarded lowering using a matching runtime header
    that reads kernel-authorized bounds. The reference header is
    ``scripts/gcc-plugins/tests/swmmu_direct_window_guard.h``. It uses no source
-   lists or application-specific address constants. The runtime initially
-   publishes zero bounds and falls back to helpers. It may publish nonzero
-   bounds only after a successful ``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` query.
-   Publication is one-time: write start first, then release-store end; readers
-   acquire-load end before reading start. This is distinct from a mutable VMA
-   eligibility cache. See the reserved alias-window contract in ``swmmu.rst``.
+   lists or application-specific address constants. After a successful
+   ``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` query, the runtime selects a page-aligned
+   power-of-two subset of the returned interval. It selects a key
+   whose low six bits encode the address shift and whose upper bits encode
+   the address prefix. The shift must be at least 12, and the prefix must be
+   at least 2 and fit in 58 bits. The matching libc publishes the word
+   ``nommu_swmmu_direct_key`` atomically after querying the kernel. The initial
+   value ``UINTPTR_MAX`` matches no 64-bit address. Cached initial snapshots
+   retain helper fallback. Even mixed initial/valid prefix and shift fields
+   cannot match an address under these encoding constraints.
+
+   The reference header calls compiler-only const intrinsics
+   ``__swmmu_direct_key_snapshot`` and ``__swmmu_direct_key_snapshot_libc``.
+   GCC can reuse these queries through scalar optimization. A dedicated pass
+   after ``optimized`` replaces them with native key reads before RTL
+   expansion, removing runtime call overhead. They must not remain undefined
+   symbols in a linked program. The key certifies immutable geometry, not
+   mutable VMA permissions. See the reserved alias-window contract in
+   ``swmmu.rst``. This is an experimental backend-specific contract: public
+   key storage must not be modified by applications.
 
    On the currently supported x86_64 UML backend, scalar accesses entirely
-   within one 4 KiB page and this window execute ordinary CPU instructions.
-   Others retain the dynamic helper path. The matching libc must export
-   ``nommu_swmmu_direct_start`` and ``nommu_swmmu_direct_end``. While building
-   libc itself, the reference header uses hidden aliases under
-   ``SWMMU_BUILDING_LIBC`` so its bootstrap does not require relocated GOT
-   entries. Package CFLAGS can be supplied by one common toolchain wrapper::
+   within one 4 KiB page and this subset execute ordinary CPU instructions.
+   The inline assembly describes the accessed bytes with precise, unaligned,
+   alias-permitting memory operands. Ordinary accesses do not use a global
+   memory clobber, so unrelated memory operations can still be optimized.
+   Volatile accesses retain opaque helpers to preserve repeated reads and
+   writes. Other accesses retain the dynamic helper path. The matching libc
+   must export ``nommu_swmmu_direct_key`` with the publication contract above.
+   The key can cover less than the complete reservation; accesses to the
+   remainder use the runtime fallback. The public intrinsic uses an explicit
+   GOT reference, avoiding executable data copy relocations. During libc
+   bootstrap, ``SWMMU_BUILDING_LIBC`` selects a hidden RIP-relative read.
+   Ordinary CRT objects use the public reference; static PIE's ``rcrt1.o``
+   requires ``SWMMU_STATIC_PIE_CRT`` to use the hidden reference before
+   self-relocation. Package CFLAGS can be supplied by one common wrapper;
+   keep the existing ``--no-relax`` link workaround::
 
       -include /path/to/swmmu-runtime-decls.h \
       -include /path/to/swmmu_direct_window_guard.h \

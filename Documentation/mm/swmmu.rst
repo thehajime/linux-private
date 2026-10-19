@@ -185,11 +185,13 @@ actual host mapping at an address supplies its current backing and permission.
 It is not a cache of mutable VMA permissions. Code must not infer eligibility
 for addresses outside the returned interval.
 
-The matching runtime can initialize zero bounds on its first fallback access,
-publish start followed by a release-store of end, and use inline scalar
-load/store guards thereafter. Readers acquire-load end before reading start.
-The reference compiler header limits direct scalar accesses to one 4 KiB page
-and sizes 1, 2, 4 or 8; other operations keep the syscall path. This optional
+The matching runtime can initialize zero bounds on its first fallback access
+and publish start followed by a release-store of end for its internal span
+checks. Its inline scalar guards can use a one-time published key describing
+an aligned power-of-two subset of that reservation; see ``swmmu-gcc-plugin.rst``
+for the encoding and initial sentinel value. The reference compiler header
+limits direct scalar accesses to one 4 KiB page and sizes 1, 2, 4 or 8;
+other operations keep their runtime fallback path. This optional
 backend optimization is separate from the unresolved default-off migration of
 native stacks without aliases.
 

@@ -53,6 +53,24 @@ all-access-direct-window:
 		$(TEST_DIR)/swmmu_post_scalar_runtime.c \
 		$(OUTPUT)/direct-window.o -o $(OUTPUT)/direct-window
 	$(OUTPUT)/direct-window
+	$(CC) -O2 -Wl,--gc-sections -DSWMMU_TEST_DIRECT_WINDOW \
+		-DSWMMU_TEST_DISABLED_WINDOW \
+		$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+		$(OUTPUT)/direct-window.o -o $(OUTPUT)/direct-window-disabled
+	$(OUTPUT)/direct-window-disabled
+	@set -eu; for opt in 0 1 3 s; do \
+		$(CC) -O$$opt -ffunction-sections -fdata-sections \
+			-fplugin=$(PLUGIN) -fplugin-arg-swmmu_plugin-all-access=1 \
+			-fplugin-arg-swmmu_plugin-direct-window=1 \
+			-include $(TEST_DIR)/swmmu_direct_window_guard.h \
+			-c $(TEST_DIR)/swmmu_post_scalar.c \
+			-o $(OUTPUT)/direct-window-$$opt.o; \
+		$(CC) -O2 -Wl,--gc-sections -DSWMMU_TEST_DIRECT_WINDOW \
+			$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+			$(OUTPUT)/direct-window-$$opt.o \
+			-o $(OUTPUT)/direct-window-$$opt; \
+		$(OUTPUT)/direct-window-$$opt; \
+	done
 
 # The fixture uses addresses that cannot be dereferenced on the host. The
 # uninstrumented runtime translates these tokens to its private backing array.
