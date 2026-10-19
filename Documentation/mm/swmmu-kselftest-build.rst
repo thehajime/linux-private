@@ -65,6 +65,18 @@ disable the UML kernel's own seccomp path. The diagnostic shape is::
 
 Keep the managed Docker proxy and CA settings for image builds.
 
+If Docker buildx tries to write to a read-only home directory, give only its
+build metadata a writable task directory with ``BUILDX_CONFIG=/tmp/<run>/buildx``.
+Preserve the managed Docker credential configuration. For Alpine package
+downloads, mount the current session CA as a BuildKit secret and explicitly
+select it for that command, for example::
+
+   RUN --mount=type=secret,id=proxy_ca,required=true \
+       SSL_CERT_FILE=/run/secrets/proxy_ca apk add --no-cache flex bison
+
+Pass the existing session CA file with ``docker build --secret id=proxy_ca,src=...``.
+Do not bake session certificates into an image or disable certificate checks.
+
 Kernel configuration and build
 ==============================
 
@@ -313,9 +325,61 @@ from a run that omitted it is a separate experiment.
 Result records
 ==============
 
+For libc and Python startup comparisons, install the candidate dynamic loader
+and libraries into a disposable rootfs *before* booting UML. Replacing libc
+after boot does not change the library already mapped by init. An observer
+that repeatedly runs guest commands or scans ``/proc`` can add helper calls,
+forks and alias switches. Prefer host-side observation of guest log files;
+record any diagnostic audit hook or import profiling overhead in both cases.
+Keep kernel, rootfs, Python, extension modules, allocator environment, pycache
+policy and observation method fixed across a comparison. Source compilation
+is part of cold-pycache startup; do not substitute a warm-cache measurement.
+
+For a bounded diagnostic, use ``timeout -k 5s <limit>`` and explicitly stop
+the owned Docker container if needed. A UML panic can handle or ignore the
+initial termination signal, leaving a plain ``timeout`` waiting indefinitely.
+Wait for cleanup before reusing a container name. Stopping after the first
+test launch measures startup only and is not a completed LTP suite.
+
 Record kernel branch and full SHA, config, tool versions, image hash, rootfs
 and APK provenance, Docker options, UML arguments, init and skip files,
 measurement boundaries, full output, structured results, guest and host exits,
 and fault evidence. State whether a run is CI-matched, loop-free, focused, or
 diagnostic. Commit useful commands, configs, init files, and raw logs so links
 do not point only to a disposable workspace.
+
+Static PIE and matching CRT objects
+----------------------------------
+
+When changing the common SWMMU guard header, rebuild the complete musl SDK,
+including ``libc.a``, ``libc.so`` and CRT objects. Replacing only the loader is
+not a validation of a newly linked static PIE. Ordinary ``crt1.o``/``Scrt1.o``
+must resolve public runtime symbols through the executable's GOT; ``rcrt1.o``
+needs hidden RIP-relative bootstrap references before self-relocation. The
+experimental direct-window musl patch defines ``SWMMU_STATIC_PIE_CRT`` only
+for ``rcrt1.o``. The common guest specs select it for ``-static-pie`` and omit
+the dynamic interpreter for that link mode. Check ``readelf -h -l``: static
+PIE is ET_DYN without PT_INTERP. Check ``readelf -r`` for unintended COPY
+relocations and ``nm -u`` for unresolved compiler-only key intrinsics. Run
+both dynamic and static PIE probes in the guest; a successful link alone does
+not establish bootstrap correctness.
+
+For the existing selftest that embeds its own runtime declarations, a fresh
+static-PIE build against the instrumented musl SDK can use the libc's runtime
+implementation instead of also linking ``nommu_swmmu_user.c`` (which would
+create duplicate symbols). Suppress the forced declaration header with
+``-DSWMMU_PLUGIN_RUNTIME_H`` and supply ``-include sys/prctl.h`` for this
+selftest's current declaration compatibility. This is a test-harness build
+choice; ordinary application builds keep the common profile unchanged.
+Record the exact command and which runtime implementation was linked.
+
+Before network LTP cases, initialize loopback explicitly in a custom init::
+
+   /bin/busybox ip addr add 127.0.0.1/8 dev lo
+   /bin/busybox ip link set lo up
+   /bin/busybox ip addr show dev lo
+
+A preexisting address may report EEXIST; verify the resulting state instead of
+silencing other failures. Absolute applet paths avoid an init PATH that omits
+``/sbin``. Otherwise ``accept4_01`` can stop with ENETUNREACH before reaching
+its actual test path; such a result cannot validate a previous fault fix.

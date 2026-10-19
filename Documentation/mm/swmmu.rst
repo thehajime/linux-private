@@ -173,7 +173,10 @@ activation replaces aliases with the active mm's backing before userspace
 runs. Mapping permissions remain enforced by the host. Current private fork
 clones copy backing eagerly; any future lazy COW implementation must protect
 shared host pages before permitting direct stores. Native physical addresses
-outside the window retain their existing helper path.
+outside the window retain their existing helper path. Alias teardown uses the
+optional host ``unmap_range`` callback to restore guards once per range;
+backends without it retain page-by-page teardown. A partial activation failure
+clears the complete affected range before retrying.
 
 The ``nommu_swmmu_load`` syscall accepts the standalone query flag
 ``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` with a null address, a size of 16, and an
