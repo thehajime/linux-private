@@ -340,7 +340,13 @@ static int load_elf_fdpic_binary(struct linux_binprm *bprm)
 
 	retval = -ENOEXEC;
 	if (stack_size == 0)
-		stack_size = 131072UL; /* same as exec.c's default commit */
+		/*
+		 * NOMMU allocates the complete stack eagerly and cannot expand a
+		 * MAP_GROWSDOWN VMA on demand.  Leave room beyond exec.c's 128 KiB
+		 * argument commit for application frames; a 128 KiB local object
+		 * would otherwise immediately run into the preceding mapping.
+		 */
+		stack_size = 262144UL;
 
 	if (is_constdisp(&interp_params.hdr))
 		interp_params.flags |= ELF_FDPIC_FLAG_CONSTDISP;
