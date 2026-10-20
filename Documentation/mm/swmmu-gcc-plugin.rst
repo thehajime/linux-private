@@ -157,6 +157,14 @@ Options
    ``swmmu.rst``. This is an experimental backend-specific contract: public
    key storage must not be modified by applications.
 
+   Guarded lowering runs after GCC's early local scalar optimization and
+   before IPA inlining. This leaves ordinary memory operations visible to
+   early forwarding, scalar replacement, and redundant-access elimination,
+   while still allowing the always-inline guard wrappers to disappear before
+   code generation. This ordering applies to the generic guarded profile as
+   well as the direct-window profile; it does not change volatile handling or
+   the dynamic fallback rules.
+
    On the currently supported x86_64 UML backend, scalar accesses entirely
    within one 4 KiB page and this subset execute ordinary CPU instructions.
    The inline assembly describes the accessed bytes with precise, unaligned,

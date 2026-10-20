@@ -2936,7 +2936,15 @@ plugin_init(struct plugin_name_args *plugin_info,
 		static register_pass_info pass_info;
 
 		pass_info.pass = new swmmu_pass(g);
-		pass_info.reference_pass_name = "ssa";
+		/*
+		 * Guarded all-access lowering must still precede IPA inlining so
+		 * the always-inline guard wrappers disappear.  Keep the original
+		 * memory operations visible through the early scalar pipeline first;
+		 * otherwise every access becomes control flow before even local
+		 * redundancy elimination and scalar replacement have run.
+		 */
+		pass_info.reference_pass_name = swmmu_native_range_guard ?
+			"early_optimizations" : "ssa";
 		pass_info.ref_pass_instance_number = 1;
 		pass_info.pos_op = PASS_POS_INSERT_AFTER;
 
