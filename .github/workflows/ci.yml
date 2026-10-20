@@ -88,6 +88,16 @@ jobs:
                   all(.files[]; .filename == "arch/um/kernel/trap.c")
                 or
                   (
+                    (.files | length > 0 and length <= 4) and
+                    all(.files[];
+                      .filename == "arch/um/include/shared/os.h" or
+                      .filename == "arch/um/kernel/time.c" or
+                      .filename == "arch/um/os-Linux/time.c" or
+                      .filename == "Documentation/virt/uml/nommu-uml.rst"
+                    )
+                  )
+                or
+                  (
                     (.files | length == 4) and
                     all(.files[];
                       .status == "renamed" and
@@ -163,7 +173,7 @@ jobs:
               echo "No APK release with identical aports sources and a package-compatible kernel delta is available." >&2
               exit 1
             }
-            echo "Reusing $compatible_tag: kernel delta is limited to trap.c, the SWMMU seccomp bound fix, plain-NOMMU SMP Kconfig/TLS guards, the selftest directory/build rules, or their exact recognized combinations, and aports SHA is unchanged."
+            echo "Reusing $compatible_tag: kernel delta is limited to trap.c, the BASIC time-travel timer fix and documentation, the SWMMU seccomp bound fix, plain-NOMMU SMP Kconfig/TLS guards, the selftest directory/build rules, or their exact recognized combinations, and aports SHA is unchanged."
             used_release_tag=$compatible_tag
             mkdir -p "$RUNNER_TEMP/apk-reuse"
             gh release download "$compatible_tag" --repo thehajime/aports \
