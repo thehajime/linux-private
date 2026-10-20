@@ -288,6 +288,7 @@ extern void os_idle_sleep(void);
 extern int os_timer_create(void);
 extern int os_timer_set_interval(int cpu, unsigned long long nsecs);
 extern int os_timer_one_shot(int cpu, unsigned long long nsecs);
+extern int os_timer_get_overrun(int cpu);
 extern void os_timer_disable(int cpu);
 extern long long os_persistent_clock_emulation(void);
 extern long long os_nsecs(void);

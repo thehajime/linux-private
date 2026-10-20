@@ -38,7 +38,6 @@ static unsigned long long time_travel_shm_offset;
 static LIST_HEAD(time_travel_events);
 static LIST_HEAD(time_travel_irqs);
 static unsigned long long time_travel_timer_interval;
-static unsigned long long time_travel_next_event;
 static struct time_travel_event time_travel_timer_event;
 static int time_travel_ext_fd = -1;
 static unsigned int time_travel_ext_waiting;
@@ -432,7 +431,6 @@ static void __time_travel_add_event(struct time_travel_event *e,
 
 	tmp = time_travel_first_event();
 	time_travel_ext_update_request(tmp->time);
-	time_travel_next_event = tmp->time;
 	local_irq_restore(flags);
 }
 
@@ -649,7 +647,24 @@ void time_travel_sleep(void)
 
 static void time_travel_handle_real_alarm(void)
 {
-	time_travel_set_time(time_travel_next_event);
+	unsigned long long event_time = time_travel_timer_event.time;
+	int overrun = 0;
+
+	if (time_travel_timer_event.fn == time_travel_periodic_timer)
+		overrun = os_timer_get_overrun(raw_smp_processor_id());
+
+	/* SIGALRM is not queued, so account for coalesced timer expirations. */
+	if (overrun > 0)
+		event_time += overrun * time_travel_timer_interval;
+
+	/*
+	 * A clock read may have advanced BASIC mode beyond the event while the
+	 * signal was blocked.  Never move the time-travel clock backwards.
+	 */
+	if (event_time < time_travel_time)
+		event_time = time_travel_time;
+
+	time_travel_set_time(event_time);
 
 	time_travel_del_event(&time_travel_timer_event);
 

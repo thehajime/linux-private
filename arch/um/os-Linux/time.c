@@ -88,6 +88,11 @@ int os_timer_one_shot(int cpu, unsigned long long nsecs)
 	return 0;
 }
 
+int os_timer_get_overrun(int cpu)
+{
+	return timer_getoverrun(event_high_res_timer[cpu]);
+}
+
 /**
  * os_timer_disable() - disable the posix (interval) timer
  * @cpu: the CPU for which the timer is to be disabled
