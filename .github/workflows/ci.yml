@@ -226,7 +226,7 @@ jobs:
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel ### XXX
+            kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_SMP=n --kconfig_add CONFIG_RAID6_PQ_BENCHMARK=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel ### XXX
             testname: um-mmu-tt
             mode: um-mmu
             userspace_profile: alpine
@@ -249,7 +249,7 @@ jobs:
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel
+            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_SMP=n --kconfig_add CONFIG_RAID6_PQ_BENCHMARK=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel
             testname: um-nommu-tt
             mode: um-nommu
             userspace_profile: nommu-plain
