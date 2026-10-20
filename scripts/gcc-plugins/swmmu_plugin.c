@@ -15,6 +15,7 @@
 #include "gimple-pretty-print.h"
 #include "tree-cfg.h"
 #include "hash-map.h"
+#include "builtins.h"
 
 #include <cstring>
 #include <string>
@@ -28,10 +29,14 @@
 #define SWMMU_LOAD_DYNAMIC_NAME  "nommu_swmmu_load_dynamic"
 #define SWMMU_LOAD_DYNAMIC_GUARDED_NAME \
 	"nommu_swmmu_load_dynamic_guarded"
+#define SWMMU_LOAD_DYNAMIC_GUARDED_ALIGNED_NAME \
+	"nommu_swmmu_load_dynamic_guarded_aligned"
 #define SWMMU_LOAD_RETURN_VALUE_NAME "nommu_swmmu_load_return_value"
 #define SWMMU_STORE_DYNAMIC_NAME "nommu_swmmu_store_dynamic"
 #define SWMMU_STORE_DYNAMIC_GUARDED_NAME \
 	"nommu_swmmu_store_dynamic_guarded"
+#define SWMMU_STORE_DYNAMIC_GUARDED_ALIGNED_NAME \
+	"nommu_swmmu_store_dynamic_guarded_aligned"
 #define SWMMU_MEMCPY_DYNAMIC_NAME "nommu_swmmu_memcpy_dynamic"
 #define SWMMU_MEMMOVE_DYNAMIC_NAME "nommu_swmmu_memmove_dynamic"
 #define SWMMU_MEMSET_DYNAMIC_NAME "nommu_swmmu_memset_dynamic"
@@ -47,9 +52,11 @@ static tree swmmu_memmove_decl;
 static tree swmmu_memset_decl;
 static tree swmmu_load_dynamic_decl;
 static tree swmmu_load_dynamic_guarded_decl;
+static tree swmmu_load_dynamic_guarded_aligned_decl;
 static tree swmmu_load_return_value_decl;
 static tree swmmu_store_dynamic_decl;
 static tree swmmu_store_dynamic_guarded_decl;
+static tree swmmu_store_dynamic_guarded_aligned_decl;
 static tree swmmu_memcpy_dynamic_decl;
 static tree swmmu_memmove_dynamic_decl;
 static tree swmmu_memset_dynamic_decl;
@@ -163,7 +170,8 @@ swmmu_memop_runtime_decl(enum swmmu_memop_kind kind,
 }
 
 static tree
-swmmu_dynamic_runtime_decl(bool store, bool volatile_access = false)
+swmmu_dynamic_runtime_decl(bool store, bool volatile_access = false,
+			   bool aligned_access = false)
 {
 	tree *decl;
 	const char *name;
@@ -171,12 +179,17 @@ swmmu_dynamic_runtime_decl(bool store, bool volatile_access = false)
 		!(swmmu_direct_window && volatile_access);
 
 	if (store) {
-		decl = guarded ?
+		decl = guarded && aligned_access ?
+			&swmmu_store_dynamic_guarded_aligned_decl : guarded ?
 			&swmmu_store_dynamic_guarded_decl :
 			&swmmu_store_dynamic_decl;
-		name = guarded ?
+		name = guarded && aligned_access ?
+			SWMMU_STORE_DYNAMIC_GUARDED_ALIGNED_NAME : guarded ?
 			SWMMU_STORE_DYNAMIC_GUARDED_NAME :
 			SWMMU_STORE_DYNAMIC_NAME;
+	} else if (guarded && aligned_access) {
+		decl = &swmmu_load_dynamic_guarded_aligned_decl;
+		name = SWMMU_LOAD_DYNAMIC_GUARDED_ALIGNED_NAME;
 	} else if (guarded) {
 		decl = &swmmu_load_dynamic_guarded_decl;
 		name = SWMMU_LOAD_DYNAMIC_GUARDED_NAME;
@@ -663,9 +676,11 @@ is_swmmu_runtime_function(tree fndecl)
 		!strcmp(function_name, SWMMU_STORE_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_GUARDED_NAME) ||
+		!strcmp(function_name, SWMMU_LOAD_DYNAMIC_GUARDED_ALIGNED_NAME) ||
 		!strcmp(function_name, SWMMU_LOAD_RETURN_VALUE_NAME) ||
 		!strcmp(function_name, SWMMU_STORE_DYNAMIC_NAME) ||
 		!strcmp(function_name, SWMMU_STORE_DYNAMIC_GUARDED_NAME) ||
+		!strcmp(function_name, SWMMU_STORE_DYNAMIC_GUARDED_ALIGNED_NAME) ||
 		!strcmp(function_name, SWMMU_MEMCPY_NAME) ||
 		!strcmp(function_name, SWMMU_MEMMOVE_NAME) ||
 		!strcmp(function_name, SWMMU_MEMSET_NAME) ||
@@ -1882,6 +1897,16 @@ swmmu_rewrite_global_store(gimple_stmt_iterator *gsi,
  *     lhs = (type)tmp;
  */
 static bool
+swmmu_access_is_naturally_aligned(tree mem,
+				  unsigned HOST_WIDE_INT size)
+{
+	if (size == 1)
+		return true;
+
+	return get_object_alignment(mem) >= size * BITS_PER_UNIT;
+}
+
+static bool
 rewrite_load(gimple_stmt_iterator *gsi,
 	     gassign *stmt,
 	     tree runtime_decl)
@@ -1900,6 +1925,15 @@ rewrite_load(gimple_stmt_iterator *gsi,
 		runtime_decl = swmmu_dynamic_runtime_decl(false, true);
 		if (!runtime_decl) {
 			error_at(gimple_location(stmt), "volatile SWMMU load runtime is missing");
+			return false;
+		}
+	} else if (swmmu_direct_window &&
+		   runtime_decl == swmmu_dynamic_runtime_decl(false) &&
+		   swmmu_access_is_naturally_aligned(mem, size)) {
+		runtime_decl = swmmu_dynamic_runtime_decl(false, false, true);
+		if (!runtime_decl) {
+			error_at(gimple_location(stmt),
+				 "aligned guarded SWMMU load runtime is missing");
 			return false;
 		}
 	}
@@ -1974,6 +2008,15 @@ rewrite_store(gimple_stmt_iterator *gsi,
 		runtime_decl = swmmu_dynamic_runtime_decl(true, true);
 		if (!runtime_decl) {
 			error_at(gimple_location(stmt), "volatile SWMMU store runtime is missing");
+			return false;
+		}
+	} else if (swmmu_direct_window &&
+		   runtime_decl == swmmu_dynamic_runtime_decl(true) &&
+		   swmmu_access_is_naturally_aligned(mem, access_size)) {
+		runtime_decl = swmmu_dynamic_runtime_decl(true, false, true);
+		if (!runtime_decl) {
+			error_at(gimple_location(stmt),
+				 "aligned guarded SWMMU store runtime is missing");
 			return false;
 		}
 	}

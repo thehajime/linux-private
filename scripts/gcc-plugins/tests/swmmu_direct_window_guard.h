@@ -70,6 +70,41 @@ nommu_swmmu_load_dynamic_guarded(swmmu_direct_const_ptr p, size_t size)
 	}
 }
 
+/* A naturally aligned power-of-two scalar cannot cross a page boundary. */
+static inline __attribute__((always_inline, used)) uint64_t
+nommu_swmmu_load_dynamic_guarded_aligned(swmmu_direct_const_ptr p, size_t size)
+{
+	uintptr_t key;
+	SWMMU_READ_DIRECT_KEY(key);
+	uintptr_t address = (uintptr_t)p;
+	uint64_t value;
+
+	if ((address >> (key & 63)) != (key >> 6))
+		return nommu_swmmu_load_dynamic(p, size);
+	switch (size) {
+	case 1: {
+		uint8_t v;
+		__asm__("movb %1, %0" : "=q"(v) : "m"(*(const swmmu_alias_u8 *)p));
+		return v;
+	}
+	case 2: {
+		uint16_t v;
+		__asm__("movw %1, %0" : "=r"(v) : "m"(*(const swmmu_alias_u16 *)p));
+		return v;
+	}
+	case 4: {
+		uint32_t v;
+		__asm__("movl %1, %0" : "=r"(v) : "m"(*(const swmmu_alias_u32 *)p));
+		return v;
+	}
+	case 8:
+		__asm__("movq %1, %0" : "=r"(value) : "m"(*(const swmmu_alias_u64 *)p));
+		return value;
+	default:
+		return nommu_swmmu_load_dynamic(p, size);
+	}
+}
+
 static inline __attribute__((always_inline, used)) long
 nommu_swmmu_store_dynamic_guarded(swmmu_direct_ptr p, size_t size, uint64_t value)
 {
@@ -79,6 +114,41 @@ nommu_swmmu_store_dynamic_guarded(swmmu_direct_ptr p, size_t size, uint64_t valu
 
 	if ((address >> (key & 63)) != (key >> 6) ||
 	    size > 4096 - (address & 4095))
+		return nommu_swmmu_store_dynamic(p, size, value);
+	switch (size) {
+	case 1: {
+		uint8_t v = value;
+		__asm__("movb %1, %0" : "=m"(*(swmmu_alias_u8 *)p) : "q"(v));
+		break;
+	}
+	case 2: {
+		uint16_t v = value;
+		__asm__("movw %1, %0" : "=m"(*(swmmu_alias_u16 *)p) : "r"(v));
+		break;
+	}
+	case 4: {
+		uint32_t v = value;
+		__asm__("movl %1, %0" : "=m"(*(swmmu_alias_u32 *)p) : "r"(v));
+		break;
+	}
+	case 8:
+		__asm__("movq %1, %0" : "=m"(*(swmmu_alias_u64 *)p) : "r"(value));
+		break;
+	default:
+		return nommu_swmmu_store_dynamic(p, size, value);
+	}
+	return 0;
+}
+
+static inline __attribute__((always_inline, used)) long
+nommu_swmmu_store_dynamic_guarded_aligned(swmmu_direct_ptr p, size_t size,
+					   uint64_t value)
+{
+	uintptr_t key;
+	SWMMU_READ_DIRECT_KEY(key);
+	uintptr_t address = (uintptr_t)p;
+
+	if ((address >> (key & 63)) != (key >> 6))
 		return nommu_swmmu_store_dynamic(p, size, value);
 	switch (size) {
 	case 1: {

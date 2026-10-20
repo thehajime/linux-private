@@ -167,6 +167,12 @@ Options
 
    On the currently supported x86_64 UML backend, scalar accesses entirely
    within one 4 KiB page and this subset execute ordinary CPU instructions.
+   For 1, 2, 4, and 8 byte operations whose GIMPLE memory reference has at
+   least the corresponding power-of-two alignment, the compiler omits the
+   explicit page-boundary test: such an operation cannot cross a page because
+   the page size is a multiple of its alignment. Packed, under-aligned,
+   volatile, and otherwise uncertain references retain the full guarded or
+   dynamic path.
    The inline assembly describes the accessed bytes with precise, unaligned,
    alias-permitting memory operands. Ordinary accesses do not use a global
    memory clobber, so unrelated memory operations can still be optimized.
