@@ -15,6 +15,12 @@ on:
         required: false
         default: ''
   workflow_call:
+    inputs:
+      ltp_ref:
+        description: 'LTP branch, tag, or commit to build'
+        required: false
+        type: string
+        default: fix-nommu
 
 permissions:
   contents: read # to fetch code (actions/checkout)
@@ -156,7 +162,7 @@ jobs:
       uses: actions/checkout@v6
       with:
         repository: thehajime/ltp
-        ref: ${{ matrix.env.branch }}
+        ref: ${{ inputs.ltp_ref || matrix.env.branch }}
         submodules: 'recursive'
 
     - name: Checkout CI compatibility patches
@@ -215,6 +221,7 @@ jobs:
         ${{ matrix.env.OPT }} ./build.sh -r configure -o ${TREE:-in} -t $BUILD -c $CC
 
     - name: patch kirk
+      if: inputs.ltp_ref == 'fix-nommu'
       run: |
         curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/kirk-block.patch
         patch -p1 < ./kirk-block.patch
