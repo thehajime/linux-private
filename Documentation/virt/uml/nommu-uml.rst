@@ -52,3 +52,33 @@ busybox built for NOMMU is available and can be turned into a root image::
 Then boot it::
 
    ./linux ubd0=./alpine.ext4 root=/dev/ubda rw mem=1024m init=/sbin/init
+
+Time-travel mode for test runs
+==============================
+
+NOMMU UML can enable ``CONFIG_UML_TIME_TRAVEL_SUPPORT`` on 64-bit builds.
+The option is available when SMP is disabled.  For a test kernel, start with
+the x86_64 configuration and enable the option, for example::
+
+   make ARCH=um SUBARCH=x86_64 x86_64_defconfig
+   scripts/config --disable MMU --disable SMP --enable UML_TIME_TRAVEL_SUPPORT
+   make ARCH=um SUBARCH=x86_64 olddefconfig
+   make ARCH=um SUBARCH=x86_64 -j$(nproc)
+
+Boot with basic time-travel mode to skip idle periods while retaining host
+timer interrupts while guest code is running::
+
+   ./linux ubd0=./alpine.ext4 root=/dev/ubda rw mem=1024m \
+       init=/sbin/init time-travel
+
+For LTP, mount procfs and tmpfs before starting the suite.  On NOMMU, the
+kernel's tiny-shmem implementation backs tmpfs with ramfs, which supports the
+shared mappings used by LTP's test library.  For example, the LTP runner can
+mount ``tmpfs`` on ``/dev/shm`` before invoking Kirk.
+
+This is useful for reducing LTP wall-clock time when tests spend time sleeping
+or waiting for timers.  CPU-bound tests still take host CPU time.  Do not use
+``time-travel=inf-cpu`` for a general LTP run: a test that remains runnable and
+uses ``CLOCK_MONOTONIC`` as its termination condition may not make sufficient
+time progress.  Infinite-CPU mode is suitable only for workloads whose CPU
+execution and simulated-time advancement are explicitly coordinated.
