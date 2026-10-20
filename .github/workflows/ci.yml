@@ -298,7 +298,7 @@ jobs:
       - name: Checkout canonical CI support files
         uses: actions/checkout@v6
         with:
-          ref: ci/uml-nommu
+          ref: ${{ github.ref }}
           path: ci-config
           sparse-checkout: .github/workflows
       - name: Install canonical CI support files
