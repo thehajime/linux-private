@@ -1555,10 +1555,12 @@ void mm_exit_exec_release(struct task_struct *tsk, struct mm_struct *mm)
  * Return: the duplicated mm or NULL on failure.
  */
 static struct mm_struct *dup_mm(struct task_struct *tsk,
-				struct mm_struct *oldmm)
+				struct mm_struct *oldmm, int *error)
 {
 	struct mm_struct *mm;
 	int err;
+
+	*error = -ENOMEM;
 
 	mm = allocate_mm();
 	if (!mm)
@@ -1593,8 +1595,10 @@ static struct mm_struct *dup_mm(struct task_struct *tsk,
 
 	uprobe_start_dup_mmap();
 	err = dup_mmap(mm, oldmm);
-	if (err)
+	if (err) {
+		*error = err;
 		goto free_pt;
+	}
 	uprobe_end_dup_mmap();
 
 	mm->hiwater_rss = get_mm_rss(mm);
@@ -1603,6 +1607,7 @@ static struct mm_struct *dup_mm(struct task_struct *tsk,
 	if (mm->binfmt && !try_module_get(mm->binfmt->module))
 		goto free_pt;
 
+	*error = 0;
 	return mm;
 
 free_pt:
@@ -1644,9 +1649,11 @@ static int copy_mm(u64 clone_flags, struct task_struct *tsk)
 		mmget(oldmm);
 		mm = oldmm;
 	} else {
-		mm = dup_mm(tsk, current->mm);
+		int err;
+
+		mm = dup_mm(tsk, current->mm, &err);
 		if (!mm)
-			return -ENOMEM;
+			return err;
 	}
 
 	tsk->mm = mm;

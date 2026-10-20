@@ -2576,6 +2576,21 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 
 	for_each_vma(src_vmi, src_vma) {
 		if (nommu_swmmu_native_fork_candidate(src_vma)) {
+			/*
+			 * The parent and child must both be switchable to their
+			 * private backing at this exact VA.  Publishing SWMMU VMA
+			 * metadata while the host alias guard refuses the VA would
+			 * leave both mms using the original shared native mapping.
+			 */
+			if (src_space->host_ops &&
+			    src_space->host_ops->alias_range_allowed &&
+			    !src_space->host_ops->alias_range_allowed(
+					src_vma->vm_start,
+					src_vma->vm_end - src_vma->vm_start)) {
+				ret = -EOPNOTSUPP;
+				goto rollback;
+			}
+
 			ret = nommu_swmmu_native_fork_item_prepare(
 				dst, src, dst_space, src_space, src_vma,
 				&native_item);

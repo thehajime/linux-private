@@ -143,10 +143,22 @@ This fallback is insufficient for a VMA converted from native memory during
 fork when userspace still executes ordinary instructions against it. The VMA
 keeps its virtual address, but compiler-generated stack frames, returns, and
 assembly can access the old native mapping without a helper. In a default-off
-mixed-VMA run, the alias guard refused the VMA containing both the executable
-and user stack; the forked selftest then returned through executable bytes in
-place of its stack frame. Supporting arbitrary mixed native/SWMMU fork
-requires a coherent directly accessible stack and native view across fork.
+mixed-VMA run, the alias guard refused the executable and stack VMAs. A forced
+shadow-stack-copy experiment also failed because its
+relocated stack had no VMA for SWMMU helper access. The current investigation
+narrowed the nested-fork failure: with
+``uml_physmem=0x60000000`` and ``end_vm=0x68800000``, the executable VMA
+``0x61420000-0x6143d000`` and stack VMA ``0x61740000-0x61780000`` both fell in
+the reserved alias interval. The native-fork path previously continued after
+the alias callback refused these ranges and published SWMMU metadata anyway.
+That left the original native host mappings in place and could expose shared
+stack contents across a later fork. The path now rejects the fork with
+``-EOPNOTSUPP`` before publishing any replacement VMA when a required native
+alias is refused; earlier prepared ranges are rolled back. This is a
+fail-closed correctness measure, not support for fork in this layout.
+Supporting mixed native/SWMMU fork here requires a coherent directly
+accessible stack and native view across fork, or a different address-space
+layout that keeps user mappings outside the reserved host interval.
 
 This is an internal kernel user-copy path. It does not remove
 compiler-generated load/store helper calls from userspace. A userspace runtime
