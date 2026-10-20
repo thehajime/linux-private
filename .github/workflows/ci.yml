@@ -1378,7 +1378,7 @@ jobs:
           LTP_TESTNAME: ${{ matrix.testname }}
           LTP_ARTIFACT_NAME: ${{ matrix.name }}
           UML_OPTIONS: ${{ matrix.vmlinux_opt }}
-          LTP_FULL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+          LTP_FULL_RUN: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == 'codex/uml-tt-ci' }}
           LTP_TIMEOUT_MUL: 10
           LTP_INSTALL_PREEXTRACTED: 1
         run: |
