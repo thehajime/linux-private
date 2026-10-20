@@ -2642,22 +2642,11 @@ public:
 						gimple_call_fndecl(stmt) : NULL_TREE;
 					const char *name = decl && DECL_NAME(decl) ?
 						IDENTIFIER_POINTER(DECL_NAME(decl)) : "";
-					bool key_internal = !strcmp(name,
+					bool internal = !strcmp(name,
 						"__swmmu_direct_key_snapshot_libc");
-					bool key_external = !strcmp(name,
-						"__swmmu_direct_key_snapshot");
-					bool length_internal = !strcmp(name,
-						"__swmmu_direct_length_snapshot_libc");
-					bool length_external = !strcmp(name,
-						"__swmmu_direct_length_snapshot");
-					bool start_internal = !strcmp(name,
-						"__swmmu_direct_start_snapshot_libc");
-					bool start_external = !strcmp(name,
-						"__swmmu_direct_start_snapshot");
 
-					if (!key_internal && !key_external &&
-					    !length_internal && !length_external &&
-					    !start_internal && !start_external) {
+					if (!internal && strcmp(name,
+						"__swmmu_direct_key_snapshot")) {
 						gsi_next(&gsi);
 						continue;
 					}
@@ -2683,23 +2672,10 @@ public:
 						build_string(3, "=r"));
 
 					vec_safe_push(outputs, build_tree_list(constraint, lhs));
-					const char *code;
-
-					if (key_internal)
-						code = "movq __nommu_swmmu_direct_key(%%rip), %0";
-					else if (key_external)
-						code = "movq nommu_swmmu_direct_key@GOTPCREL(%%rip), %0\n\t"
-						       "movq (%0), %0";
-					else if (length_internal)
-						code = "movq __nommu_swmmu_direct_length(%%rip), %0";
-					else if (length_external)
-						code = "movq nommu_swmmu_direct_length@GOTPCREL(%%rip), %0\n\t"
-						       "movq (%0), %0";
-					else if (start_internal)
-						code = "movq __nommu_swmmu_direct_start(%%rip), %0";
-					else
-						code = "movq nommu_swmmu_direct_start@GOTPCREL(%%rip), %0\n\t"
-						       "movq (%0), %0";
+					const char *code = internal ?
+						"movq __nommu_swmmu_direct_key(%%rip), %0" :
+						"movq nommu_swmmu_direct_key@GOTPCREL(%%rip), %0\n\t"
+						"movq (%0), %0";
 					gasm *read = gimple_build_asm_vec(code, NULL, outputs,
 								NULL, NULL);
 
