@@ -61,7 +61,15 @@ test -d "$ltp_source/tools/kirk/kirk-src"
 cp .github/workflows/faketty /bin/faketty
 chmod +x /bin/faketty
 
-if [ "${LTP_FULL_RUN:-true}" = true ]; then
+if [ "$LTP_TESTNAME" = um-nommu-plain-sas-tt ]; then
+	# Plain NOMMU SAS has no fork implementation. Keep this row bounded to
+	# tests validated without fork/vfork and preserve LTP's exit-32 TCONF
+	# results as configuration skips in Kirk's JSON and HTML reports.
+	LTP_RUN_PATTERN='^(getpid01|getuid01|uname01|time01|gettimeofday01|access01|chdir01|getcwd01|stat01)$'
+	printf '%s\n' "$LTP_RUN_PATTERN" > output/ltp/run-pattern.txt
+	printf 'plain NOMMU SAS fork-independent subset; TCONF is a configuration skip\n' \
+		> output/ltp/run-mode.txt
+elif [ "${LTP_FULL_RUN:-true}" = true ]; then
 	LTP_RUN_PATTERN=
 	: > output/ltp/run-pattern.txt
 	printf 'full syscalls suite (workflow_dispatch)\n' > output/ltp/run-mode.txt

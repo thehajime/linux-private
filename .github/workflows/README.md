@@ -21,14 +21,17 @@ the UML matrix; the build job downloads that matching asset. MMU UML keeps
 Alpine's standard userspace; `um-nommu` uses
 uninstrumented `SWMMU=0` APKs with `CONFIG_NOMMU_SWMMU` disabled, and
 `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with the selected kernel
-ref's GCC plugin and UAPI. Both profiles are built and installed into their
+ref's GCC plugin and UAPI. The experimental `um-nommu-plain-sas-tt` profile
+combines the plain `SWMMU=0` APKs with `CONFIG_UML_NOMMU_SAS=y`, keeps
+`CONFIG_NOMMU_SWMMU=n`, and runs with UML time-travel mode. These profiles are
+built and installed into their
 matching local rootfs images. Plain x86_64 NOMMU UML does not support the
 standard `BINFMT_ELF` loader, but its FDPIC loader accepts `ET_DYN` PIE binaries
 without FDPIC-specific marking when `MMU=n`. CI boots the plain NOMMU image and
 checks that its userspace init script starts. Its kernel is built without the
-SWMMU implementation. SAS requires `CONFIG_NOMMU_SWMMU=y`; the workflow asserts
-that setting for the SAS profile. SAS and MMU UML also run guest boot tests. For
-the
+SWMMU implementation. The SWMMU SAS profile requires
+`CONFIG_NOMMU_SWMMU=y`; the plain SAS profile explicitly asserts the opposite.
+SAS and MMU UML also run guest boot tests. For the
 SWMMU image, APK install scripts are skipped because the
 instrumented guest BusyBox cannot run on the build host; a static helper from
 the same aports build recreates its applet links. Kselftest is temporarily disabled because the NOMMU kselftest
@@ -117,6 +120,11 @@ compiler caches are deferred until cache retention or quota is reviewed.
 The LTP runner temporarily excludes `ptrace06` from `um-mmu` and
 `perf_event_open03` from `um-nommu-seccomp` and `um-nommu-sas-seccomp`. The
 root `AGENTS.md` tracks removing these skips after the failures are diagnosed.
+The plain NOMMU SAS row is always restricted to the locally validated
+fork-independent subset, including on manual workflow dispatch. Tests that
+return LTP `TCONF` remain configuration skips in the JSON and HTML reports;
+other nonzero outcomes fail the row. The row reuses the plain NOMMU LTP and
+userspace artifacts and does not use SWMMU-instrumented packages.
 
 ## Test and benchmark result reports
 

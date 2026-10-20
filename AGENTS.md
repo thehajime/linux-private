@@ -65,12 +65,16 @@ reproducible kselftest build instructions in
 - [x] Build a separate plain-SAS config with `MMU=n`, `NOMMU_SWMMU=n`,
   `UML_NOMMU_SAS=y`, and vector networking, then boot it with the Alpine
   derived rootfs and a musl static-PIE smoke init.
-- [ ] Define a fork-independent LTP subset for plain SAS before adding a full
-  CI matrix row. The existing `simple-fork` probe exits 10 when `fork()` is
-  attempted. Direct `add_key03` reaches LTP but reports `TCONF` because NOMMU
-  rejects its shared `mmap()` with `ENODEV`. A plain-SAS CI job must report
-  unsupported cases as configuration skips and must not reuse the SWMMU
-  package profile implicitly.
+- [x] Define and locally validate a fork-independent LTP subset for plain SAS.
+  Both normal SAS seccomp and time-travel SAS seccomp completed the nine-test
+  subset with 8 passes, 1 configuration skip (`gettimeofday01`), and no
+  failures or broken tests. The proposed `um-nommu-plain-sas-tt` CI row always
+  uses this subset, including manual dispatch, and reuses the plain NOMMU
+  userspace/LTP profile while asserting `NOMMU_SWMMU=n`. The existing
+  `simple-fork` probe exits 10 when `fork()` is attempted; unsupported tests
+  remain outside this bounded profile or report LTP `TCONF`.
+- [ ] Run the proposed plain-SAS time-travel matrix row in GitHub Actions and
+  verify its build, boot, KUnit, JSON/HTML LTP report, and artifact upload.
 - [ ] `NOMMU_SWMMU` currently depends on `!MMU`; an `MMU=y` plus SWMMU build is
   not a supported matrix. If desired, test normal MMU fork/COW as a separate
   control and label it clearly; it cannot validate SWMMU behavior.
