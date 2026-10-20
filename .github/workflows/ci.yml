@@ -47,7 +47,7 @@ jobs:
         id: download
         env:
           GH_TOKEN: ${{ github.token }}
-          KERNEL_REF: ${{ inputs.kernel_ref || ((github.ref_name == 'ci/uml-nommu' || github.ref_name == 'codex/uml-tt-ci') && 'feature-swmmu-nommu') || github.ref }}
+          KERNEL_REF: ${{ inputs.kernel_ref || ((github.ref_name == 'ci/uml-nommu' || github.ref_name == 'codex/uml-tt-ci') && 'codex/uml-nommu-tt') || github.ref }}
           APORTS_REF: ${{ inputs.aports_ref || '1879b74ea2b540f5951fd3a2125bcf424b170a46' }}
         run: |
           set -euo pipefail
@@ -212,7 +212,7 @@ jobs:
             runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
-            add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR" CFLAGS+="-DCONFIG_UML_TIME_TRAVEL_SUPPORT" CFLAGS+="-DCONFIG_UML_MAX_USERSPACE_ITERATIONS=100000"
+            add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
             kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel ### XXX
             testname: um-mmu-tt
             mode: um-mmu
@@ -235,7 +235,7 @@ jobs:
             runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
-            add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR" CFLAGS+="-DCONFIG_UML_TIME_TRAVEL_SUPPORT"
+            add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
             kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kernel_args time-travel
             testname: um-nommu-tt
             mode: um-nommu
@@ -277,7 +277,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_ref || ((github.ref_name == 'ci/uml-nommu' || github.ref_name == 'codex/uml-tt-ci') && 'feature-swmmu-nommu') || github.ref }}
+          ref: ${{ inputs.kernel_ref || ((github.ref_name == 'ci/uml-nommu' || github.ref_name == 'codex/uml-tt-ci') && 'codex/uml-nommu-tt') || github.ref }}
       - name: Checkout canonical CI support files
         uses: actions/checkout@v6
         with:
@@ -410,6 +410,12 @@ jobs:
             grep -q '^CONFIG_SMP=y$' build/.config
             grep -q '^CONFIG_NR_CPUS=4$' build/.config
           fi
+          if [[ "${{ matrix.testname }}" == "um-mmu-tt" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
+            scripts/config --file build/.config --disable SMP --enable UML_TIME_TRAVEL_SUPPORT
+            make ARCH=um O=build olddefconfig
+            grep -q '^CONFIG_UML_TIME_TRAVEL_SUPPORT=y$' build/.config
+            ! grep -q '^CONFIG_SMP=y$' build/.config
+          fi
           cat build/.config | sed "s/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/" > /tmp/a; mv /tmp/a build/.config
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
       - name: Report ccache statistics after build-0
@@ -512,6 +518,12 @@ jobs:
             make ARCH=um olddefconfig
             grep -q '^CONFIG_SMP=y$' .config
             grep -q '^CONFIG_NR_CPUS=4$' .config
+          fi
+          if [[ "${{ matrix.testname }}" == "um-mmu-tt" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
+            scripts/config --disable SMP --enable UML_TIME_TRAVEL_SUPPORT
+            make ARCH=um olddefconfig
+            grep -q '^CONFIG_UML_TIME_TRAVEL_SUPPORT=y$' .config
+            ! grep -q '^CONFIG_SMP=y$' .config
           fi
           sed -i 's/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/' .config
           make -j8 ARCH=um ${{ matrix.add_configs }}
