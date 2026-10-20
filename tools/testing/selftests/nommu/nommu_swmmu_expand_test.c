@@ -12,6 +12,9 @@
 
 /* Keep the all-access plugin's runtime declarations visible in this TU. */
 static uint64_t (* const __attribute__((used))
+keep_swmmu_load_dynamic)(const void *, size_t) =
+	nommu_swmmu_load_dynamic;
+static uint64_t (* const __attribute__((used))
 keep_swmmu_load_return_value)(const void *, size_t) =
 	nommu_swmmu_load_return_value;
 static long (* const __attribute__((used))
