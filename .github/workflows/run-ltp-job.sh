@@ -5,6 +5,10 @@ set -o pipefail
 cd /github/workspace
 mkdir -p output/ltp
 
+# Keep full workflow_dispatch suites below the job's 180 minute timeout so
+# Kirk can write JSON/HTML diagnostics before the runner terminates the job.
+LTP_SUITE_TIMEOUT=${LTP_SUITE_TIMEOUT:-170m}
+
 if [ "$LTP_TESTNAME" = native ]; then
 	# The native job uses a stock Alpine image rather than the locally built
 	# UML image, so install the runtime packages normally supplied by it.
@@ -100,11 +104,13 @@ if [ "$LTP_TESTNAME" = riscv-nommu ]; then
 	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
 		--sut default:com=qemu --com \
 		qemu:image=/work-buildroot/buildroot/output/images/rootfs.ext2:kernel=/work-buildroot/buildroot/output/images/Image:system=riscv64:user=root \
-		-f syscalls --run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
+		-f syscalls --suite-timeout "$LTP_SUITE_TIMEOUT" \
+		--run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 elif [ "$LTP_TESTNAME" = native ]; then
 	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
-		-f syscalls --run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
+		-f syscalls --suite-timeout "$LTP_SUITE_TIMEOUT" \
+		--run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 else
 	cp .github/workflows/ltp-exec.sh /ltp-exec.sh
@@ -114,11 +120,12 @@ else
 	case "$LTP_TESTNAME" in
 		um-nommu*)
 			run_faketty sh -x .github/workflows/ltp-entrypoint.sh \
-				LTP_SINGLE_FS_TYPE=ext4 LTP_TESTNAME="$LTP_TESTNAME"
+				LTP_SINGLE_FS_TYPE=ext4 LTP_TESTNAME="$LTP_TESTNAME" \
+				LTP_SUITE_TIMEOUT="$LTP_SUITE_TIMEOUT"
 			;;
 		*)
 			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
-				LTP_TESTNAME="$LTP_TESTNAME" \
+				LTP_TESTNAME="$LTP_TESTNAME" LTP_SUITE_TIMEOUT="$LTP_SUITE_TIMEOUT" \
 				| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 			;;
 	esac
