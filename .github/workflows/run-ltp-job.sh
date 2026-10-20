@@ -37,7 +37,7 @@ case "$LTP_TESTNAME" in
 		echo ptrace06 >> /ltp-skip
 		echo "Skipping known ptrace06 failure for um-mmu"
 		;;
-	um-nommu-seccomp)
+	um-nommu-seccomp|um-nommu-tt)
 		echo perf_event_open03 >> /ltp-skip
 		echo "Skipping known perf_event_open03 failure for $LTP_TESTNAME"
 		echo waitpid01 >> /ltp-skip

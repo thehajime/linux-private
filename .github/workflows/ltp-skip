@@ -72,6 +72,9 @@ ptrace10
 keyctl02
 keyctl05
 
+# Skip the MMU UML hang at this test consistently across profiles
+rt_sigaction01
+
 # um-mmu case
 sched_setscheduler04
 

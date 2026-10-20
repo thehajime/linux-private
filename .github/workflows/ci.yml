@@ -1249,7 +1249,7 @@ jobs:
             image_name: uml-ci/alpine:edge-um-mmu-tt
             image_artifact: uml-docker-image-um-mmu-tt
             testname: um-mmu-tt
-            vmlinux_opt: "time-travel"
+            vmlinux_opt: "time-travel seccomp=on"
             name: um-mmu
           - displayTargetName: um-nommu
             image_name: uml-ci/alpine:edge-um-nommu
@@ -1261,7 +1261,7 @@ jobs:
             image_name: uml-ci/alpine:edge-um-nommu-tt
             image_artifact: uml-docker-image-um-nommu-tt
             testname: um-nommu-tt
-            vmlinux_opt: "time-travel"
+            vmlinux_opt: "time-travel seccomp=on"
             name: um-nommu
           - displayTargetName: um-nommu-s
             image_name: uml-ci/alpine:edge-um-nommu
@@ -1282,18 +1282,6 @@ jobs:
             vmlinux_opt: ""
             name: um-mmu
             docker_opt: "-v /lib/modules:/lib/modules"
-          - displayTargetName: um-nommu-sas-s
-            image_name: uml-ci/alpine:edge-um-nommu-sas
-            image_artifact: uml-docker-image-um-nommu-sas
-            testname: um-nommu-sas-seccomp
-            vmlinux_opt: ""
-            name: um-nommu
-          - displayTargetName: um-nommu-sas-z
-            image_name: uml-ci/alpine:edge-um-nommu-sas
-            image_artifact: uml-docker-image-um-nommu-sas
-            testname: um-nommu-sas-zpoline
-            vmlinux_opt: "zpoline=1"
-            name: um-nommu
     name: "LTP: test-${{ matrix.testname }}"
     steps:
       - name: Download local test image
