@@ -2276,8 +2276,8 @@ static int test_enable_and_mapping(void)
 		return KSFT_FAIL;
 	}
 
-	if ((munmap(p, getpagesize()), 0)) {
-		SWMMU_TEST_FAIL("munmap failed (%p)): %s\n",
+	if (munmap(p, getpagesize()) < 0) {
+		SWMMU_TEST_FAIL("munmap failed (%p): %s\n",
 				p, strerror(errno));
 		return KSFT_FAIL;
 	}
@@ -4197,13 +4197,13 @@ typedef int (*swmmu_test_fn)(void);
 static const swmmu_test_fn testcases[] = {
 	test_default_mode_off,
 	test_dynamic_access,
-	/* Run before fork tests migrate the process's native allocator VMAs. */
-	test_allocator_domains,
 	test_native_mprotect_access,
 	test_enable_swmmu,
 	test_enable_and_mapping,
 	test_disable_and_reenable,
 	test_checked_access_swmmu_disabled,
+	/* Run last before the first fork; allocator arenas may stay mapped. */
+	test_allocator_domains,
 	test_fork_mode_inheritance,
 	test_fork_mapping_isolation,
 	test_fork_native_private_migration,
@@ -4331,19 +4331,24 @@ int main(void)
 		return KSFT_SKIP;
 	if (result != 0)
 		return KSFT_FAIL;
-	/* Exercise native allocator paths before enabling SWMMU for the suite. */
-	for (int i = 0; i < 4; i++) {
-		if (!swmmu_mode_switching && (i == 1 || i == 2)) {
+	/*
+	 * Exercise default-off paths before any fork.  A private native VMA is
+	 * converted for both parent and child at fork, so later tests cannot
+	 * assume that SWMMU mode can still be disabled.
+	 */
+	for (int i = 0; i < 8; i++) {
+		if (!swmmu_mode_switching && i != 2) {
 			ksft_test_result_skip("%s: SWMMU mode switching is unavailable in default-on profile\n",
+				i == 0 ? "test_default_mode_off" :
 				i == 1 ? "test_dynamic_access" :
+				i == 3 ? "test_enable_swmmu" :
+				i == 4 ? "test_enable_and_mapping" :
+				i == 5 ? "test_disable_and_reenable" :
+				i == 6 ? "test_checked_access_swmmu_disabled" :
 				"test_allocator_domains");
 			continue;
 		}
-		int test_result = (i == 0 || i == 3) ? testcases[i]() :
-			run_isolated_test(testcases[i], i == 1 ?
-				"test_dynamic_access" : i == 2 ?
-				"test_allocator_domains" :
-				"test_native_mprotect_access");
+		int test_result = testcases[i]();
 
 		if (test_result == KSFT_FAIL)
 			result = KSFT_FAIL;
@@ -4355,7 +4360,7 @@ int main(void)
 		return KSFT_SKIP;
 	}
 
-	for (int i = 4; i < ARRAY_SIZE(testcases); i++) {
+	for (int i = 8; i < ARRAY_SIZE(testcases); i++) {
 		if (testcases[i]() == KSFT_FAIL)
 			result = KSFT_FAIL;
 	}
