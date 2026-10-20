@@ -5,9 +5,10 @@ set -o pipefail
 cd /github/workspace
 mkdir -p output/ltp
 
-# Keep full workflow_dispatch suites below the job's 180 minute timeout so
+# Keep full workflow_dispatch suites below the job's 240 minute timeout so
 # Kirk can write JSON/HTML diagnostics before the runner terminates the job.
-LTP_SUITE_TIMEOUT=${LTP_SUITE_TIMEOUT:-170m}
+# RISC-V reached its final test only near the old 180 minute job limit.
+LTP_SUITE_TIMEOUT=${LTP_SUITE_TIMEOUT:-225m}
 
 if [ "$LTP_TESTNAME" = native ]; then
 	# The native job uses a stock Alpine image rather than the locally built

@@ -34,7 +34,7 @@ losetup /dev/loop0 /tmp/test.img
 sleep 5
 
 LTP_RUN_PATTERN=$(cat /github/workspace/output/ltp/run-pattern.txt)
-LTP_SUITE_TIMEOUT=${LTP_SUITE_TIMEOUT:-170m}
+LTP_SUITE_TIMEOUT=${LTP_SUITE_TIMEOUT:-225m}
 /opt/ltp/kirk -f syscalls --suite-timeout "$LTP_SUITE_TIMEOUT" \
 	      --run-pattern "$LTP_RUN_PATTERN" \
 	      --skip-file ltp-skip -o /result.json
