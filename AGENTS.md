@@ -75,6 +75,8 @@ reproducible kselftest build instructions in
   remain outside this bounded profile or report LTP `TCONF`.
 - [ ] Run the proposed plain-SAS time-travel matrix row in GitHub Actions and
   verify its build, boot, KUnit, JSON/HTML LTP report, and artifact upload.
+  The workflow now passes `time-travel` to both image boot tests and KUnit;
+  KUnit also gets an explicit TT config and plain-NOMMU `SWMMU=n` config.
 - [ ] `NOMMU_SWMMU` currently depends on `!MMU`; an `MMU=y` plus SWMMU build is
   not a supported matrix. If desired, test normal MMU fork/COW as a separate
   control and label it clearly; it cannot validate SWMMU behavior.

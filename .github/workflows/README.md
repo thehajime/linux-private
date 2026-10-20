@@ -125,6 +125,10 @@ fork-independent subset, including on manual workflow dispatch. Tests that
 return LTP `TCONF` remain configuration skips in the JSON and HTML reports;
 other nonzero outcomes fail the row. The row reuses the plain NOMMU LTP and
 userspace artifacts and does not use SWMMU-instrumented packages.
+All time-travel build rows pass `time-travel` to both image boot tests and to
+KUnit. Their KUnit fragments independently enable time-travel and disable the
+incompatible RAID6 benchmark. Plain NOMMU KUnit fragments explicitly disable
+SWMMU rather than inheriting its `default y` Kconfig value.
 
 ## Test and benchmark result reports
 

@@ -213,40 +213,43 @@ jobs:
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n ### XXX
+            kunit_opts: --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_RAID6_PQ_BENCHMARK=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kconfig_add CONFIG_UML_MAX_USERSPACE_ITERATIONS=100000 --kernel_args time-travel
             testname: um-mmu-tt
             mode: um-mmu
             userspace_profile: alpine
             base_image: mirror.gcr.io/library/alpine:edge
+            runtime_opts: time-travel
           - displayTargetName: ubuntu-22.04 (nommu time-travel)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n
+            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_NOMMU_SWMMU=n --kconfig_add CONFIG_NOMMU_SWMMU_DEFAULT_ON=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_RAID6_PQ_BENCHMARK=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kconfig_add CONFIG_UML_MAX_USERSPACE_ITERATIONS=100000 --kernel_args time-travel
             testname: um-nommu-tt
             mode: um-nommu
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
+            runtime_opts: time-travel
           - displayTargetName: ubuntu-22.04 (plain nommu-sas time-travel)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_NOMMU_SAS=y
+            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_NOMMU_SWMMU=n --kconfig_add CONFIG_NOMMU_SWMMU_DEFAULT_ON=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_NOMMU_SAS=y --kconfig_add CONFIG_RAID6_PQ_BENCHMARK=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kconfig_add CONFIG_UML_MAX_USERSPACE_ITERATIONS=100000 --kernel_args time-travel
             testname: um-nommu-plain-sas-tt
             mode: um-nommu
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
+            runtime_opts: time-travel
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_KUNIT_UML_PCI=n
+            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_NOMMU_SWMMU=n --kconfig_add CONFIG_NOMMU_SWMMU_DEFAULT_ON=n --kconfig_add CONFIG_KUNIT_UML_PCI=n
             testname: um-nommu
             mode: um-nommu
             userspace_profile: nommu-plain
@@ -498,7 +501,7 @@ jobs:
         run: |
           sudo sh -c "echo 0 > /proc/sys/vm/mmap_min_addr"
           set +e
-          timeout --signal=TERM 30s faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt
+          timeout --signal=TERM 30s faketty ./build/vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty ${{ matrix.runtime_opts }} init=/sbin/init 2>&1 | tee /tmp/log.txt
           rc=${PIPESTATUS[0]}
           set -e
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
@@ -627,7 +630,7 @@ jobs:
       - name: test-1
         run: |
           set +e
-          timeout --signal=TERM 30s faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty init=/sbin/init 2>&1 | tee /tmp/log.txt
+          timeout --signal=TERM 30s faketty ./vmlinux vec0:transport=tap,ifname=tap100,depth=128,gro=1 ubd0=./alpine.ext4 rw mem=2048m loglevel=8 console=tty ${{ matrix.runtime_opts }} init=/sbin/init 2>&1 | tee /tmp/log.txt
           rc=${PIPESTATUS[0]}
           set -e
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
