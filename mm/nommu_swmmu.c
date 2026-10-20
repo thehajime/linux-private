@@ -643,38 +643,21 @@ int nommu_swmmu_activate_mm(struct mm_struct *mm)
 	bool retry;
 	int ret;
 
-	/*
-	 * Host alias installation can sleep while taking an mm or SWMMU lock.
-	 * schedule() then returns through the UML switch hook, which activates
-	 * aliases before the task can resume.  The outer activation will
-	 * revalidate the owner and retry, so a nested activation by the same
-	 * task is both unnecessary and liable to wait recursively on its lock.
-	 * Keep this state per task: another task must remain free to install its
-	 * own aliases while this one sleeps.
-	 */
-	if (current->nommu_swmmu_activation_depth) {
-		current->nommu_swmmu_activation_rescheduled = true;
-		return 0;
-	}
-
-	current->nommu_swmmu_activation_depth++;
 	do {
-		current->nommu_swmmu_activation_rescheduled = false;
 		ret = __nommu_swmmu_activate_mm(mm);
 
 		/*
-		 * Close the window between the final owner check and leaving the
-		 * activation guard.  If this task scheduled inside the operation,
-		 * another task may have replaced the aliases; repeat the complete
-		 * operation before allowing this task to resume userspace.
+		 * Close the window between the final owner check and returning from
+		 * activation.  If this task scheduled inside the operation, another
+		 * task may have replaced the aliases; repeat the complete operation
+		 * before allowing this task to resume userspace.
 		 */
 		preempt_disable();
 		space = mm ? mm->swmmu_space : NULL;
 		enabled = mm && (READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON ||
 				 (space && READ_ONCE(space->has_native_guard)));
 		retry = !ret &&
-			(current->nommu_swmmu_activation_rescheduled ||
-			 (enabled && space &&
+			((enabled && space &&
 			  (READ_ONCE(swmmu_host_active_mm) != mm ||
 			   READ_ONCE(swmmu_host_active_generation) !=
 					READ_ONCE(space->host_generation))) ||
@@ -682,7 +665,6 @@ int nommu_swmmu_activate_mm(struct mm_struct *mm)
 		if (retry)
 			preempt_enable();
 	} while (retry);
-	current->nommu_swmmu_activation_depth--;
 	preempt_enable();
 
 	return ret;

@@ -84,10 +84,11 @@ struct task_struct *__switch_to(struct task_struct *from, struct task_struct *to
 
 void um_schedule_return(void)
 {
-#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
-	if (current->mm && nommu_swmmu_activate_mm(current->mm))
-		panic("NOMMU SWMMU: failed to restore scheduled aliases\n");
-#endif
+	/*
+	 * Alias activation can sleep on mmap_lock.  Do not activate here: the
+	 * task may have scheduled while it already held that lock.  The final
+	 * userspace-return path activates aliases after releasing syscall locks.
+	 */
 }
 
 void um_syscall_enter(void)

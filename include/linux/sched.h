@@ -979,11 +979,6 @@ struct task_struct {
 
 	struct mm_struct		*mm;
 	struct mm_struct		*active_mm;
-#ifdef CONFIG_NOMMU_SWMMU
-	/* Prevent alias activation from recursing through schedule(). */
-	unsigned int			nommu_swmmu_activation_depth;
-	bool				nommu_swmmu_activation_rescheduled;
-#endif
 
 	struct task_exec_state __rcu	*exec_state;
 
