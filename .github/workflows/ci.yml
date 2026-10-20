@@ -848,13 +848,13 @@ jobs:
           - displayTargetName: um-nommu-sas-s
             image_name: um-nommu-sas
             testname: um-nommu-sas-seccomp
-            vmlinux_opt: "zpoline=0"
+            vmlinux_opt: "zpoline=0 swmmu_direct=1"
             runs_on: ubuntu-22.04
             base_tag: edge
           - displayTargetName: um-nommu-sas-z
             image_name: um-nommu-sas
             testname: um-nommu-sas-zpoline
-            vmlinux_opt: "zpoline=1"
+            vmlinux_opt: "zpoline=1 swmmu_direct=1"
             runs_on: ubuntu-22.04
             base_tag: edge
     name: "UML: bench (${{ matrix.testname }}) "
@@ -1315,13 +1315,13 @@ jobs:
             image_name: uml-ci/alpine:edge-um-nommu-sas
             image_artifact: uml-docker-image-um-nommu-sas
             testname: um-nommu-sas-seccomp
-            vmlinux_opt: ""
+            vmlinux_opt: "swmmu_direct=1"
             name: um-nommu
           - displayTargetName: um-nommu-sas-z
             image_name: uml-ci/alpine:edge-um-nommu-sas
             image_artifact: uml-docker-image-um-nommu-sas
             testname: um-nommu-sas-zpoline
-            vmlinux_opt: "zpoline=1"
+            vmlinux_opt: "zpoline=1 swmmu_direct=1"
             name: um-nommu
     name: "LTP: test-${{ matrix.testname }}"
     steps:
