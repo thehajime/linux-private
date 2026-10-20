@@ -424,10 +424,11 @@ jobs:
             grep -q '^CONFIG_NR_CPUS=4$' build/.config
           fi
           if [[ "${{ matrix.testname }}" == "um-mmu-tt" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
-            scripts/config --file build/.config --disable SMP --enable UML_TIME_TRAVEL_SUPPORT
+            scripts/config --file build/.config --disable SMP --disable RAID6_PQ_BENCHMARK --enable UML_TIME_TRAVEL_SUPPORT
             make ARCH=um O=build olddefconfig
             grep -q '^CONFIG_UML_TIME_TRAVEL_SUPPORT=y$' build/.config
             ! grep -q '^CONFIG_SMP=y$' build/.config
+            ! grep -q '^CONFIG_RAID6_PQ_BENCHMARK=y$' build/.config
           fi
           cat build/.config | sed "s/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/" > /tmp/a; mv /tmp/a build/.config
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
@@ -533,10 +534,11 @@ jobs:
             grep -q '^CONFIG_NR_CPUS=4$' .config
           fi
           if [[ "${{ matrix.testname }}" == "um-mmu-tt" || "${{ matrix.testname }}" == "um-nommu-tt" ]]; then
-            scripts/config --disable SMP --enable UML_TIME_TRAVEL_SUPPORT
+            scripts/config --disable SMP --disable RAID6_PQ_BENCHMARK --enable UML_TIME_TRAVEL_SUPPORT
             make ARCH=um olddefconfig
             grep -q '^CONFIG_UML_TIME_TRAVEL_SUPPORT=y$' .config
             ! grep -q '^CONFIG_SMP=y$' .config
+            ! grep -q '^CONFIG_RAID6_PQ_BENCHMARK=y$' .config
           fi
           sed -i 's/.*CONFIG_STATIC_LINK.*/CONFIG_STATIC_LINK=y/' .config
           make -j8 ARCH=um ${{ matrix.add_configs }}
