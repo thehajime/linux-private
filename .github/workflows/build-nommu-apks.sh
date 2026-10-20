@@ -26,7 +26,7 @@ printf 'permit nopass builder as root\n' >/etc/doas.d/abuild.conf
 chmod 0400 /etc/doas.d/abuild.conf
 
 for profile in nommu-plain nommu-swmmu; do
-	mkdir -p "/home/builder/aports-$profile/main" "/home/builder/aports-$profile/scripts" "/out/$profile/packages" "/out/$profile/tools"
+	mkdir -p "/home/builder/aports-$profile/main" "/home/builder/aports-$profile/scripts" "/out/$profile/packages" "/out/$profile/tools" "/out/$profile/toolchain"
 	cp -a /src/main/musl /src/main/busybox "/home/builder/aports-$profile/main/"
 	cp -a /src/scripts/swmmu-profile.sh /src/scripts/swmmu-cc "/home/builder/aports-$profile/scripts/"
 	if [ "$profile" = nommu-swmmu ]; then
@@ -65,6 +65,7 @@ abuild-keygen -a -i -n
 build_profile() {
 	profile=$1
 	export REPODEST="/out/$profile"
+	${CC:-gcc} -dumpfullversion >"/out/$profile/toolchain/gcc-version"
 	if [ "$profile" = nommu-swmmu ]; then
 		export SWMMU=1
 		export SWMMU_KERNEL_SRC=/kernel
