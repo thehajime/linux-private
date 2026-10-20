@@ -11,12 +11,22 @@ static unsigned long loads, stores;
 extern volatile uint64_t swmmu_test_global __attribute__((alias("backing")));
 
 uintptr_t nommu_swmmu_direct_key = UINTPTR_MAX;
+uintptr_t nommu_swmmu_direct_start;
+uintptr_t nommu_swmmu_direct_length;
 
 void swmmu_test_publish_window(void)
 {
 	backing[0] = 11;
+	__atomic_store_n(&nommu_swmmu_direct_start,
+			(uintptr_t)backing, __ATOMIC_RELAXED);
+	__atomic_store_n(&nommu_swmmu_direct_length,
+			sizeof(backing), __ATOMIC_RELEASE);
 	__atomic_store_n(&nommu_swmmu_direct_key,
 			(((uintptr_t)backing >> 12) << 6) | 12, __ATOMIC_RELEASE);
+	__atomic_store_n(&nommu_swmmu_direct_start,
+			(uintptr_t)backing, __ATOMIC_RELAXED);
+	__atomic_store_n(&nommu_swmmu_direct_length,
+			sizeof(backing), __ATOMIC_RELEASE);
 }
 
 extern uint64_t swmmu_test_sum(const uint64_t *, size_t);
@@ -117,12 +127,12 @@ int main(void)
 	before = stores;
 	swmmu_test_volatile_store(backing);
 	assert(stores - before == 2);
-	/* The key covers one page, even when the queried bounds are larger. */
+	/* The published range covers the complete authorized backing array. */
 	backing[512] = 55;
 	before = loads;
 	assert(swmmu_test_sum(backing + 512, 1) == 55);
-	assert(loads - before == 1);
-	/* Starting in the key is insufficient when an access crosses a page. */
+	assert(loads == before);
+	/* Starting in the range is insufficient when an access crosses a page. */
 	void *crossing = (char *)backing + 4093;
 	uint64_t pattern = UINT64_C(0x8877665544332211), observed;
 	memcpy(crossing, &pattern, sizeof(pattern));

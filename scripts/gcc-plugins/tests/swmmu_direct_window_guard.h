@@ -29,21 +29,37 @@ typedef void * __attribute__((swmmu_native_ptr)) swmmu_direct_ptr;
  */
 extern uintptr_t __swmmu_direct_key_snapshot(void) __attribute__((const, nothrow));
 extern uintptr_t __swmmu_direct_key_snapshot_libc(void) __attribute__((const, nothrow));
+extern uintptr_t __swmmu_direct_length_snapshot(void) __attribute__((const, nothrow));
+extern uintptr_t __swmmu_direct_length_snapshot_libc(void) __attribute__((const, nothrow));
+extern uintptr_t __swmmu_direct_start_snapshot(void) __attribute__((const, nothrow));
+extern uintptr_t __swmmu_direct_start_snapshot_libc(void) __attribute__((const, nothrow));
 #if defined(SWMMU_BUILDING_LIBC) && (!defined(CRT) || defined(SWMMU_STATIC_PIE_CRT))
 #define SWMMU_READ_DIRECT_KEY(result) ((result) = __swmmu_direct_key_snapshot_libc())
 #else
 #define SWMMU_READ_DIRECT_KEY(result) ((result) = __swmmu_direct_key_snapshot())
 #endif
+#if defined(SWMMU_BUILDING_LIBC) && (!defined(CRT) || defined(SWMMU_STATIC_PIE_CRT))
+#define SWMMU_READ_DIRECT_LENGTH(result) ((result) = __swmmu_direct_length_snapshot_libc())
+#else
+#define SWMMU_READ_DIRECT_LENGTH(result) ((result) = __swmmu_direct_length_snapshot())
+#endif
+#if defined(SWMMU_BUILDING_LIBC) && (!defined(CRT) || defined(SWMMU_STATIC_PIE_CRT))
+#define SWMMU_READ_DIRECT_START(result) ((result) = __swmmu_direct_start_snapshot_libc())
+#else
+#define SWMMU_READ_DIRECT_START(result) ((result) = __swmmu_direct_start_snapshot())
+#endif
 
 static inline __attribute__((always_inline, used)) uint64_t
 nommu_swmmu_load_dynamic_guarded(swmmu_direct_const_ptr p, size_t size)
 {
-	uintptr_t key;
-	SWMMU_READ_DIRECT_KEY(key);
+	uintptr_t length;
+	uintptr_t start;
+	SWMMU_READ_DIRECT_LENGTH(length);
+	SWMMU_READ_DIRECT_START(start);
 	uintptr_t address = (uintptr_t)p;
 	uint64_t value;
 
-	if ((address >> (key & 63)) != (key >> 6) ||
+	if (address - start >= length ||
 	    size > 4096 - (address & 4095))
 		return nommu_swmmu_load_dynamic(p, size);
 	switch (size) {
@@ -73,11 +89,13 @@ nommu_swmmu_load_dynamic_guarded(swmmu_direct_const_ptr p, size_t size)
 static inline __attribute__((always_inline, used)) long
 nommu_swmmu_store_dynamic_guarded(swmmu_direct_ptr p, size_t size, uint64_t value)
 {
-	uintptr_t key;
-	SWMMU_READ_DIRECT_KEY(key);
+	uintptr_t length;
+	uintptr_t start;
+	SWMMU_READ_DIRECT_LENGTH(length);
+	SWMMU_READ_DIRECT_START(start);
 	uintptr_t address = (uintptr_t)p;
 
-	if ((address >> (key & 63)) != (key >> 6) ||
+	if (address - start >= length ||
 	    size > 4096 - (address & 4095))
 		return nommu_swmmu_store_dynamic(p, size, value);
 	switch (size) {
