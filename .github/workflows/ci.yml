@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: 1879b74ea2b540f5951fd3a2125bcf424b170a46
+      ltp_ref:
+        description: 'Branch, tag, or commit in thehajime/ltp to build and test'
+        required: false
+        type: string
+        default: fix-nommu
       publish_images:
         description: 'Publish the tested UML images to GHCR'
         required: false
@@ -405,7 +410,7 @@ jobs:
           echo "CONFIG_UML_NOMMU_SAS=y" >> arch/um/configs/x86_64_defconfig
       - name: build-0 (static)
         run: |
-          curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
+          curl -L -O https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || 'fix-nommu' }}/tools/buildroot/ltp-add.config
           cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }} O=build
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
@@ -529,7 +534,7 @@ jobs:
           if-no-files-found: warn
       - name: build-1
         run: |
-          curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/tools/buildroot/ltp-add.config
+          curl -L -O https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || 'fix-nommu' }}/tools/buildroot/ltp-add.config
           cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }}
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
@@ -1238,6 +1243,8 @@ jobs:
   build_ltp:
     uses: ./.github/workflows/ci-docker-build.yml
     name: "LTP: build"
+    with:
+      ltp_ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
   test_ltp:
     runs-on: ubuntu-latest
     needs: [build_uml, build_ltp]
@@ -1345,7 +1352,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: thehajime/ltp
-          ref: fix-nommu
+          ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
           path: ltp-source
           submodules: recursive
       - name: Prepare RISC-V LTP build cache

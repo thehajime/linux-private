@@ -15,6 +15,12 @@ on:
         required: false
         default: ''
   workflow_call:
+    inputs:
+      ltp_ref:
+        description: Branch, tag, or commit in thehajime/ltp
+        required: false
+        type: string
+        default: fix-nommu
 
 permissions:
   contents: read # to fetch code (actions/checkout)
@@ -156,19 +162,26 @@ jobs:
       uses: actions/checkout@v6
       with:
         repository: thehajime/ltp
-        ref: ${{ matrix.env.branch }}
+        ref: ${{ inputs.ltp_ref || matrix.env.branch }}
         submodules: 'recursive'
 
     - name: Checkout CI compatibility patches
       uses: actions/checkout@v6
       with:
         repository: thehajime/linux-private
-        ref: ci/uml-nommu
+        ref: ${{ github.sha }}
         path: linux-private-ci
         sparse-checkout: .github/workflows/patches/ltp-madvise11-void-ptrs.patch
 
     - name: Fix LTP madvise11 pointer type for GCC on Alpine edge
-      run: patch --forward --fuzz=0 -p1 < linux-private-ci/.github/workflows/patches/ltp-madvise11-void-ptrs.patch
+      run: |
+        patch_file=linux-private-ci/.github/workflows/patches/ltp-madvise11-void-ptrs.patch
+        if git apply --check "$patch_file"; then
+          git apply "$patch_file"
+        else
+          git apply --reverse --check "$patch_file"
+          echo "madvise11 pointer fix is already present in ${{ inputs.ltp_ref || matrix.env.branch }}"
+        fi
 
     - name: Install additional packages
       run: |
@@ -216,7 +229,7 @@ jobs:
 
     - name: patch kirk
       run: |
-        curl -L -O https://raw.githubusercontent.com/thehajime/ltp/refs/heads/fix-nommu/kirk-block.patch
+        curl -L -O https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || matrix.env.branch }}/kirk-block.patch
         patch -p1 < ./kirk-block.patch
 
     - name: Compile
