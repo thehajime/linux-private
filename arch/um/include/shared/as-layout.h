@@ -7,6 +7,7 @@
 #define __START_H__
 
 #include <generated/asm-offsets.h>
+#include <nommu-swmmu.h>
 
 /*
  * Stolen from linux/const.h, which can't be directly included since
@@ -31,10 +32,6 @@
 
 #include <linux/compiler_types.h>
 #include <sysdep/ptrace.h>
-
-#ifdef CONFIG_NOMMU_SWMMU
-#define UM_NOMMU_SWMMU_VA_BASE 0x1000000000ULL
-#endif
 
 struct task_struct;
 extern struct task_struct *cpu_tasks[];

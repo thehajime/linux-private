@@ -196,9 +196,18 @@ int nommu_swmmu_copy_from_user(void *destination,
 			       const void __user *address,
 			       size_t size);
 bool nommu_swmmu_usercopy_requires_translation(unsigned long address);
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
 int nommu_swmmu_get_user_pages(unsigned long start, int nr_pages,
 			       unsigned int gup_flags, bool pin,
 			       struct page **pages);
+#else
+static inline int nommu_swmmu_get_user_pages(unsigned long start,
+		int nr_pages, unsigned int gup_flags, bool pin,
+		struct page **pages)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 /* mapping API */
 int nommu_swmmu_dup_mmap(struct mm_struct *dst,
