@@ -148,16 +148,19 @@ jobs:
                   )
                 or
                   (
-                    (.files | length == 6) and
+                    (.files | length >= 6 and length <= 9) and
                     all(.files[];
                       .status == "modified" and
                       (
                         .filename == "arch/um/include/shared/os.h" or
+                        .filename == "arch/um/kernel/time.c" or
+                        .filename == "arch/um/os-Linux/time.c" or
                         .filename == "arch/um/os-Linux/internal.h" or
                         .filename == "arch/x86/um/Kconfig" or
                         .filename == "arch/um/nommu/os-Linux/seccomp.c" or
                         .filename == "mm/nommu_swmmu.c" or
-                        .filename == "tools/testing/selftests/nommu/Makefile"
+                        .filename == "tools/testing/selftests/nommu/Makefile" or
+                        .filename == "Documentation/virt/uml/nommu-uml.rst"
                       )
                     )
                   )
