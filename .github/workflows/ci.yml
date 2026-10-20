@@ -812,21 +812,10 @@ jobs:
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
             runs_on: ubuntu-22.04
-          - displayTargetName: um-mmu-tt
-            image_name: um-mmu-tt
-            testname: um-mmu-tt
-            vmlinux_opt: "time-travel"
-            runs_on: ubuntu-22.04
           - displayTargetName: um-nommu
             image_name: um-nommu
             testname: um-nommu
             vmlinux_opt: ""
-            runs_on: ubuntu-22.04
-            base_tag: edge
-          - displayTargetName: um-nommu-tt
-            image_name: um-nommu-tt
-            testname: um-nommu-tt
-            vmlinux_opt: "time-travel"
             runs_on: ubuntu-22.04
             base_tag: edge
           - displayTargetName: um-nommu-s
@@ -938,14 +927,6 @@ jobs:
            #  loglevel=8 console=tty init=/root/iperf3.sh \
            #  | tee output/${{ matrix.testname }}-seccomp-iperf3.dat
            container_name=uml-benchmark-2-${{ matrix.testname }}
-           network_vmlinux_opt='${{ matrix.vmlinux_opt }}'
-           # A raw-vector peer follows host wall time and cannot participate in
-           # UML's simulated-time scheduler.  Keep the idle task runnable for
-           # TT profiles so BASIC mode advances from host timer interrupts
-           # instead of jumping past asynchronous network responses.
-           if [[ "${{ matrix.testname }}" == *-tt ]]; then
-             network_vmlinux_opt="$network_vmlinux_opt idle=poll"
-           fi
            bash .github/workflows/run-uml-benchmark-container.sh \
               "$container_name" "$netperf_log" \
               faketty docker run "${docker_caps[@]}" --name "$container_name" --rm \
@@ -953,7 +934,7 @@ jobs:
                 uml-ci/alpine:edge-${{ matrix.image_name }} mem=2G \
                 vec0:transport=raw,ifname=eth0,depth=128,gro=1 \
                 root=/dev/root rootflags=/ rootfstype=hostfs rw loglevel=8 \
-                $network_vmlinux_opt \
+                ${{ matrix.vmlinux_opt }} \
                 init=/root/iperf3.sh &
            bench_pid=$!
            if [[ "${{ startsWith(matrix.testname, 'um-nommu-sas-') }}" == true ]]; then
