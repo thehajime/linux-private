@@ -132,8 +132,17 @@ else
 	esac
 fi
 
-"$ltp_source/tools/kirk/kirk-src/utils/json2html.py" -r /result.json \
-	> "output/ltp/ltp-result-${LTP_TESTNAME}.html"
-cp /result.json "output/ltp/result-${LTP_TESTNAME}.json"
-cp -rpf /github/home/kirk.root/ output/ltp/ 2>/dev/null || true
-cp -rpf /tmp/kirk.root/ output/ltp/ 2>/dev/null || true
+case "$LTP_TESTNAME" in
+	um-nommu*)
+		# ltp-exec.sh produces these while the optimized guest is active.
+		test -s "output/ltp/ltp-result-${LTP_TESTNAME}.html"
+		test -s "output/ltp/result-${LTP_TESTNAME}.json"
+		;;
+	*)
+		"$ltp_source/tools/kirk/kirk-src/utils/json2html.py" -r /result.json \
+			> "output/ltp/ltp-result-${LTP_TESTNAME}.html"
+		cp /result.json "output/ltp/result-${LTP_TESTNAME}.json"
+		cp -rpf /github/home/kirk.root/ output/ltp/ 2>/dev/null || true
+		cp -rpf /tmp/kirk.root/ output/ltp/ 2>/dev/null || true
+		;;
+esac

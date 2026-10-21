@@ -39,11 +39,17 @@ LTP_SUITE_TIMEOUT=${LTP_SUITE_TIMEOUT:-225m}
 	      --run-pattern "$LTP_RUN_PATTERN" \
 	      --skip-file ltp-skip -o /result.json
 
+# NOMMU container utilities are built with the SWMMU plugin.  Run report
+# generation in the guest, where the direct window is active, instead of
+# falling back to slow helpers (or hanging) after UML has stopped.
+/ltp-source/tools/kirk/kirk-src/utils/json2html.py -r /result.json \
+	> "/github/workspace/output/ltp/ltp-result-${LTP_TESTNAME}.html"
+cp /result.json "/github/workspace/output/ltp/result-${LTP_TESTNAME}.json"
+cp -rpf /tmp/kirk.root/ /github/workspace/output/ltp/
+
 #--workers 16
 
 ip addr show
 ip route show
-
-cp -rpf /tmp/kirk.root/ /github/home/
 
 halt -f
