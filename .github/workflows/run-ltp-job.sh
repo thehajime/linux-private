@@ -58,6 +58,11 @@ case "$LTP_TESTNAME" in
 		# docker exec blocked indefinitely and preventing diagnostics upload.
 		echo nullptr >> /ltp-skip
 		echo "Skipping nullptr: it panics and hangs the SAS NOMMU guest"
+		# munmap04 reaches TPASS after creating 65,518 mappings, but zpoline
+		# syscall interception makes teardown exceed LTP's 5m24s timeout.  The
+		# same kernel and rootfs pass under seccomp in 57.6 seconds.
+		echo munmap04 >> /ltp-skip
+		echo "Skipping munmap04: zpoline teardown exceeds its LTP timeout"
 		;;
 esac
 
