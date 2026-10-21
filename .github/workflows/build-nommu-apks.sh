@@ -63,6 +63,20 @@ set -eu
 export PACKAGER="UML CI <uml-ci@example.invalid>"
 abuild-keygen -a -i -n
 
+abuild_fetch_retry() {
+	attempt=1
+	while ! abuild fetch; do
+		if [ "$attempt" -ge 5 ]; then
+			echo "source fetch failed after $attempt attempts in $PWD" >&2
+			return 1
+		fi
+		delay=$((attempt * 10))
+		echo "source fetch attempt $attempt failed; retrying in ${delay}s" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+	done
+}
+
 build_profile() {
 	profile=$1
 	export REPODEST="/out/$profile"
@@ -79,22 +93,30 @@ build_profile() {
 		unset SWMMU_PLUGIN SWMMU_UAPI SWMMU_SYSROOT SWMMU_WRAPPER_SOURCE
 	fi
 	cd "$HOME/aports-$profile/main/musl"
+	abuild_fetch_retry
 	abuild -r
 	cd "$HOME/aports-$profile/main/busybox"
+	abuild_fetch_retry
 	abuild -r
 	if [ "$profile" = nommu-swmmu ]; then
 		"$HOME/aports-$profile/scripts/swmmu-prepare.sh" check
 		cd "$HOME/aports-$profile/main/openssl"
+		abuild_fetch_retry
 		SWMMU_ONLY=1 abuild -r
 		cd "$HOME/aports-$profile/main/zlib"
+		abuild_fetch_retry
 		SWMMU_ONLY=1 abuild -r
 		cd "$HOME/aports-$profile/main/apk-tools"
+		abuild_fetch_retry
 		SWMMU_ONLY=1 abuild -r
 		cd "$HOME/aports-$profile/main/coreutils"
+		abuild_fetch_retry
 		SWMMU_ONLY=1 abuild -r
 		cd "$HOME/aports-$profile/main/nginx"
+		abuild_fetch_retry
 		SWMMU_ONLY=1 abuild -r
 		cd "$HOME/aports-$profile/main/python3"
+		abuild_fetch_retry
 		SWMMU_ONLY=1 abuild -r
 	fi
 	for package in busybox-nommu musl-nommu; do
