@@ -21,6 +21,7 @@ void *nommu_swmmu_memmove(void *, const void *, size_t);
 void *nommu_swmmu_memset(void *, int, size_t);
 
 uint64_t nommu_swmmu_load_dynamic(const void *, size_t);
+uint64_t nommu_swmmu_load_return_value(const void *address, size_t size);
 long nommu_swmmu_store_dynamic(void *, size_t, uint64_t);
 int nommu_swmmu_load_dynamic_checked(const void *, size_t, uint64_t *);
 int nommu_swmmu_store_dynamic_checked(void *, size_t, uint64_t);

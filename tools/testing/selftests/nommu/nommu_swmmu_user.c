@@ -8,6 +8,24 @@
 
 #include "nommu_swmmu_user.h"
 
+uint64_t nommu_swmmu_load_return_value(const void *address, size_t size)
+{
+	register unsigned long syscall_nr __asm__("rax") =
+		SYS_nommu_swmmu_load;
+	register unsigned long flags __asm__("r10") =
+		NOMMU_SWMMU_ACCESS_SIGNAL |
+		NOMMU_SWMMU_ACCESS_DYNAMIC |
+		NOMMU_SWMMU_ACCESS_RETURN_VALUE;
+
+	__asm__ volatile("syscall"
+			 : "+a"(syscall_nr)
+			 : "D"((unsigned long)address), "S"((unsigned long)size),
+			   "d"(0UL), "r"(flags)
+			 : "rcx", "r11", "memory");
+
+	return syscall_nr;
+}
+
 uint64_t nommu_swmmu_load_u64(const void *address,
 			       size_t size)
 {

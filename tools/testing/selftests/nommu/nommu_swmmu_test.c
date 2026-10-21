@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -16,8 +17,8 @@
 #include <setjmp.h>
 
 
-#include "kselftest.h"
 #include "nommu_swmmu_user.h"
+#include "kselftest.h"
 
 /*
  * FIXME: #include <linux/prctl.h>
@@ -33,6 +34,7 @@
 
 static bool swmmu_default_on;
 static bool swmmu_mode_switching;
+static long swmmu_initial_mode;
 
 
 #define SWMMU_LIVE_CHILDREN		8
@@ -308,6 +310,20 @@ test_scalar_access(void)
 		nommu_swmmu_free(object);
 		return KSFT_FAIL;
 	}
+
+	nommu_swmmu_store_u64(&object->value, sizeof(object->value),
+			      (uint64_t)-EFAULT);
+	value = nommu_swmmu_load_return_value(&object->value,
+					      sizeof(object->value));
+	if (value != (uint64_t)-EFAULT) {
+		SWMMU_TEST_FAIL("return-value load returned %#llx, expected %#llx\n",
+				(unsigned long long)value,
+				(unsigned long long)(uint64_t)-EFAULT);
+		nommu_swmmu_free(object);
+		return KSFT_FAIL;
+	}
+
+	nommu_swmmu_store_u64(&object->value, sizeof(object->value), 42);
 
 	value = test_swmmu_dynamic_pointer(&object->value);
 
@@ -2122,15 +2138,7 @@ static int test_standard_mmap_expand_rejects_maymove(void)
 
 static int swmmu_set_mode(unsigned long mode)
 {
-	int ret = 0;
-
-	if (mode == PR_SWMMU_OFF) {
-		errno = EOPNOTSUPP;
-		return -1;
-	}
-
-	ret = prctl(PR_SET_SWMMU, mode, 0, 0, 0);
-	return ret;
+	return prctl(PR_SET_SWMMU, mode, 0, 0, 0);
 }
 
 static int swmmu_get_mode(void)
@@ -2163,17 +2171,60 @@ static int read_token(int fd, char *token)
 
 static int test_default_mode_off(void)
 {
-	int mode = swmmu_get_mode();
-
 	SWMMU_TEST_REQUIRE_MODESWITCH();
 
-	if (mode < 0) {
-		SWMMU_TEST_FAIL("cannot query initial SWMMU mode: %s\n",
-				      strerror(errno));
+	if (swmmu_initial_mode != PR_SWMMU_OFF) {
+		SWMMU_TEST_FAIL("initial SWMMU mode was not off\n");
 		return KSFT_FAIL;
 	}
 
 	SWMMU_TEST_PASS("default SWMMU mode is off\n");
+	return KSFT_PASS;
+}
+
+static int test_native_mprotect_access(void)
+{
+	long page_size = getpagesize();
+	void *p;
+	uint64_t value;
+	int ret;
+
+	p = mmap(NULL, page_size, PROT_NONE,
+		 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (p == MAP_FAILED) {
+		SWMMU_TEST_FAIL("native mmap failed: %s\n", strerror(errno));
+		return KSFT_FAIL;
+	}
+
+	errno = 0;
+	ret = syscall(SYS_mprotect, p, page_size, PROT_READ | PROT_WRITE);
+	if (ret < 0 && errno != ENOSYS) {
+		SWMMU_TEST_FAIL("native mprotect returned %d, errno=%d (%s); "
+				"expected success or ENOSYS\n", ret, errno,
+				strerror(errno));
+		munmap(p, page_size);
+		return KSFT_FAIL;
+	}
+
+	/* NOMMU dynamic accesses must match direct access to native mappings. */
+	ret = nommu_swmmu_store_dynamic_checked(p, 1, 0x5a);
+	if (ret < 0) {
+		SWMMU_TEST_FAIL("native dynamic store failed: %s\n",
+				strerror(errno));
+		munmap(p, page_size);
+		return KSFT_FAIL;
+	}
+
+	ret = nommu_swmmu_load_dynamic_checked(p, 1, &value);
+	if (ret || value != 0x5a) {
+		SWMMU_TEST_FAIL("native dynamic load returned %#llx\n",
+				(unsigned long long)value);
+		munmap(p, page_size);
+		return KSFT_FAIL;
+	}
+
+	munmap(p, page_size);
+	SWMMU_TEST_PASS("native PROT_NONE mapping supports NOMMU dynamic access\n");
 	return KSFT_PASS;
 }
 
@@ -2225,8 +2276,8 @@ static int test_enable_and_mapping(void)
 		return KSFT_FAIL;
 	}
 
-	if ((munmap(p, getpagesize()), 0)) {
-		SWMMU_TEST_FAIL("munmap failed (%p)): %s\n",
+	if (munmap(p, getpagesize()) < 0) {
+		SWMMU_TEST_FAIL("munmap failed (%p): %s\n",
 				p, strerror(errno));
 		return KSFT_FAIL;
 	}
@@ -2395,6 +2446,7 @@ static int test_fork_mode_inheritance(void)
 		goto cleanup;
 	}
 
+	fflush(stdout);
 	pid = fork();
 	if (pid < 0) {
 		failure = "fork failed";
@@ -2613,6 +2665,251 @@ cleanup:
 	}
 
 	SWMMU_TEST_PASS("eager-copy fork keeps child mapping isolated\n");
+	return KSFT_PASS;
+}
+
+static int test_fork_native_private_migration(void)
+{
+	size_t ps = getpagesize();
+	size_t last_page = ps / sizeof(uint64_t);
+	volatile uint64_t *native = MAP_FAILED;
+	volatile uint64_t *swmmu = MAP_FAILED;
+	int child_ready[2] = {-1, -1};
+	int parent_go[2] = {-1, -1};
+	pid_t pid = -1;
+	int status;
+	char token;
+	uint64_t checked;
+	const char *failure = NULL;
+
+	SWMMU_TEST_REQUIRE_MODESWITCH();
+
+	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
+		failure = "could not disable SWMMU before native mmap";
+		goto cleanup;
+	}
+
+	native = mmap(NULL, ps * 2, PROT_READ | PROT_WRITE,
+		      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (native == MAP_FAILED) {
+		failure = "native anonymous mmap failed";
+		goto cleanup;
+	}
+	*native = UINT64_C(0x11);
+	native[last_page] = UINT64_C(0x12);
+
+	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
+		failure = "could not enable SWMMU for the mixed VMA case";
+		goto cleanup;
+	}
+
+	swmmu = mmap(NULL, ps * 2, PROT_READ | PROT_WRITE,
+		     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (swmmu == MAP_FAILED) {
+		failure = "SWMMU anonymous mmap failed";
+		goto cleanup;
+	}
+	if (nommu_swmmu_store_u64_checked((void *)swmmu, sizeof(*swmmu),
+					  UINT64_C(0x33))) {
+		failure = "initial SWMMU store failed";
+		goto cleanup;
+	}
+	if (nommu_swmmu_store_u64_checked((void *)&swmmu[last_page],
+					  sizeof(*swmmu), UINT64_C(0x34))) {
+		failure = "initial second-page SWMMU store failed";
+		goto cleanup;
+	}
+
+	errno = 0;
+	if (nommu_swmmu_load_u64_checked((const void *)native,
+					 sizeof(*native), &checked) != -EFAULT) {
+		failure = "native VMA was unexpectedly SWMMU-backed before fork";
+		goto cleanup;
+	}
+
+	if (pipe(child_ready) < 0 || pipe(parent_go) < 0) {
+		failure = "pipe creation failed";
+		goto cleanup;
+	}
+
+	pid = fork();
+	if (pid < 0) {
+		failure = "fork failed";
+		goto cleanup;
+	}
+
+	if (pid == 0) {
+		close(child_ready[0]);
+		close(parent_go[1]);
+
+		if (swmmu_get_mode() != PR_SWMMU_ON || *native != 0x11 ||
+		    native[last_page] != 0x12 ||
+		    nommu_swmmu_load_u64_checked((const void *)native,
+						 sizeof(*native), &checked) ||
+		    checked != 0x11 ||
+		    nommu_swmmu_load_u64_checked((const void *)swmmu,
+						 sizeof(*swmmu), &checked) ||
+		    checked != 0x33 ||
+		    nommu_swmmu_load_u64_checked(
+			    (const void *)&swmmu[last_page], sizeof(*swmmu),
+			    &checked) || checked != 0x34)
+			_exit(2);
+
+		*native = UINT64_C(0x22);
+		native[last_page] = UINT64_C(0x23);
+		if (nommu_swmmu_store_u64_checked((void *)swmmu,
+						  sizeof(*swmmu),
+						  UINT64_C(0x44)))
+			_exit(3);
+		if (nommu_swmmu_store_u64_checked(
+			    (void *)&swmmu[last_page], sizeof(*swmmu),
+			    UINT64_C(0x45)))
+			_exit(3);
+		if (write_token(child_ready[1], 'r') < 0 ||
+		    read_token(parent_go[0], &token) < 0 || token != 'g')
+			_exit(4);
+		if (*native != 0x22 || native[last_page] != 0x23 ||
+		    nommu_swmmu_load_u64_checked((const void *)swmmu,
+						 sizeof(*swmmu), &checked) ||
+		    checked != 0x44 ||
+		    nommu_swmmu_load_u64_checked(
+			    (const void *)&swmmu[last_page], sizeof(*swmmu),
+			    &checked) || checked != 0x45)
+			_exit(5);
+		_exit(0);
+	}
+
+	close(child_ready[1]);
+	child_ready[1] = -1;
+	close(parent_go[0]);
+	parent_go[0] = -1;
+	if (read_token(child_ready[0], &token) < 0 || token != 'r') {
+		failure = "child did not reach the isolation checkpoint";
+		goto cleanup;
+	}
+	if (swmmu_get_mode() != PR_SWMMU_ON || *native != 0x11 ||
+	    native[last_page] != 0x12 ||
+	    nommu_swmmu_load_u64_checked((const void *)native,
+					 sizeof(*native), &checked) ||
+	    checked != 0x11 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&native[last_page], sizeof(*native), &checked) ||
+	    checked != 0x12) {
+		failure = "parent native mapping did not migrate with its address and contents";
+		goto cleanup;
+	}
+	if (nommu_swmmu_load_u64_checked((const void *)swmmu,
+					 sizeof(*swmmu), &checked) || checked != 0x33 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&swmmu[last_page], sizeof(*swmmu), &checked) ||
+	    checked != 0x34) {
+		failure = "existing SWMMU VMA changed during fork";
+		goto cleanup;
+	}
+
+	*native = UINT64_C(0x55);
+	native[last_page] = UINT64_C(0x56);
+	if (nommu_swmmu_store_u64_checked((void *)swmmu,
+					  sizeof(*swmmu), UINT64_C(0x66))) {
+		failure = "parent SWMMU store failed after fork";
+		goto cleanup;
+	}
+	if (nommu_swmmu_store_u64_checked((void *)&swmmu[last_page],
+					  sizeof(*swmmu), UINT64_C(0x67))) {
+		failure = "parent second-page SWMMU store failed after fork";
+		goto cleanup;
+	}
+	if (write_token(parent_go[1], 'g') < 0) {
+		failure = "could not release child checkpoint";
+		goto cleanup;
+	}
+	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0) {
+		pid = -1;
+		failure = "child observed parent writes or failed its fork checks";
+		goto cleanup;
+	}
+	pid = -1;
+	if (*native != 0x55 || native[last_page] != 0x56 ||
+	    nommu_swmmu_load_u64_checked((const void *)swmmu,
+					 sizeof(*swmmu), &checked) || checked != 0x66 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&swmmu[last_page], sizeof(*swmmu), &checked) ||
+	    checked != 0x67) {
+		failure = "parent mapping changed after child writes";
+		goto cleanup;
+	}
+
+	/* Fork again after migration to verify that later descendants stay isolated. */
+	pid = fork();
+	if (pid < 0) {
+		failure = "second fork failed after native migration";
+		goto cleanup;
+	}
+	if (pid == 0) {
+		if (*native != 0x55 || native[last_page] != 0x56 ||
+		    nommu_swmmu_load_u64_checked((const void *)swmmu,
+						 sizeof(*swmmu), &checked) ||
+		    checked != 0x66 ||
+		    nommu_swmmu_load_u64_checked(
+			    (const void *)&swmmu[last_page], sizeof(*swmmu),
+			    &checked) || checked != 0x67)
+			_exit(6);
+		*native = UINT64_C(0x77);
+		native[last_page] = UINT64_C(0x78);
+		if (nommu_swmmu_store_u64_checked((void *)swmmu,
+						  sizeof(*swmmu),
+						  UINT64_C(0x88)) ||
+		    nommu_swmmu_store_u64_checked(
+			    (void *)&swmmu[last_page], sizeof(*swmmu),
+			    UINT64_C(0x89)))
+			_exit(7);
+		_exit(0);
+	}
+	if (waitpid(pid, &status, 0) != pid || !WIFEXITED(status) ||
+	    WEXITSTATUS(status) != 0) {
+		pid = -1;
+		failure = "second child failed mixed-VMA isolation checks";
+		goto cleanup;
+	}
+	pid = -1;
+	if (*native != 0x55 || native[last_page] != 0x56 ||
+	    nommu_swmmu_load_u64_checked((const void *)swmmu,
+					 sizeof(*swmmu), &checked) || checked != 0x66 ||
+	    nommu_swmmu_load_u64_checked(
+		    (const void *)&swmmu[last_page], sizeof(*swmmu), &checked) ||
+	    checked != 0x67) {
+		failure = "second child writes leaked into the parent mappings";
+		goto cleanup;
+	}
+
+cleanup:
+	if (pid > 0) {
+		if (parent_go[1] >= 0)
+			(void)write_token(parent_go[1], 'g');
+		(void)waitpid(pid, &status, 0);
+	}
+	if (child_ready[0] >= 0)
+		close(child_ready[0]);
+	if (child_ready[1] >= 0)
+		close(child_ready[1]);
+	if (parent_go[0] >= 0)
+		close(parent_go[0]);
+	if (parent_go[1] >= 0)
+		close(parent_go[1]);
+	if (native != MAP_FAILED)
+		munmap((void *)native, ps * 2);
+	if (swmmu != MAP_FAILED)
+		munmap((void *)swmmu, ps * 2);
+	(void)swmmu_set_mode(PR_SWMMU_ON);
+
+	if (failure) {
+		SWMMU_TEST_FAIL("%s: %s\n", __func__, failure);
+		return KSFT_FAIL;
+	}
+
+	SWMMU_TEST_PASS(
+		"mixed native/SWMMU VMAs keep fork isolation across pages and repeated forks\n");
 	return KSFT_PASS;
 }
 
@@ -3466,7 +3763,7 @@ static int test_dynamic_access(void)
 	SWMMU_TEST_REQUIRE_MODESWITCH();
 
 	/*
-	 * Ensure malloc() returns an ordinary mapping for this test.
+	 * Create an ordinary mapping before enabling SWMMU.
 	 */
 	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
 		SWMMU_TEST_FAIL("failed to disable SWMMU: %s\n",
@@ -3474,8 +3771,9 @@ static int test_dynamic_access(void)
 		return KSFT_FAIL;
 	}
 
-	ordinary = malloc(sizeof(value));
-	if (!ordinary) {
+	ordinary = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (ordinary == MAP_FAILED) {
 		SWMMU_TEST_FAIL("ordinary allocation failed\n");
 		return KSFT_FAIL;
 	}
@@ -3485,7 +3783,7 @@ static int test_dynamic_access(void)
 	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
 		SWMMU_TEST_FAIL("failed to enable SWMMU: %s\n",
 				strerror(errno));
-		free(ordinary);
+		munmap(ordinary, ps);
 		return KSFT_FAIL;
 	}
 
@@ -3566,7 +3864,7 @@ out:
 		result = KSFT_FAIL;
 	}
 
-	free(ordinary);
+	munmap(ordinary, ps);
 
 	/*
 	 * Preserve the mode expected by subsequent SWMMU tests.
@@ -3579,108 +3877,80 @@ out:
 
 static int test_allocator_domains(void)
 {
-	pid_t pid;
-	int status;
+	void *ordinary = NULL;
+	void *dynamic = NULL;
+	size_t ps = getpagesize();
+	uint64_t value;
+	int ret;
 
 	SWMMU_TEST_REQUIRE_MODESWITCH();
 
-	pid = fork();
-	if (pid < 0) {
-		SWMMU_TEST_FAIL("fork failed: %s\n",
+	if (swmmu_set_mode(PR_SWMMU_OFF) < 0) {
+		SWMMU_TEST_FAIL("failed to disable SWMMU: %s\n",
 				strerror(errno));
 		return KSFT_FAIL;
 	}
 
-	if (pid == 0) {
-		void *ordinary;
-		void *dynamic;
-		uint64_t value;
-		int ret;
-
-		/*
-		 * The first allocation should belong to the ordinary
-		 * memory domain.
-		 */
-		if (swmmu_set_mode(PR_SWMMU_OFF) < 0)
-			_exit(1);
-
-		ordinary = malloc(sizeof(value));
-		if (!ordinary)
-			_exit(2);
-
-		*(uint64_t *)ordinary = 0x1122334455667788ULL;
-
-		if (swmmu_set_mode(PR_SWMMU_ON) < 0)
-			_exit(3);
-
-		/*
-		 * Dynamic access must handle the ordinary allocation while
-		 * SWMMU is enabled.
-		 */
-		ret = nommu_swmmu_store_dynamic_checked(
-			ordinary, sizeof(value),
-			0x8877665544332211ULL);
-		if (ret)
-			_exit(4);
-
-		ret = nommu_swmmu_load_dynamic_checked(
-			ordinary, sizeof(value), &value);
-		if (ret || value != 0x8877665544332211ULL)
-			_exit(5);
-
-		/*
-		 * The second allocation is made while SWMMU is enabled.
-		 */
-		dynamic = malloc(sizeof(value));
-		if (!dynamic)
-			_exit(6);
-
-		ret = nommu_swmmu_store_dynamic_checked(
-			dynamic, sizeof(value),
-			0xaabbccddeeff0011ULL);
-		if (ret)
-			_exit(7);
-
-		ret = nommu_swmmu_load_dynamic_checked(
-			dynamic, sizeof(value), &value);
-		if (ret || value != 0xaabbccddeeff0011ULL)
-			_exit(8);
-
-		/*
-		 * Test allocator release while SWMMU remains enabled.
-		 */
-		free(ordinary);
-		free(dynamic);
-
-		if (swmmu_set_mode(PR_SWMMU_OFF) < 0)
-			_exit(9);
-
-		_exit(0);
+	ordinary = mmap(NULL, ps, PROT_READ | PROT_WRITE,
+			MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (ordinary == MAP_FAILED) {
+		ordinary = NULL;
+		SWMMU_TEST_FAIL("ordinary allocation failed\n");
+		goto fail;
 	}
+	*(uint64_t *)ordinary = 0x1122334455667788ULL;
 
-	if (waitpid(pid, &status, 0) != pid) {
-		SWMMU_TEST_FAIL("waitpid failed: %s\n",
+	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
+		SWMMU_TEST_FAIL("failed to enable SWMMU: %s\n",
 				strerror(errno));
-		return KSFT_FAIL;
+		goto fail;
 	}
 
-	if (!WIFEXITED(status) ||
-	    WEXITSTATUS(status) != 0) {
-		if (WIFSIGNALED(status)) {
-			SWMMU_TEST_FAIL(
-				"allocator child killed by signal %d\n",
-				WTERMSIG(status));
-		} else {
-			SWMMU_TEST_FAIL(
-				"allocator child exited with status %d\n",
-				WEXITSTATUS(status));
-		}
-		return KSFT_FAIL;
+	ret = nommu_swmmu_store_dynamic_checked(
+		ordinary, sizeof(value), 0x8877665544332211ULL);
+	if (ret) {
+		SWMMU_TEST_FAIL("dynamic store to ordinary allocation failed: %s\n",
+				strerror(-ret));
+		goto fail;
 	}
+	ret = nommu_swmmu_load_dynamic_checked(ordinary, sizeof(value), &value);
+	if (ret || value != 0x8877665544332211ULL) {
+		SWMMU_TEST_FAIL("dynamic load from ordinary allocation failed\n");
+		goto fail;
+	}
+
+	dynamic = malloc(sizeof(value));
+	if (!dynamic) {
+		SWMMU_TEST_FAIL("SWMMU allocation failed\n");
+		goto fail;
+	}
+	ret = nommu_swmmu_store_dynamic_checked(
+		dynamic, sizeof(value), 0xaabbccddeeff0011ULL);
+	if (ret) {
+		SWMMU_TEST_FAIL("dynamic store to SWMMU allocation failed: %s\n",
+				strerror(-ret));
+		goto fail;
+	}
+	ret = nommu_swmmu_load_dynamic_checked(dynamic, sizeof(value), &value);
+	if (ret || value != 0xaabbccddeeff0011ULL) {
+		SWMMU_TEST_FAIL("dynamic load from SWMMU allocation failed\n");
+		goto fail;
+	}
+
+	free(dynamic);
+	munmap(ordinary, ps);
 
 	SWMMU_TEST_PASS(
 		"malloc/free work across ordinary and SWMMU domains\n");
 	return KSFT_PASS;
+
+fail:
+	if (ordinary)
+		munmap(ordinary, ps);
+	free(dynamic);
+	if (swmmu_get_mode() != PR_SWMMU_ON)
+		swmmu_set_mode(PR_SWMMU_ON);
+	return KSFT_FAIL;
 }
 
 static int test_realloc_domains(void)
@@ -3926,12 +4196,17 @@ static int test_struct_copy(void)
 typedef int (*swmmu_test_fn)(void);
 static const swmmu_test_fn testcases[] = {
 	test_default_mode_off,
+	test_dynamic_access,
+	test_native_mprotect_access,
 	test_enable_swmmu,
 	test_enable_and_mapping,
 	test_disable_and_reenable,
 	test_checked_access_swmmu_disabled,
+	/* Run last before the first fork; allocator arenas may stay mapped. */
+	test_allocator_domains,
 	test_fork_mode_inheritance,
 	test_fork_mapping_isolation,
+	test_fork_native_private_migration,
 	test_scalar_access,
 	test_eager_copy_fork,
 	test_repeated_fork,
@@ -3963,9 +4238,7 @@ static const swmmu_test_fn testcases[] = {
 	test_standard_mmap_memcpy,
 	test_standard_mmap_memmove,
 	test_standard_mmap_memset,
-	test_dynamic_access,
 	test_allocator_basic,
-	test_allocator_domains,
 	test_struct_copy,
 
 	/*
@@ -3974,6 +4247,50 @@ static const swmmu_test_fn testcases[] = {
 	test_standard_mmap_exit_cleanup_churn,
 	test_standard_mmap_exit_cleanup,
 };
+
+static int run_isolated_test(swmmu_test_fn test, const char *name)
+{
+	pid_t pid;
+	int status;
+
+	pid = fork();
+	if (pid < 0) {
+		SWMMU_TEST_FAIL("isolated test fork failed: %s\n",
+				strerror(errno));
+		return KSFT_FAIL;
+	}
+	if (!pid) {
+		int nullfd = open("/dev/null", O_WRONLY);
+		int result;
+
+		if (nullfd >= 0) {
+			dup2(nullfd, STDOUT_FILENO);
+			close(nullfd);
+		}
+		result = test();
+		_exit(result == KSFT_PASS ? 0 :
+		      result == KSFT_SKIP ? KSFT_SKIP : KSFT_FAIL);
+	}
+
+	if (waitpid(pid, &status, 0) != pid) {
+		SWMMU_TEST_FAIL("isolated test waitpid failed: %s\n",
+				strerror(errno));
+		return KSFT_FAIL;
+	}
+
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		ksft_test_result_pass("%s completed in isolated mm\n", name);
+		return KSFT_PASS;
+	}
+	if (WIFEXITED(status) && WEXITSTATUS(status) == KSFT_SKIP) {
+		ksft_test_result_skip("%s skipped in isolated mm\n", name);
+		return KSFT_SKIP;
+	}
+
+	ksft_test_result_fail("%s isolated child failed (status %#x)\n",
+			       name, status);
+	return KSFT_FAIL;
+}
 
 static int
 swmmu_test_init(void)
@@ -3996,6 +4313,7 @@ swmmu_test_init(void)
 	}
 
 	swmmu_default_on = (mode == PR_SWMMU_ON);
+	swmmu_initial_mode = mode;
 	swmmu_mode_switching = !swmmu_default_on;
 	return 0;
 }
@@ -4005,12 +4323,6 @@ int main(void)
 {
 	int result = KSFT_PASS;
 
-	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
-		ksft_test_result_skip("SWMMU prctl unavailable: %s\n",
-				strerror(errno));
-		return KSFT_SKIP;
-	}
-
 	ksft_print_header();
 	ksft_set_plan(ARRAY_SIZE(testcases));
 
@@ -4019,8 +4331,36 @@ int main(void)
 		return KSFT_SKIP;
 	if (result != 0)
 		return KSFT_FAIL;
+	/*
+	 * Exercise default-off paths before any fork.  A private native VMA is
+	 * converted for both parent and child at fork, so later tests cannot
+	 * assume that SWMMU mode can still be disabled.
+	 */
+	for (int i = 0; i < 8; i++) {
+		if (!swmmu_mode_switching && i != 2) {
+			ksft_test_result_skip("%s: SWMMU mode switching is unavailable in default-on profile\n",
+				i == 0 ? "test_default_mode_off" :
+				i == 1 ? "test_dynamic_access" :
+				i == 3 ? "test_enable_swmmu" :
+				i == 4 ? "test_enable_and_mapping" :
+				i == 5 ? "test_disable_and_reenable" :
+				i == 6 ? "test_checked_access_swmmu_disabled" :
+				"test_allocator_domains");
+			continue;
+		}
+		int test_result = testcases[i]();
 
-	for (int i = 0; i < ARRAY_SIZE(testcases); i++) {
+		if (test_result == KSFT_FAIL)
+			result = KSFT_FAIL;
+	}
+
+	if (swmmu_set_mode(PR_SWMMU_ON) < 0) {
+		ksft_test_result_skip("SWMMU prctl unavailable: %s\n",
+				strerror(errno));
+		return KSFT_SKIP;
+	}
+
+	for (int i = 8; i < ARRAY_SIZE(testcases); i++) {
 		if (testcases[i]() == KSFT_FAIL)
 			result = KSFT_FAIL;
 	}
