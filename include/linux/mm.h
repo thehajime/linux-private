@@ -3339,6 +3339,7 @@ long pin_user_pages_remote(struct mm_struct *mm,
 			   unsigned long start, unsigned long nr_pages,
 			   unsigned int gup_flags, struct page **pages,
 			   int *locked);
+int try_grab_folio(struct folio *folio, int refs, unsigned int flags);
 
 /*
  * Retrieves a single page alongside its VMA. Does not support FOLL_NOWAIT.

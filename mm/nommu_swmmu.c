@@ -5,6 +5,8 @@
 #include <linux/highmem.h>
 #include <linux/syscalls.h>
 #include <linux/mman.h>
+#include <linux/preempt.h>
+#include <linux/sched/mm.h>
 
 #include "internal.h"
 
@@ -19,6 +21,8 @@ struct swmmu_pagetable {
 	refcount_t refs;
 	unsigned long nr_ptes;
 	struct swmmu_pte *ptes;
+	/* Keep the original NOMMU pages reserved while aliases use their VAs. */
+	struct vm_region *guard_region;
 };
 
 struct swmmu_pagetable_range {
@@ -29,6 +33,8 @@ struct swmmu_pagetable_range {
 
 	unsigned long host_start;
 	bool host_mapped;
+	/* Some pages may have been removed by overlapping range teardown. */
+	bool host_dirty;
 };
 
 enum swmmu_pagetable_tx_kind {
@@ -71,6 +77,29 @@ struct nommu_swmmu_clone_item {
 	bool published;
 };
 
+struct nommu_swmmu_native_fork_item {
+	struct list_head node;
+	struct vm_area_struct *src_vma;
+	struct vm_area_struct *parent_vma;
+	struct vm_area_struct *child_vma;
+	struct vma_iterator parent_vmi;
+	struct vma_iterator child_vmi;
+	struct swmmu_pagetable_range *parent_data;
+	struct swmmu_pagetable_range *child_data;
+	bool parent_alias_mapped;
+	bool child_published;
+	unsigned long alias_pages_mapped;
+};
+
+struct nommu_swmmu_native_shared_item {
+	struct list_head node;
+	struct vm_area_struct *src_vma;
+	struct vm_area_struct *dst_vma;
+	struct vma_iterator child_vmi;
+	bool inserted;
+	bool published;
+};
+
 struct nommu_swmmu_space {
 	struct rw_semaphore lock;
 	struct mm_struct *mm;
@@ -79,6 +108,7 @@ struct nommu_swmmu_space {
 	const struct nommu_swmmu_host_ops *host_ops;
 
 	u64 host_generation;
+	bool has_native_guard;
 };
 
 static struct mm_struct *swmmu_host_active_mm;
@@ -188,6 +218,26 @@ static void swmmu_pagetable_put(struct nommu_swmmu_space *space,
 		if (pt->ptes[i].page)
 			space->ops->page_free(pt->ptes[i].page);
 	}
+	if (pt->guard_region) {
+		struct vm_region *region = pt->guard_region;
+
+		if (nommu_swmmu_region_exclusive(region)) {
+			unsigned long addr;
+
+			/* Restore the direct map before these pages reach the allocator. */
+			for (addr = region->vm_start; addr < region->vm_top;
+			     addr += PAGE_SIZE) {
+				int ret = space->host_ops->map_page(addr,
+					virt_to_page((void *)addr),
+					PROT_READ | PROT_WRITE | PROT_EXEC);
+
+				if (ret)
+					panic("NOMMU SWMMU: failed to restore direct map at %lx: %d\n",
+					      addr, ret);
+			}
+		}
+		nommu_swmmu_put_region(pt->guard_region);
+	}
 
 	space->ops->dealloc(pt->ptes);
 	space->ops->dealloc(pt);
@@ -196,6 +246,16 @@ static void swmmu_pagetable_put(struct nommu_swmmu_space *space,
 static void swmmu_pagetable_get(struct swmmu_pagetable *pt)
 {
 	refcount_inc(&pt->refs);
+}
+
+static void swmmu_pagetable_inherit_guard(struct swmmu_pagetable *dst,
+					 const struct swmmu_pagetable *src)
+{
+	if (!src->guard_region)
+		return;
+
+	nommu_swmmu_get_region(src->guard_region);
+	dst->guard_region = src->guard_region;
 }
 
 static void swmmu_pagetable_drop_entries(struct nommu_swmmu_space *space,
@@ -219,6 +279,21 @@ static void swmmu_pagetable_drop_entries(struct nommu_swmmu_space *space,
 	}
 }
 
+static void swmmu_host_unmap_pages(const struct nommu_swmmu_host_ops *ops,
+				   unsigned long start, unsigned long nr_pages)
+{
+	unsigned long i;
+
+	if (!nr_pages)
+		return;
+	if (ops->unmap_range) {
+		ops->unmap_range(start, nr_pages * SWMMU_PAGE_SIZE);
+		return;
+	}
+	for (i = 0; i < nr_pages; i++)
+		ops->unmap_page(start + i * SWMMU_PAGE_SIZE);
+}
+
 static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 				struct swmmu_pagetable_range *range,
 				unsigned long start,
@@ -233,6 +308,16 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 	if (!host_ops || !host_ops->map_page ||
 	    !host_ops->unmap_page)
 		return -EOPNOTSUPP;
+
+	/* Keep overlapping SWMMU VMAs helper-backed instead of aliasing them. */
+	if (host_ops->alias_range_allowed &&
+	    !host_ops->alias_range_allowed(start,
+					   range->nr_ptes * SWMMU_PAGE_SIZE)) {
+		range->host_start = start;
+		range->host_mapped = false;
+		range->prot = prot;
+		return 0;
+	}
 
 	/*
 	 * VMA changes can prepare an inactive mm. Do not install its
@@ -265,14 +350,17 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 
 	range->host_start = start;
 	range->host_mapped = true;
+	range->host_dirty = false;
 	range->prot = prot;
 	return 0;
 
 rollback:
-	while (i--)
-		host_ops->unmap_page(start + i * SWMMU_PAGE_SIZE);
+	/* A repair may have started with a partially installed old alias. */
+	swmmu_host_unmap_pages(host_ops, start, range->nr_ptes);
 
+	range->host_start = 0;
 	range->host_mapped = false;
+	range->host_dirty = false;
 	return ret;
 }
 
@@ -281,7 +369,6 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 {
 	const struct nommu_swmmu_host_ops *host_ops;
 	struct mm_struct *active_mm;
-	unsigned long i;
 
 	host_ops = space->host_ops;
 	if (!range->host_mapped ||
@@ -297,14 +384,29 @@ static void swmmu_host_unmap_range(struct nommu_swmmu_space *space,
 	if (active_mm && active_mm != space->mm)
 		goto clear_mapping_state;
 
-	for (i = 0; i < range->nr_ptes; i++) {
-		host_ops->unmap_page(
-			range->host_start + i * SWMMU_PAGE_SIZE);
+	swmmu_host_unmap_pages(host_ops, range->host_start, range->nr_ptes);
+
+	/* A detached old range may overlap freshly published replacement VMAs. */
+	if (space->mm) {
+		unsigned long start = range->host_start;
+		unsigned long end = start + range->nr_ptes * SWMMU_PAGE_SIZE;
+		VMA_ITERATOR(vmi, space->mm, start);
+		struct vm_area_struct *vma;
+
+		for_each_vma(vmi, vma) {
+			struct swmmu_pagetable_range *overlap = vma->vm_swmmu_pt_range;
+
+			if (vma->vm_start >= end)
+				break;
+			if (overlap && overlap->host_mapped)
+				overlap->host_dirty = true;
+		}
 	}
 
 clear_mapping_state:
 	range->host_start = 0;
 	range->host_mapped = false;
+	range->host_dirty = false;
 }
 
 void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm)
@@ -319,43 +421,55 @@ void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm)
 		WRITE_ONCE(space->host_generation,
 			   READ_ONCE(space->host_generation) + 1);
 
-	if (READ_ONCE(swmmu_host_active_mm) != mm)
-		return;
-
 	/*
-	 * The VMA teardown path will unmap each range through
-	 * nommu_swmmu_vma_close(). Only invalidate the active-mm cache here.
+	 * Retain the actual owner while its generation is dirty. Range teardown
+	 * clears the affected aliases; same-mm activation only repairs those
+	 * ranges. Clearing the owner here used to force a whole-mm remap after
+	 * every munmap, including allocator and loader cleanup.
 	 */
-	WRITE_ONCE(swmmu_host_active_mm, NULL);
-	WRITE_ONCE(swmmu_host_active_generation, 0);
 }
 
-static int swmmu_host_map_mm(struct mm_struct *mm)
+/* Host callbacks return zero or a negative errno, leaving this internal retry. */
+enum { SWMMU_HOST_OWNER_CHANGED = 1 };
+
+static int swmmu_host_map_mm(struct mm_struct *mm, bool repair_only)
 {
-	struct nommu_swmmu_space *space;
+	struct nommu_swmmu_space *space = mm->swmmu_space;
 	VMA_ITERATOR(vmi, mm, 0);
 	VMA_ITERATOR(rollback_vmi, mm, 0);
 	struct vm_area_struct *vma;
 	int ret = 0;
 
-	if (!mm)
-		return 0;
-
-	if (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON)
-		return 0;
-
-	space = mm->swmmu_space;
 	if (!space || !space->host_ops)
 		return -EOPNOTSUPP;
 
 	mmap_read_lock(mm);
 	down_write(&space->lock);
+	/* Lock acquisition may have scheduled another alias owner. */
+	preempt_disable();
+	if (READ_ONCE(swmmu_host_active_mm) != (repair_only ? mm : NULL) ||
+	    (READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON &&
+	     !READ_ONCE(space->has_native_guard))) {
+		ret = SWMMU_HOST_OWNER_CHANGED;
+		goto out_unlock;
+	}
+
+	if (!repair_only) {
+		/* Clear aliases prepared during exec without a published owner. */
+		for_each_vma(vmi, vma) {
+			if (vma->vm_swmmu_pt_range)
+				swmmu_host_unmap_range(space, vma->vm_swmmu_pt_range);
+		}
+		vma_iter_init(&vmi, mm, 0);
+	}
 
 	for_each_vma(vmi, vma) {
-		struct swmmu_pagetable_range *range;
+		struct swmmu_pagetable_range *range = vma->vm_swmmu_pt_range;
 
-		range = vma->vm_swmmu_pt_range;
 		if (!range)
+			continue;
+		if (repair_only && range->host_mapped && !range->host_dirty &&
+		    range->host_start == vma->vm_start)
 			continue;
 
 		ret = swmmu_host_map_range(space, range, vma->vm_start,
@@ -364,54 +478,67 @@ static int swmmu_host_map_mm(struct mm_struct *mm)
 			goto rollback;
 	}
 
+	WRITE_ONCE(swmmu_host_active_mm, mm);
+	WRITE_ONCE(swmmu_host_active_generation, READ_ONCE(space->host_generation));
 	goto out_unlock;
 
 rollback:
 	for_each_vma(rollback_vmi, vma) {
-		struct swmmu_pagetable_range *range;
-
-		range = vma->vm_swmmu_pt_range;
-		if (!range)
-			continue;
-
-		swmmu_host_unmap_range(space, range);
+		if (vma->vm_swmmu_pt_range)
+			swmmu_host_unmap_range(space, vma->vm_swmmu_pt_range);
 	}
+	WRITE_ONCE(swmmu_host_active_mm, NULL);
+	WRITE_ONCE(swmmu_host_active_generation, 0);
 
 out_unlock:
 	up_write(&space->lock);
 	mmap_read_unlock(mm);
-
+	preempt_enable();
+	/*
+	 * preempt_enable() may switch to another task, which can install a
+	 * different mm's aliases before this task resumes.  Recheck after it
+	 * returns so activate_mm() retries instead of returning with stale
+	 * aliases for the current task.
+	 */
+	if (!ret &&
+	    (READ_ONCE(swmmu_host_active_mm) != mm ||
+	     READ_ONCE(swmmu_host_active_generation) !=
+					READ_ONCE(space->host_generation)))
+		ret = SWMMU_HOST_OWNER_CHANGED;
 	return ret;
 }
 
-static void swmmu_host_unmap_mm(struct mm_struct *mm)
+static int swmmu_host_unmap_mm(struct mm_struct *mm)
 {
-	struct nommu_swmmu_space *space;
+	struct nommu_swmmu_space *space = mm->swmmu_space;
 	VMA_ITERATOR(vmi, mm, 0);
 	struct vm_area_struct *vma;
-
-	if (!mm)
-		return;
-
-	space = mm->swmmu_space;
-	if (!space)
-		return;
+	int ret = 0;
 
 	mmap_read_lock(mm);
-	down_write(&space->lock);
-
-	for_each_vma(vmi, vma) {
-		struct swmmu_pagetable_range *range;
-
-		range = vma->vm_swmmu_pt_range;
-		if (!range)
-			continue;
-
-		swmmu_host_unmap_range(space, range);
+	if (space)
+		down_write(&space->lock);
+	preempt_disable();
+	if (READ_ONCE(swmmu_host_active_mm) != mm) {
+		ret = SWMMU_HOST_OWNER_CHANGED;
+		goto out_unlock;
 	}
 
-	up_write(&space->lock);
+	if (space) {
+		for_each_vma(vmi, vma) {
+			if (vma->vm_swmmu_pt_range)
+				swmmu_host_unmap_range(space, vma->vm_swmmu_pt_range);
+		}
+	}
+	WRITE_ONCE(swmmu_host_active_mm, NULL);
+	WRITE_ONCE(swmmu_host_active_generation, 0);
+
+out_unlock:
+	if (space)
+		up_write(&space->lock);
 	mmap_read_unlock(mm);
+	preempt_enable();
+	return ret;
 }
 
 static int swmmu_host_protect_range(struct nommu_swmmu_space *space,
@@ -436,55 +563,111 @@ static int swmmu_host_protect_range(struct nommu_swmmu_space *space,
 		prot);
 }
 
-int nommu_swmmu_activate_mm(struct mm_struct *mm)
+static int __nommu_swmmu_activate_mm(struct mm_struct *mm)
 {
 	struct nommu_swmmu_space *space;
 	struct mm_struct *old_mm;
-	u64 generation;
+	bool enabled, unchanged;
 	int ret;
 
+retry:
+	/*
+	 * The active owner is a raw pointer cleared by space_detach(). Pin its
+	 * users before taking any sleeping lock: an exec/exit may otherwise
+	 * free both the mm and its space while this task waits for mmap_lock.
+	 * The backend is single-CPU; prevent preemption across pointer lookup
+	 * and mmget_not_zero(), and revalidate ownership after sleeping locks.
+	 */
+	preempt_disable();
 	old_mm = READ_ONCE(swmmu_host_active_mm);
+	if (old_mm && !mmget_not_zero(old_mm)) {
+		preempt_enable();
+		cond_resched();
+		goto retry;
+	}
+	space = mm ? mm->swmmu_space : NULL;
+	enabled = mm && (READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON ||
+			 (space && READ_ONCE(space->has_native_guard)));
+	unchanged = enabled && space && old_mm == mm &&
+		READ_ONCE(swmmu_host_active_generation) ==
+		READ_ONCE(space->host_generation);
+	preempt_enable();
+	/*
+	 * The snapshot above can become stale if preempt_enable() schedules a
+	 * task that switches the process-wide host aliases.  Do not take the
+	 * unchanged fast path unless ownership still matches after rescheduling.
+	 */
+	if (unchanged &&
+	    (READ_ONCE(swmmu_host_active_mm) != mm ||
+	     READ_ONCE(swmmu_host_active_generation) !=
+					READ_ONCE(space->host_generation)))
+		unchanged = false;
 
-	if (!mm ||
-	    READ_ONCE(mm->swmmu_mode) != NOMMU_SWMMU_ON) {
-		if (old_mm)
-			swmmu_host_unmap_mm(old_mm);
-
-		WRITE_ONCE(swmmu_host_active_mm, NULL);
-		WRITE_ONCE(swmmu_host_active_generation, 0);
+	if (unchanged) {
+		mmput(old_mm);
 		return 0;
 	}
-
-	space = mm->swmmu_space;
-	if (!space)
-		return -EINVAL;
-
-	generation = READ_ONCE(space->host_generation);
-
-	if (old_mm == mm &&
-	    READ_ONCE(swmmu_host_active_generation) == generation)
-		return 0;
-
-	if (old_mm)
-		swmmu_host_unmap_mm(old_mm);
-
-	WRITE_ONCE(swmmu_host_active_mm, NULL);
-	WRITE_ONCE(swmmu_host_active_generation, 0);
-
-	/*
-	 * This also clears aliases that may have been created during
-	 * exec setup while the mm was not marked active.
-	 */
-	swmmu_host_unmap_mm(mm);
-
-	ret = swmmu_host_map_mm(mm);
-	if (ret)
+	if (!enabled) {
+		ret = old_mm ? swmmu_host_unmap_mm(old_mm) : 0;
+		if (old_mm)
+			mmput(old_mm);
+		if (ret == SWMMU_HOST_OWNER_CHANGED ||
+		    (!ret && READ_ONCE(swmmu_host_active_mm)))
+			goto retry;
 		return ret;
+	}
+	if (!space) {
+		if (old_mm)
+			mmput(old_mm);
+		return -EINVAL;
+	}
+	if (old_mm == mm) {
+		ret = swmmu_host_map_mm(mm, true);
+		mmput(old_mm);
+	} else {
+		ret = old_mm ? swmmu_host_unmap_mm(old_mm) : 0;
+		if (old_mm)
+			mmput(old_mm);
+		if (!ret)
+			ret = swmmu_host_map_mm(mm, false);
+	}
+	if (ret == SWMMU_HOST_OWNER_CHANGED)
+		goto retry;
+	return ret;
+}
 
-	WRITE_ONCE(swmmu_host_active_mm, mm);
-	WRITE_ONCE(swmmu_host_active_generation, generation);
+int nommu_swmmu_activate_mm(struct mm_struct *mm)
+{
+	struct nommu_swmmu_space *space;
+	bool enabled;
+	bool retry;
+	int ret;
 
-	return 0;
+	do {
+		ret = __nommu_swmmu_activate_mm(mm);
+
+		/*
+		 * Close the window between the final owner check and returning from
+		 * activation.  If this task scheduled inside the operation, another
+		 * task may have replaced the aliases; repeat the complete operation
+		 * before allowing this task to resume userspace.
+		 */
+		preempt_disable();
+		space = mm ? mm->swmmu_space : NULL;
+		enabled = mm && (READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON ||
+				 (space && READ_ONCE(space->has_native_guard)));
+		retry = !ret &&
+			((enabled && space &&
+			  (READ_ONCE(swmmu_host_active_mm) != mm ||
+			   READ_ONCE(swmmu_host_active_generation) !=
+					READ_ONCE(space->host_generation))) ||
+			 (!enabled && READ_ONCE(swmmu_host_active_mm)));
+		if (retry)
+			preempt_enable();
+	} while (retry);
+	preempt_enable();
+
+	return ret;
 }
 
 static struct swmmu_pagetable_range *swmmu_pagetable_range_create(
@@ -632,6 +815,7 @@ static struct swmmu_pagetable_range *swmmu_pagetable_range_clone(
 			return NULL;
 		}
 	}
+	swmmu_pagetable_inherit_guard(dst->pagetable, src->pagetable);
 
 	return dst;
 }
@@ -659,6 +843,13 @@ void nommu_swmmu_vma_close(struct mm_struct *mm,
 		return;
 
 	space = mm->swmmu_space;
+	/*
+	 * Removing a mapped VMA drops its host aliases below. Invalidate the
+	 * active-mm cache first so the next activation remaps the surviving
+	 * ranges instead of taking the same-mm fast path with a missing alias.
+	 */
+	if (range->host_mapped)
+		nommu_swmmu_host_alias_invalidate(mm);
 	vma->vm_swmmu_pt_range = NULL;
 
 	swmmu_pagetable_range_release(space, range);
@@ -762,6 +953,430 @@ static int nommu_swmmu_clone_item_prepare(
 	}
 
 	*result = item;
+	return 0;
+}
+
+static unsigned int nommu_swmmu_vma_prot(const struct vm_area_struct *vma)
+{
+	unsigned int prot = 0;
+
+	if (vma->vm_flags & VM_READ)
+		prot |= PROT_READ;
+	if (vma->vm_flags & VM_WRITE)
+		prot |= PROT_WRITE;
+	if (vma->vm_flags & VM_EXEC)
+		prot |= PROT_EXEC;
+
+	return prot;
+}
+
+/*
+ * Check whether this SWMMU VMA has a complete host alias for the requested
+ * access.  The caller must hold mmap_lock.  This describes an alias in the
+ * UML host process; it does not authorize access through an inactive mm.
+ */
+static bool swmmu_vma_alias_accessible(const struct vm_area_struct *vma,
+				      unsigned long address, size_t size,
+				      unsigned int access)
+{
+	const struct swmmu_pagetable_range *range =
+		vma->vm_swmmu_pt_range;
+	unsigned long length;
+
+	if (!range || !range->host_mapped || range->host_dirty ||
+	    !range->pagetable || !size ||
+	    address < vma->vm_start || address > vma->vm_end ||
+	    address > ULONG_MAX - size ||
+	    size > vma->vm_end - address ||
+	    range->host_start != vma->vm_start)
+		return false;
+
+	length = vma->vm_end - vma->vm_start;
+	if (!PAGE_ALIGNED(length) ||
+	    range->nr_ptes != length / SWMMU_PAGE_SIZE ||
+	    range->first > range->pagetable->nr_ptes ||
+	    range->nr_ptes > range->pagetable->nr_ptes - range->first)
+		return false;
+
+	/* SWMMU permissions live in the per-VMA range metadata. */
+	if ((range->prot & access) != access)
+		return false;
+
+	return true;
+}
+
+static bool swmmu_mm_alias_active(struct mm_struct *mm)
+{
+	struct nommu_swmmu_space *space = mm->swmmu_space;
+
+	return space && READ_ONCE(swmmu_host_active_mm) == mm &&
+		READ_ONCE(swmmu_host_active_generation) ==
+		READ_ONCE(space->host_generation);
+}
+
+/*
+ * Recover a transient host-alias miss before treating it as a guest fault.
+ * The global alias window can be replaced while a task is descheduled; a
+ * valid SWMMU VMA then faults even though its guest backing page still exists.
+ * Return 1 when aliases were repaired, 0 when this is an ordinary fault, or
+ * a negative errno if the repair itself failed.
+ */
+int nommu_swmmu_recover_alias_fault(struct mm_struct *mm,
+				   unsigned long address,
+				   unsigned int access)
+{
+	struct swmmu_pagetable_range *range;
+	struct vm_area_struct *vma;
+	unsigned long page_index;
+	bool recover = false;
+	int ret;
+
+	if (!mm || !mm->swmmu_space)
+		return 0;
+
+	mmap_read_lock(mm);
+	vma = find_vma(mm, address);
+	if (!vma || address < vma->vm_start || address >= vma->vm_end)
+		goto out_unlock;
+
+	range = vma->vm_swmmu_pt_range;
+	if (!range || !range->pagetable ||
+	    (range->prot & access) != access ||
+	    address - vma->vm_start >= range->nr_ptes * SWMMU_PAGE_SIZE)
+		goto out_unlock;
+
+	page_index = range->first +
+		(address - vma->vm_start) / SWMMU_PAGE_SIZE;
+	if (page_index >= range->pagetable->nr_ptes ||
+	    !range->pagetable->ptes[page_index].page)
+		goto out_unlock;
+
+	recover = !swmmu_vma_alias_accessible(vma, address, 1, access) ||
+		  !swmmu_mm_alias_active(mm);
+
+out_unlock:
+	mmap_read_unlock(mm);
+	if (!recover)
+		return 0;
+
+	ret = nommu_swmmu_activate_mm(mm);
+	return ret ? ret : 1;
+}
+
+static bool nommu_swmmu_native_fork_candidate(
+		const struct vm_area_struct *vma)
+{
+	return vma->vm_region && !vma->vm_swmmu_pt_range && !vma->vm_file &&
+		!vma->vm_ops && !(vma->vm_flags & VM_SHARED) &&
+		(vma->vm_region->vm_flags & VM_MAPPED_COPY) &&
+		!vma_test(vma, VMA_DONTCOPY_BIT);
+}
+
+static bool swmmu_native_shared_candidate(const struct vm_area_struct *vma)
+{
+	return vma->vm_region && !vma->vm_swmmu_pt_range &&
+		(vma->vm_flags & VM_SHARED) &&
+		!vma_test(vma, VMA_DONTCOPY_BIT);
+}
+
+static void swmmu_native_shared_abort(struct nommu_swmmu_native_shared_item *item,
+				      struct nommu_swmmu_space *space)
+{
+	struct vm_area_struct *vma = item->dst_vma;
+
+	if (item->inserted) {
+		VMA_ITERATOR(vmi, vma->vm_mm, vma->vm_start);
+		struct vm_area_struct *removed;
+
+		removed = mas_erase(&vmi.mas);
+		if (WARN_ON_ONCE(removed != vma))
+			return;
+
+		vma->vm_mm->map_count--;
+	}
+	if (item->published) {
+		if (vma->vm_file) {
+			struct address_space *mapping = vma->vm_file->f_mapping;
+
+			i_mmap_lock_write(mapping);
+			flush_dcache_mmap_lock(mapping);
+			mapping_rmap_tree_remove(vma, mapping);
+			flush_dcache_mmap_unlock(mapping);
+			i_mmap_unlock_write(mapping);
+		}
+		vma_close(vma);
+		if (vma->vm_file)
+			fput(vma->vm_file);
+		nommu_swmmu_put_region(vma->vm_region);
+	}
+
+	if (item->child_vmi.mas.tree)
+		vma_iter_free(&item->child_vmi);
+	vm_area_free(vma);
+	space->ops->dealloc(item);
+}
+
+static int swmmu_native_shared_prepare(struct mm_struct *dst,
+				       struct nommu_swmmu_space *space,
+				       struct vm_area_struct *src_vma,
+				       struct nommu_swmmu_native_shared_item **result)
+{
+	struct nommu_swmmu_native_shared_item *item;
+
+	item = space->ops->zalloc(sizeof(*item), GFP_KERNEL);
+	if (!item)
+		return -ENOMEM;
+
+	item->src_vma = src_vma;
+	item->dst_vma = vm_area_dup(src_vma);
+	if (!item->dst_vma) {
+		space->ops->dealloc(item);
+		return -ENOMEM;
+	}
+
+	item->dst_vma->vm_mm = dst;
+	vma_clear_flags_mask(item->dst_vma, VMA_LOCKED_MASK);
+	*result = item;
+	return 0;
+}
+
+static void swmmu_native_shared_publish(struct nommu_swmmu_native_shared_item *item)
+{
+	struct vm_area_struct *vma = item->dst_vma;
+
+	nommu_swmmu_get_region(vma->vm_region);
+
+	if (vma->vm_ops && vma->vm_ops->open)
+		vma->vm_ops->open(vma);
+
+	if (vma->vm_file) {
+		struct address_space *mapping = vma->vm_file->f_mapping;
+
+		get_file(vma->vm_file);
+		i_mmap_lock_write(mapping);
+		flush_dcache_mmap_lock(mapping);
+		mapping_rmap_tree_insert_after(vma, item->src_vma, mapping);
+		flush_dcache_mmap_unlock(mapping);
+		i_mmap_unlock_write(mapping);
+	}
+	item->published = true;
+}
+
+static void nommu_swmmu_native_fork_item_abort(
+		struct nommu_swmmu_native_fork_item *item,
+		struct nommu_swmmu_space *src_space,
+		struct nommu_swmmu_space *dst_space)
+{
+	if (item->child_published) {
+		VMA_ITERATOR(vmi, item->child_vma->vm_mm,
+			     item->child_vma->vm_start);
+
+		if (WARN_ON_ONCE(mas_erase(&vmi.mas) != item->child_vma))
+			return;
+		item->child_vma->vm_mm->map_count--;
+		item->child_vma->vm_swmmu_pt_range = NULL;
+	}
+	if (item->parent_vmi.mas.tree)
+		vma_iter_free(&item->parent_vmi);
+	if (item->child_vmi.mas.tree)
+		vma_iter_free(&item->child_vmi);
+
+	if (item->parent_data)
+		swmmu_pagetable_range_release_locked(src_space,
+						     item->parent_data);
+	if (item->child_data)
+		swmmu_pagetable_range_release_locked(dst_space,
+						     item->child_data);
+	if (item->parent_vma) {
+		if (item->parent_vma->vm_file)
+			fput(item->parent_vma->vm_file);
+		vm_area_free(item->parent_vma);
+	}
+	if (item->child_vma) {
+		if (item->child_vma->vm_file)
+			fput(item->child_vma->vm_file);
+		vm_area_free(item->child_vma);
+	}
+	src_space->ops->dealloc(item);
+}
+
+static int nommu_swmmu_native_fork_item_prepare(
+		struct mm_struct *dst, struct mm_struct *src,
+		struct nommu_swmmu_space *dst_space,
+		struct nommu_swmmu_space *src_space,
+		struct vm_area_struct *src_vma,
+		struct nommu_swmmu_native_fork_item **result)
+{
+	struct nommu_swmmu_native_fork_item *item;
+	struct swmmu_pagetable *pt;
+	unsigned long address;
+	unsigned long length;
+	unsigned long i;
+	int ret;
+
+	length = src_vma->vm_end - src_vma->vm_start;
+	if (!length || !PAGE_ALIGNED(src_vma->vm_start) ||
+	    !PAGE_ALIGNED(length) ||
+	    src_vma->vm_region->vm_start != src_vma->vm_start ||
+	    src_vma->vm_region->vm_top != src_vma->vm_end ||
+	    !nommu_swmmu_region_exclusive(src_vma->vm_region))
+		return -EINVAL;
+
+	item = src_space->ops->zalloc(sizeof(*item), GFP_KERNEL);
+	if (!item)
+		return -ENOMEM;
+
+	item->src_vma = src_vma;
+	item->parent_vma = vm_area_dup(src_vma);
+	item->child_vma = vm_area_dup(src_vma);
+	if (!item->parent_vma || !item->child_vma) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	item->parent_vma->vm_mm = src;
+	item->child_vma->vm_mm = dst;
+	item->parent_vma->vm_region = NULL;
+	item->child_vma->vm_region = NULL;
+	item->parent_vma->vm_swmmu_pt_range = NULL;
+	item->child_vma->vm_swmmu_pt_range = NULL;
+	if (item->parent_vma->vm_file)
+		get_file(item->parent_vma->vm_file);
+	if (item->child_vma->vm_file)
+		get_file(item->child_vma->vm_file);
+
+	pt = swmmu_pagetable_alloc(src_space, length);
+	if (!pt) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	for (i = 0; i < pt->nr_ptes; i++) {
+		struct page *src_page;
+		struct page *dst_page;
+
+		address = src_vma->vm_start + i * SWMMU_PAGE_SIZE;
+		src_page = virt_to_page((void *)address);
+		dst_page = pt->ptes[i].page;
+		ret = src_space->ops->page_copy(dst_page, src_page);
+		if (ret) {
+			swmmu_pagetable_put(src_space, pt);
+			goto error;
+		}
+	}
+
+	item->parent_data = swmmu_pagetable_range_create(src_space, pt);
+	swmmu_pagetable_put(src_space, pt);
+	if (!item->parent_data) {
+		ret = -ENOMEM;
+		goto error;
+	}
+	item->parent_data->nr_ptes = length / SWMMU_PAGE_SIZE;
+	item->parent_data->prot = nommu_swmmu_vma_prot(src_vma);
+	item->parent_vma->vm_swmmu_pt_range = item->parent_data;
+
+	if (vma_test(src_vma, VMA_WIPEONFORK_BIT)) {
+		pt = swmmu_pagetable_alloc(dst_space, length);
+		if (!pt) {
+			ret = -ENOMEM;
+			goto error;
+		}
+		item->child_data = swmmu_pagetable_range_create(dst_space, pt);
+		swmmu_pagetable_put(dst_space, pt);
+		if (!item->child_data) {
+			ret = -ENOMEM;
+			goto error;
+		}
+		item->child_data->nr_ptes = length / SWMMU_PAGE_SIZE;
+		item->child_data->prot = nommu_swmmu_vma_prot(src_vma);
+	} else {
+		item->child_data = swmmu_pagetable_range_clone(
+			dst_space, item->parent_data);
+		if (!item->child_data) {
+			ret = -ENOMEM;
+			goto error;
+		}
+	}
+	item->child_vma->vm_swmmu_pt_range = item->child_data;
+
+	vma_iter_init(&item->parent_vmi, src, src_vma->vm_start);
+	vma_iter_config(&item->parent_vmi, src_vma->vm_start,
+			src_vma->vm_end);
+	ret = vma_iter_prealloc(&item->parent_vmi, item->parent_vma);
+	if (ret)
+		goto error;
+
+	*result = item;
+	return 0;
+
+error:
+	nommu_swmmu_native_fork_item_abort(item, src_space, dst_space);
+	return ret;
+}
+
+static int nommu_swmmu_native_fork_map_parent(
+		struct nommu_swmmu_native_fork_item *item,
+		struct nommu_swmmu_space *space)
+{
+	const struct nommu_swmmu_host_ops *host_ops = space->host_ops;
+	struct swmmu_pagetable_range *range = item->parent_data;
+	unsigned long i;
+	int ret;
+
+	if (!host_ops || !host_ops->map_page)
+		return -EOPNOTSUPP;
+
+	if (host_ops->alias_range_allowed &&
+	    !host_ops->alias_range_allowed(item->src_vma->vm_start,
+					   range->nr_ptes * SWMMU_PAGE_SIZE)) {
+		range->host_start = item->src_vma->vm_start;
+		range->host_mapped = false;
+		item->parent_alias_mapped = false;
+		return 0;
+	}
+
+	for (i = 0; i < range->nr_ptes; i++) {
+		ret = host_ops->map_page(
+			item->src_vma->vm_start + i * SWMMU_PAGE_SIZE,
+			range->pagetable->ptes[range->first + i].page,
+			range->prot);
+		if (ret)
+			return ret;
+		item->alias_pages_mapped++;
+	}
+
+	range->host_start = item->src_vma->vm_start;
+	range->host_mapped = true;
+	item->parent_alias_mapped = true;
+	return 0;
+}
+
+static int nommu_swmmu_native_fork_restore_parent(
+		struct nommu_swmmu_native_fork_item *item,
+		struct nommu_swmmu_space *space)
+{
+	const struct nommu_swmmu_host_ops *host_ops = space->host_ops;
+	unsigned int prot = nommu_swmmu_vma_prot(item->src_vma);
+	unsigned long i;
+	int ret;
+
+	if (!item->alias_pages_mapped)
+		return 0;
+
+	for (i = 0; i < item->alias_pages_mapped; i++) {
+		unsigned long address = item->src_vma->vm_start +
+					i * SWMMU_PAGE_SIZE;
+
+		ret = host_ops->map_page(address,
+					virt_to_page((void *)address), prot);
+		if (ret)
+			return ret;
+	}
+
+	item->parent_data->host_mapped = false;
+	item->parent_data->host_start = 0;
+	item->parent_alias_mapped = false;
+	item->alias_pages_mapped = 0;
 	return 0;
 }
 
@@ -875,6 +1490,23 @@ int nommu_swmmu_space_attach(struct mm_struct *mm,
 	return 0;
 }
 
+void nommu_swmmu_mm_users_zero(struct mm_struct *mm)
+{
+	int ret;
+
+	if (!mm || READ_ONCE(swmmu_host_active_mm) != mm)
+		return;
+
+	/*
+	 * mm_users reaching zero means nobody can execute this address space
+	 * again. Drop its host aliases now, before __mmput() tears down the
+	 * VMAs. space_detach() runs later at mm_count zero, which can be delayed
+	 * by active_mm references and is too late to release the alias owner.
+	 */
+	ret = swmmu_host_unmap_mm(mm);
+	WARN_ON_ONCE(ret && ret != SWMMU_HOST_OWNER_CHANGED);
+}
+
 /*
  * Detach and release the mm_struct-owned reference to its SWMMU space.
  */
@@ -888,6 +1520,10 @@ void nommu_swmmu_space_detach(struct mm_struct *mm)
 	space = mm->swmmu_space;
 	if (!space)
 		return;
+	if (READ_ONCE(swmmu_host_active_mm) == mm) {
+		WRITE_ONCE(swmmu_host_active_mm, NULL);
+		WRITE_ONCE(swmmu_host_active_generation, 0);
+	}
 
 	if (space->mm == mm)
 		space->mm = NULL;
@@ -926,7 +1562,8 @@ nommu_swmmu_space_empty(struct nommu_swmmu_space *space)
 	mmap_assert_locked(mm);
 
 	for_each_vma(vmi, vma) {
-		if (vma->vm_swmmu_pt_range)
+		if (vma->vm_swmmu_pt_range &&
+		    !vma->vm_swmmu_pt_range->pagetable->guard_region)
 			return false;
 	}
 
@@ -1163,7 +1800,7 @@ static int swmmu_copy_from_mm(struct mm_struct *mm,
 	while (size) {
 		size_t offset = address & (SWMMU_PAGE_SIZE - 1);
 		size_t chunk = SWMMU_PAGE_SIZE - offset;
-		void *source;
+		const void *source;
 
 		if (chunk > size)
 			chunk = size;
@@ -1217,13 +1854,17 @@ out:
 }
 
 static int __swmmu_check_access_mm(struct mm_struct *, unsigned long, size_t, int);
+static int __swmmu_check_dynamic_access_mm(struct mm_struct *,
+					   unsigned long, size_t, int);
 
 static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 				unsigned long address,
 				void *destination,
-				size_t size,
-				bool *swmmu_seen)
+				size_t size)
 {
+	struct nommu_swmmu_space *space;
+	bool alias_locked = false;
+	bool single_page;
 	int ret = 0;
 
 	if (!mm || !size)
@@ -1231,21 +1872,34 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 
 	if (unlikely(!address || address < SWMMU_PAGE_SIZE))
 		return -EFAULT;
+	if (address > ULONG_MAX - size)
+		return -EOVERFLOW;
+
+	single_page = size <= SWMMU_PAGE_SIZE -
+		(address & (SWMMU_PAGE_SIZE - 1));
 
 	mmap_read_lock(mm);
+	space = mm->swmmu_space;
+	if (space && READ_ONCE(swmmu_host_active_mm) == mm) {
+		down_read(&space->lock);
+		alias_locked = swmmu_mm_alias_active(mm);
+	} else {
+		space = NULL;
+	}
 
-	ret = __swmmu_check_access_mm(mm, address, size, false);
-	if (ret)
-		goto out_unlock;
-
-	if (swmmu_seen)
-		*swmmu_seen = false;
+	/* A single-page access can be checked while it is copied. */
+	if (!single_page) {
+		ret = __swmmu_check_dynamic_access_mm(mm, address, size,
+						      false);
+		if (ret)
+			goto out_unlock;
+	}
 
 	while (size) {
 		struct vm_area_struct *vma;
 		unsigned long offset;
 		size_t chunk;
-		void *source;
+		const void *source;
 
 		offset = address & (SWMMU_PAGE_SIZE - 1);
 		chunk = SWMMU_PAGE_SIZE - offset;
@@ -1253,10 +1907,22 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 			chunk = size;
 
 		vma = find_vma(mm, address);
-		if (vma && vma->vm_swmmu_pt_range) {
-			if (swmmu_seen)
-				*swmmu_seen = true;
-
+		if (single_page && (!vma || address < vma->vm_start ||
+		    chunk > vma->vm_end - address)) {
+			ret = -EFAULT;
+			break;
+		}
+		if (single_page && !vma->vm_swmmu_pt_range &&
+		    READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON &&
+		    !(vma->vm_flags & VM_READ)) {
+			ret = -EACCES;
+			break;
+		}
+		if (vma && vma->vm_swmmu_pt_range && alias_locked &&
+		    swmmu_vma_alias_accessible(vma, address, chunk, PROT_READ)) {
+			source = (const void *)address;
+			memcpy(destination, source, chunk);
+		} else if (vma && vma->vm_swmmu_pt_range) {
 			source = __swmmu_translate_mm(mm, address, chunk,
 						      &ret, false);
 			if (!source)
@@ -1273,6 +1939,8 @@ static int swmmu_dynamic_copy_from_mm(struct mm_struct *mm,
 	}
 
 out_unlock:
+	if (space)
+		up_read(&space->lock);
 	mmap_read_unlock(mm);
 	return ret;
 }
@@ -1280,22 +1948,36 @@ out_unlock:
 static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 				    unsigned long address,
 				    const void *source,
-				    size_t size,
-				    bool *swmmu_seen)
+				    size_t size)
 {
+	struct nommu_swmmu_space *space;
+	bool alias_locked = false;
+	bool single_page;
 	int ret = 0;
 
 	if (!mm || !size)
 		return -EINVAL;
+	if (address > ULONG_MAX - size)
+		return -EOVERFLOW;
+
+	single_page = size <= SWMMU_PAGE_SIZE -
+		(address & (SWMMU_PAGE_SIZE - 1));
 
 	mmap_read_lock(mm);
+	space = mm->swmmu_space;
+	if (space && READ_ONCE(swmmu_host_active_mm) == mm) {
+		down_read(&space->lock);
+		alias_locked = swmmu_mm_alias_active(mm);
+	} else {
+		space = NULL;
+	}
 
-	ret = __swmmu_check_access_mm(mm, address, size, true);
-	if (ret)
-		goto out_unlock;
-
-	if (swmmu_seen)
-		*swmmu_seen = false;
+	if (!single_page) {
+		ret = __swmmu_check_dynamic_access_mm(mm, address, size,
+						      true);
+		if (ret)
+			goto out_unlock;
+	}
 
 	while (size) {
 		struct vm_area_struct *vma;
@@ -1318,10 +2000,17 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 			ret = -EFAULT;
 			break;
 		}
-		if (vma && vma->vm_swmmu_pt_range) {
-			if (swmmu_seen)
-				*swmmu_seen = true;
-
+		if (single_page && !vma->vm_swmmu_pt_range &&
+		    READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON &&
+		    !(vma->vm_flags & VM_WRITE)) {
+			ret = -EACCES;
+			break;
+		}
+		if (vma->vm_swmmu_pt_range && alias_locked &&
+		    swmmu_vma_alias_accessible(vma, address, chunk, PROT_WRITE)) {
+			destination = (void *)address;
+			memcpy(destination, source, chunk);
+		} else if (vma->vm_swmmu_pt_range) {
 			destination = __swmmu_translate_mm(mm, address, chunk,
 							  &ret, true);
 			if (!destination)
@@ -1338,6 +2027,8 @@ static int swmmu_dynamic_copy_to_mm(struct mm_struct *mm,
 	}
 
 out_unlock:
+	if (space)
+		up_read(&space->lock);
 	mmap_read_unlock(mm);
 	return ret;
 }
@@ -1370,6 +2061,58 @@ static int __swmmu_check_access_mm(struct mm_struct *mm,
 		if (!__swmmu_translate_mm(mm, address, chunk,
 					  &ret, write))
 			return ret ? ret : -EFAULT;
+
+		address += chunk;
+	}
+
+	return 0;
+}
+
+/*
+ * Dynamic accesses can target ordinary NOMMU mappings as well as SWMMU
+ * mappings. Validate VMA coverage for both kinds and consult the SWMMU page
+ * table only when the VMA is managed by SWMMU.
+ */
+static int __swmmu_check_dynamic_access_mm(struct mm_struct *mm,
+					   unsigned long address,
+					   size_t size,
+					   int write)
+{
+	unsigned long end;
+
+	mmap_assert_locked(mm);
+
+	if (!size)
+		return -EINVAL;
+	if (address > ULONG_MAX - size)
+		return -EOVERFLOW;
+
+	end = address + size;
+	while (address < end) {
+		struct vm_area_struct *vma;
+		unsigned long offset;
+		size_t chunk;
+		int ret = 0;
+
+		vma = find_vma(mm, address);
+		if (!vma || address < vma->vm_start)
+			return -EFAULT;
+
+		offset = address & (SWMMU_PAGE_SIZE - 1);
+		chunk = SWMMU_PAGE_SIZE - offset;
+		if (chunk > end - address)
+			chunk = end - address;
+		if (chunk > vma->vm_end - address)
+			return -EFAULT;
+
+		if (vma->vm_swmmu_pt_range) {
+			if (!__swmmu_translate_mm(mm, address, chunk, &ret, write))
+				return ret ? ret : -EFAULT;
+		} else if (READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON &&
+			   (write ? !(vma->vm_flags & VM_WRITE) :
+			    !(vma->vm_flags & VM_READ))) {
+			return -EACCES;
+		}
 
 		address += chunk;
 	}
@@ -1560,52 +2303,114 @@ out_unlock:
 int nommu_swmmu_copy_to_user(void __user *address, const void *source,
 			size_t size)
 {
-	bool swmmu_seen = false;
-	int ret;
-
 	if (!current->mm)
 		return -EOPNOTSUPP;
 
-	ret = swmmu_dynamic_copy_to_mm(
+	return swmmu_dynamic_copy_to_mm(
 		current->mm,
 		(unsigned long)address,
 		source,
-		size,
-		&swmmu_seen);
-
-	if (!swmmu_seen && !ret)
-		return -EOPNOTSUPP;
-
-	return ret;
+		size);
 }
 
 int nommu_swmmu_copy_from_user(void *destination, const void __user *address,
 			size_t size)
 {
-	bool swmmu_seen = false;
-	int ret;
-
 	if (!current->mm)
 		return -EOPNOTSUPP;
 
-	ret = swmmu_dynamic_copy_from_mm(
+	return swmmu_dynamic_copy_from_mm(
 		current->mm,
 		(unsigned long)address,
 		destination,
-		size,
-		&swmmu_seen);
+		size);
+}
 
-	if (!swmmu_seen && !ret)
+bool nommu_swmmu_usercopy_requires_translation(unsigned long address)
+{
+	struct mm_struct *mm = current->mm;
+
+	return address >= UM_NOMMU_SWMMU_VA_BASE ||
+		(mm && READ_ONCE(mm->swmmu_mode) == NOMMU_SWMMU_ON);
+}
+EXPORT_SYMBOL_GPL(nommu_swmmu_usercopy_requires_translation);
+
+int nommu_swmmu_get_user_pages(unsigned long start, int nr_pages,
+			       unsigned int gup_flags, bool pin,
+			       struct page **pages)
+{
+	struct mm_struct *mm = current->mm;
+	unsigned long address = start;
+	int i, ret = 0;
+
+	if (!mm || !pages || nr_pages <= 0)
+		return -EINVAL;
+	if (start < SWMMU_VA_BASE)
 		return -EOPNOTSUPP;
 
-	return ret;
+	mmap_read_lock(mm);
+	for (i = 0; i < nr_pages; i++, address += PAGE_SIZE) {
+		struct swmmu_pagetable_range *range;
+		struct swmmu_pagetable *pt;
+		struct vm_area_struct *vma;
+		struct page *page;
+		unsigned long index;
+		unsigned int prot = (gup_flags & FOLL_WRITE) ?
+			PROT_WRITE : PROT_READ;
+
+		if (address > ULONG_MAX - PAGE_SIZE) {
+			ret = -EFAULT;
+			break;
+		}
+
+		vma = find_vma(mm, address);
+		if (!vma || address < vma->vm_start ||
+		    !vma->vm_swmmu_pt_range) {
+			ret = i ? -EFAULT : -EOPNOTSUPP;
+			break;
+		}
+		range = vma->vm_swmmu_pt_range;
+		if (!(range->prot & prot)) {
+			ret = -EFAULT;
+			break;
+		}
+		pt = range->pagetable;
+		index = range->first +
+			((address - vma->vm_start) >> PAGE_SHIFT);
+		if (index >= pt->nr_ptes || !pt->ptes[index].page) {
+			ret = -EFAULT;
+			break;
+		}
+
+		page = pt->ptes[index].page;
+		ret = try_grab_folio(page_folio(page), 1,
+				     (pin ? FOLL_PIN : FOLL_GET) |
+				     (gup_flags & FOLL_PCI_P2PDMA));
+		if (ret)
+			break;
+		pages[i] = page;
+	}
+	if (pin)
+		mm_flags_set(MMF_HAS_PINNED, mm);
+	mmap_read_unlock(mm);
+
+	if (ret)
+		return i ? i : ret;
+	return i;
 }
+EXPORT_SYMBOL_GPL(nommu_swmmu_get_user_pages);
 
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_to_user);
 EXPORT_SYMBOL_GPL(nommu_swmmu_copy_from_user);
 
 
 #if IS_ENABLED(CONFIG_NOMMU_SWMMU_KUNIT_TEST)
+void nommu_swmmu_kunit_set_host_ops(struct nommu_swmmu_space *space,
+				 const struct nommu_swmmu_host_ops *ops)
+{
+	space->host_ops = ops;
+}
+
 int nommu_swmmu_kunit_load_mm(struct mm_struct *mm,
 			      uintptr_t address,
 			      size_t size,
@@ -1634,6 +2439,41 @@ int nommu_swmmu_kunit_store_mm(struct mm_struct *mm,
 		return -EINVAL;
 
 	return swmmu_copy_to_mm(mm, address, &value, size);
+}
+
+int nommu_swmmu_kunit_dynamic_copy_to_mm(struct mm_struct *mm,
+					 unsigned long address,
+					 const void *source, size_t size)
+{
+	return swmmu_dynamic_copy_to_mm(mm, address, source, size);
+}
+
+int nommu_swmmu_kunit_dynamic_copy_from_mm(struct mm_struct *mm,
+					   unsigned long address,
+					   void *destination, size_t size)
+{
+	return swmmu_dynamic_copy_from_mm(mm, address, destination, size);
+}
+
+bool nommu_swmmu_kunit_vma_alias_accessible(struct mm_struct *mm,
+					   unsigned long address,
+					   size_t size,
+					   unsigned int access)
+{
+	struct vm_area_struct *vma;
+	bool accessible = false;
+
+	if (!mm)
+		return false;
+
+	mmap_read_lock(mm);
+	vma = find_vma(mm, address);
+	if (vma && address >= vma->vm_start)
+		accessible = swmmu_vma_alias_accessible(vma, address, size,
+							 access);
+	mmap_read_unlock(mm);
+
+	return accessible;
 }
 
 const void *nommu_swmmu_kunit_range_pagetable(
@@ -1705,8 +2545,14 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 	struct nommu_swmmu_space *dst_space;
 	struct nommu_swmmu_clone_item *item;
 	struct nommu_swmmu_clone_item *tmp;
+	struct nommu_swmmu_native_fork_item *native_item;
+	struct nommu_swmmu_native_fork_item *native_tmp;
+	struct nommu_swmmu_native_shared_item *shared_item;
+	struct nommu_swmmu_native_shared_item *shared_tmp;
 	struct vm_area_struct *src_vma;
 	LIST_HEAD(prepared);
+	LIST_HEAD(native_prepared);
+	LIST_HEAD(shared_prepared);
 	VMA_ITERATOR(src_vmi, src, 0);
 	int ret = 0;
 
@@ -1723,12 +2569,48 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 	if (!src_space || !dst_space || src_space == dst_space)
 		return -EINVAL;
 
-	down_read(&src_space->lock);
+	down_write(&src_space->lock);
 	down_write_nested(&dst_space->lock, SINGLE_DEPTH_NESTING);
 
 	nommu_swmmu_clear_child_vmas(dst);
 
 	for_each_vma(src_vmi, src_vma) {
+		if (nommu_swmmu_native_fork_candidate(src_vma)) {
+			/*
+			 * The parent and child must both be switchable to their
+			 * private backing at this exact VA.  Publishing SWMMU VMA
+			 * metadata while the host alias guard refuses the VA would
+			 * leave both mms using the original shared native mapping.
+			 */
+			if (src_space->host_ops &&
+			    src_space->host_ops->alias_range_allowed &&
+			    !src_space->host_ops->alias_range_allowed(
+					src_vma->vm_start,
+					src_vma->vm_end - src_vma->vm_start)) {
+				ret = -EOPNOTSUPP;
+				goto rollback;
+			}
+
+			ret = nommu_swmmu_native_fork_item_prepare(
+				dst, src, dst_space, src_space, src_vma,
+				&native_item);
+			if (ret)
+				goto rollback;
+
+			list_add_tail(&native_item->node, &native_prepared);
+			continue;
+		}
+
+		if (swmmu_native_shared_candidate(src_vma)) {
+			ret = swmmu_native_shared_prepare(dst, dst_space, src_vma,
+							  &shared_item);
+			if (ret)
+				goto rollback;
+
+			list_add_tail(&shared_item->node, &shared_prepared);
+			continue;
+		}
+
 		if (!src_vma->vm_swmmu_pt_range)
 			continue;
 
@@ -1740,17 +2622,12 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		list_add_tail(&item->node, &prepared);
 	}
 
-	/*
-	 * No operation below this point may fail.
-	 * Publish all child metadata only after every clone succeeded.
-	 */
+	/* Publish prepared SWMMU clones before changing the parent mappings. */
 	list_for_each_entry(item, &prepared, node) {
 		VMA_ITERATOR(dst_vmi, dst, item->dst_vma->vm_start);
 
-		vma_iter_config(&dst_vmi,
-				item->dst_vma->vm_start,
+		vma_iter_config(&dst_vmi, item->dst_vma->vm_start,
 				item->dst_vma->vm_end);
-
 		ret = vma_iter_prealloc(&dst_vmi, item->dst_vma);
 		if (ret)
 			goto rollback;
@@ -1759,19 +2636,137 @@ int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 		dst->map_count++;
 
 		item->dst_vma->vm_swmmu_pt_range = item->new_data;
+		if (item->new_data->pagetable->guard_region)
+			dst_space->has_native_guard = true;
 		item->new_data = NULL;
 		item->published = true;
+	}
+
+	/* Preallocate against the current child tree for every insertion. */
+	list_for_each_entry(native_item, &native_prepared, node) {
+		vma_iter_init(&native_item->child_vmi, dst,
+			      native_item->child_vma->vm_start);
+		vma_iter_config(&native_item->child_vmi,
+				native_item->child_vma->vm_start,
+				native_item->child_vma->vm_end);
+		ret = vma_iter_prealloc(&native_item->child_vmi,
+					 native_item->child_vma);
+		if (ret)
+			goto rollback;
+		vma_iter_store_new(&native_item->child_vmi,
+					 native_item->child_vma);
+		dst->map_count++;
+		native_item->child_published = true;
+	}
+
+	/* Reserve every Maple Tree node before acquiring shared references. */
+	list_for_each_entry(shared_item, &shared_prepared, node) {
+		vma_iter_init(&shared_item->child_vmi, dst,
+			      shared_item->dst_vma->vm_start);
+		vma_iter_config(&shared_item->child_vmi,
+				shared_item->dst_vma->vm_start,
+				shared_item->dst_vma->vm_end);
+		ret = vma_iter_prealloc(&shared_item->child_vmi,
+					shared_item->dst_vma);
+		if (ret)
+			goto rollback;
+
+		/* Preallocate and publish each entry before preparing the next. */
+		vma_iter_store_new(&shared_item->child_vmi,
+				   shared_item->dst_vma);
+		dst->map_count++;
+		shared_item->inserted = true;
+	}
+
+	/* Map every parent replacement before publishing any VMA changes. */
+	list_for_each_entry(native_item, &native_prepared, node) {
+		ret = nommu_swmmu_native_fork_map_parent(native_item,
+							 src_space);
+		if (ret)
+			goto rollback_aliases;
+	}
+
+	/*
+	 * All allocations, Maple Tree nodes, and host aliases are ready.
+	 * Nothing below this point may fail.
+	 */
+	list_for_each_entry(shared_item, &shared_prepared, node)
+		swmmu_native_shared_publish(shared_item);
+
+	list_for_each_entry(native_item, &native_prepared, node) {
+		struct vm_area_struct *old_vma = native_item->src_vma;
+
+		vma_start_write(old_vma);
+		vma_start_write(native_item->parent_vma);
+		vma_mark_detached(old_vma);
+		vma_iter_store_new(&native_item->parent_vmi,
+				   native_item->parent_vma);
+		native_item->parent_vma->vm_swmmu_pt_range =
+			native_item->parent_data;
+		native_item->parent_data = NULL;
+
+		native_item->child_vma->vm_swmmu_pt_range =
+			native_item->child_data;
+		native_item->child_data = NULL;
+
+		/* Keep the original direct-map addresses out of the allocator. */
+		native_item->parent_vma->vm_swmmu_pt_range->pagetable->guard_region =
+			old_vma->vm_region;
+		nommu_swmmu_get_region(old_vma->vm_region);
+		native_item->child_vma->vm_swmmu_pt_range->pagetable->guard_region =
+			old_vma->vm_region;
+
+		vma_close(old_vma);
+		if (old_vma->vm_file)
+			fput(old_vma->vm_file);
+		vm_area_free(old_vma);
+	}
+
+	if (!list_empty(&native_prepared)) {
+		u64 generation = READ_ONCE(src_space->host_generation) + 1;
+
+		WRITE_ONCE(src_space->host_generation, generation);
+		WRITE_ONCE(swmmu_host_active_mm, src);
+		WRITE_ONCE(swmmu_host_active_generation, generation);
+		WRITE_ONCE(src->swmmu_mode, NOMMU_SWMMU_ON);
+		WRITE_ONCE(dst->swmmu_mode, NOMMU_SWMMU_ON);
+		src_space->has_native_guard = true;
+		dst_space->has_native_guard = true;
 	}
 
 	list_for_each_entry_safe(item, tmp, &prepared, node) {
 		list_del(&item->node);
 		dst_space->ops->dealloc(item);
 	}
+	list_for_each_entry_safe(native_item, native_tmp,
+				 &native_prepared, node) {
+		list_del(&native_item->node);
+		vma_iter_free(&native_item->parent_vmi);
+		vma_iter_free(&native_item->child_vmi);
+		src_space->ops->dealloc(native_item);
+	}
+	list_for_each_entry_safe(shared_item, shared_tmp,
+				 &shared_prepared, node) {
+		list_del(&shared_item->node);
+		vma_iter_free(&shared_item->child_vmi);
+		dst_space->ops->dealloc(shared_item);
+	}
 
 	up_write(&dst_space->lock);
-	up_read(&src_space->lock);
+	up_write(&src_space->lock);
 
 	return 0;
+
+rollback_aliases:
+	list_for_each_entry_safe_reverse(native_item, native_tmp,
+					 &native_prepared, node) {
+		int restore_ret;
+
+		restore_ret = nommu_swmmu_native_fork_restore_parent(
+			native_item, src_space);
+		if (WARN_ON_ONCE(restore_ret))
+			panic("NOMMU SWMMU: failed to restore native fork mapping\n");
+	}
 
 rollback:
 	list_for_each_entry_safe(item, tmp, &prepared, node) {
@@ -1780,9 +2775,20 @@ rollback:
 		nommu_swmmu_clone_item_abort(dst, dst_space, item);
 		dst_space->ops->dealloc(item);
 	}
+	list_for_each_entry_safe(native_item, native_tmp,
+				 &native_prepared, node) {
+		list_del(&native_item->node);
+		nommu_swmmu_native_fork_item_abort(native_item,
+						   src_space, dst_space);
+	}
+	list_for_each_entry_safe(shared_item, shared_tmp,
+				 &shared_prepared, node) {
+		list_del(&shared_item->node);
+		swmmu_native_shared_abort(shared_item, dst_space);
+	}
 
 	up_write(&dst_space->lock);
-	up_read(&src_space->lock);
+	up_write(&src_space->lock);
 
 	return ret;
 }
@@ -1990,6 +2996,7 @@ static int swmmu_pagetable_resize_prepare(struct nommu_swmmu_space *space,
 			return ret;
 		}
 	}
+	swmmu_pagetable_inherit_guard(new_pt, old_pt);
 
 	tx->kind = SWMMU_TX_RESIZE;
 	tx->source = source;
@@ -2045,11 +3052,25 @@ static void swmmu_expand_commit(struct vm_area_struct *vma,
 {
 	struct swmmu_pagetable_tx *tx = state;
 	struct nommu_swmmu_space *space;
+	struct swmmu_pagetable_range *range;
+	bool alias_was_mapped;
 
 	if (!tx)
 		return;
 
 	space = vma->vm_mm->swmmu_space;
+	range = tx->source;
+	alias_was_mapped = range->host_mapped;
+	if (alias_was_mapped) {
+		/*
+		 * Resize replaces every backing page. Drop the old host aliases
+		 * before committing the new page table, and invalidate the active
+		 * mm so it remaps the resized VMA before returning to userspace.
+		 */
+		swmmu_host_unmap_range(space, range);
+		WRITE_ONCE(space->host_generation,
+			   READ_ONCE(space->host_generation) + 1);
+	}
 
 	swmmu_resize_commit(space, tx);
 	kfree(tx);
@@ -2178,6 +3199,7 @@ static void swmmu_split_commit(struct vm_area_struct *vma,
 		tx->source->host_start = vma->vm_start;
 		tx->new_range->host_start = new->vm_start;
 		tx->new_range->host_mapped = true;
+		tx->new_range->host_dirty = tx->source->host_dirty;
 	}
 
 	new->vm_swmmu_pt_range = tx->new_range;
@@ -2419,6 +3441,8 @@ static int swmmu_move_prepare(struct vma_remap_struct *vrm,
 			goto out_unlock_free_tx;
 		}
 	}
+	swmmu_pagetable_inherit_guard(new_range->pagetable,
+					 src_range->pagetable);
 
 	tx->new_range = new_range;
 	*dst = new_vma;
@@ -2704,6 +3728,10 @@ __do_mmap_swmmu(struct mm_struct *mm,
 		return -EINVAL;
 
 	mmap_assert_write_locked(mm);
+
+	/* Match the NOMMU backend's per-mm VMA limit. */
+	if (mm->map_count >= get_sysctl_max_map_count())
+		return -ENOMEM;
 
 	/*
 	 * Select start/end using VMA/range management.
@@ -3212,9 +4240,35 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 {
 	u64 value = 0;
 	int ret;
+	bool return_value = flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE;
+
+	if (flags == NOMMU_SWMMU_QUERY_DIRECT_WINDOW) {
+		struct nommu_swmmu_space *space = current->mm->swmmu_space;
+		unsigned long start, end;
+		u64 bounds[2];
+
+		if (address || size != sizeof(bounds) || !result)
+			return -EINVAL;
+		if (!space || !space->host_ops ||
+		    !space->host_ops->direct_window)
+			return -EOPNOTSUPP;
+		ret = space->host_ops->direct_window(&start, &end);
+		if (ret)
+			return ret;
+		bounds[0] = start;
+		bounds[1] = end;
+		return copy_to_user(result, bounds, sizeof(bounds)) ? -EFAULT : 0;
+	}
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
 		return -EINVAL;
+	if (return_value &&
+	    (!(flags & NOMMU_SWMMU_ACCESS_SIGNAL) || result))
+		return -EINVAL;
+	if (return_value && sizeof(long) < sizeof(value))
+		return -EOPNOTSUPP;
+	if (!return_value && !result)
+		return -EFAULT;
 
 	if (!swmmu_valid_access_size(size))
 		return -EINVAL;
@@ -3222,14 +4276,22 @@ SYSCALL_DEFINE4(nommu_swmmu_load,
 	if (flags & NOMMU_SWMMU_ACCESS_DYNAMIC) {
 		ret = swmmu_dynamic_copy_from_mm(
 			current->mm, (unsigned long)address,
-			&value, size, NULL);
+			&value, size);
 	} else {
 		ret = nommu_swmmu_load_u64_checked(
 			address, size, &value);
 	}
 
+	if (ret && return_value) {
+		force_sig_fault(SIGSEGV,
+				ret == -EACCES ? SEGV_ACCERR : SEGV_MAPERR,
+				(void __user *)address);
+		return -ERESTARTNOINTR;
+	}
 	if (ret)
 		return swmmu_signal_access_error(address, ret, flags);
+	if (return_value)
+		return (long)value;
 
 	if (copy_to_user(result, &value, sizeof(value)))
 		return -EFAULT;
@@ -3247,6 +4309,8 @@ SYSCALL_DEFINE4(nommu_swmmu_store,
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
 		return -EINVAL;
+	if (flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE)
+		return -EINVAL;
 
 	if (!swmmu_valid_access_size(size))
 		return -EINVAL;
@@ -3254,7 +4318,7 @@ SYSCALL_DEFINE4(nommu_swmmu_store,
 	if (flags & NOMMU_SWMMU_ACCESS_DYNAMIC) {
 		ret = swmmu_dynamic_copy_to_mm(
 			current->mm, (unsigned long)address,
-			&value, size, NULL);
+			&value, size);
 	} else {
 		ret = nommu_swmmu_store_u64_checked(
 			address, size, value);
@@ -3273,8 +4337,10 @@ static int swmmu_prepare_mprotect_range(struct mm_struct *mm,
 	int ret;
 
 	vma = vma_find(&vmi, end);
-	if (!vma || !vma->vm_swmmu_pt_range)
+	if (!vma)
 		return -EOPNOTSUPP;
+	if (!vma->vm_swmmu_pt_range)
+		return -ENOSYS;
 
 	if (start < vma->vm_start || end > vma->vm_end)
 		return -EINVAL;
@@ -3363,6 +4429,8 @@ SYSCALL_DEFINE5(nommu_swmmu_cmpxchg,
 	int ret;
 
 	if (flags & ~NOMMU_SWMMU_ACCESS_MASK)
+		return -EINVAL;
+	if (flags & NOMMU_SWMMU_ACCESS_RETURN_VALUE)
 		return -EINVAL;
 
 	if (!(flags & NOMMU_SWMMU_ACCESS_DYNAMIC))

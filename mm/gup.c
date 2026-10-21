@@ -172,6 +172,7 @@ int __must_check try_grab_folio(struct folio *folio, int refs,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(try_grab_folio);
 
 /**
  * unpin_user_page() - release a dma-pinned page

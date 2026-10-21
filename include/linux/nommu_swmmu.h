@@ -19,6 +19,7 @@ struct swmmu_pagetable;
 struct swmmu_pagetable_range;
 struct page;
 struct vm_area_struct;
+struct vm_region;
 
 enum nommu_swmmu_map_mode {
 	NOMMU_SWMMU_MAP_AUTO,
@@ -39,9 +40,15 @@ struct nommu_swmmu_mem_ops {
 };
 
 struct nommu_swmmu_host_ops {
+	/* Immutable, exclusively guest-owned alias window, or -EOPNOTSUPP. */
+	int (*direct_window)(unsigned long *start, unsigned long *end);
+	/* Return false when an alias would cover UML-owned host mappings. */
+	bool (*alias_range_allowed)(unsigned long address, unsigned long length);
 	int (*map_page)(unsigned long address, struct page *page,
 			unsigned int prot);
 	void (*unmap_page)(unsigned long address);
+	/* Optional bulk equivalent, including restoration of alias guards. */
+	void (*unmap_range)(unsigned long address, unsigned long length);
 	int (*protect_range)(unsigned long address, unsigned long length,
 			unsigned int prot);
 };
@@ -50,6 +57,7 @@ struct nommu_swmmu_space *nommu_swmmu_space_create(void);
 int nommu_swmmu_space_attach(struct mm_struct *mm,
 			struct nommu_swmmu_space *space);
 void nommu_swmmu_space_detach(struct mm_struct *mm);
+void nommu_swmmu_mm_users_zero(struct mm_struct *mm);
 void nommu_swmmu_space_get(struct nommu_swmmu_space *space);
 void nommu_swmmu_space_put(struct nommu_swmmu_space *space);
 
@@ -60,6 +68,9 @@ const struct nommu_swmmu_mem_ops *nommu_swmmu_arch_mem_ops(void);
 struct nommu_swmmu_space *
 nommu_swmmu_space_create_with_ops(
 	const struct nommu_swmmu_mem_ops *mem_ops);
+
+void nommu_swmmu_kunit_set_host_ops(struct nommu_swmmu_space *space,
+				 const struct nommu_swmmu_host_ops *ops);
 
 int nommu_swmmu_kunit_pagetable_alloc(
 	struct nommu_swmmu_space *space,
@@ -106,6 +117,19 @@ int nommu_swmmu_kunit_store_mm(struct mm_struct *mm,
 			       uintptr_t address,
 			       size_t size,
 			       u64 value);
+
+int nommu_swmmu_kunit_dynamic_copy_to_mm(struct mm_struct *mm,
+					 unsigned long address,
+					 const void *source, size_t size);
+
+int nommu_swmmu_kunit_dynamic_copy_from_mm(struct mm_struct *mm,
+					   unsigned long address,
+					   void *destination, size_t size);
+
+bool nommu_swmmu_kunit_vma_alias_accessible(struct mm_struct *mm,
+					   unsigned long address,
+					   size_t size,
+					   unsigned int access);
 
 const void *nommu_swmmu_kunit_range_pagetable(
 	const struct swmmu_pagetable_range *range);
@@ -171,11 +195,30 @@ int nommu_swmmu_copy_to_user(void __user *address,
 int nommu_swmmu_copy_from_user(void *destination,
 			       const void __user *address,
 			       size_t size);
+bool nommu_swmmu_usercopy_requires_translation(unsigned long address);
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
+int nommu_swmmu_get_user_pages(unsigned long start, int nr_pages,
+			       unsigned int gup_flags, bool pin,
+			       struct page **pages);
+#else
+static inline int nommu_swmmu_get_user_pages(unsigned long start,
+		int nr_pages, unsigned int gup_flags, bool pin,
+		struct page **pages)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 /* mapping API */
 int nommu_swmmu_dup_mmap(struct mm_struct *dst,
 			struct mm_struct *src);
+void nommu_swmmu_put_region(struct vm_region *region);
+void nommu_swmmu_get_region(struct vm_region *region);
+bool nommu_swmmu_region_exclusive(struct vm_region *region);
 int nommu_swmmu_activate_mm(struct mm_struct *mm);
+int nommu_swmmu_recover_alias_fault(struct mm_struct *mm,
+				   unsigned long address,
+				   unsigned int access);
 void nommu_swmmu_host_alias_invalidate(struct mm_struct *mm);
 
 struct vm_area_struct;

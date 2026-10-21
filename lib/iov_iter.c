@@ -12,6 +12,7 @@
 #include <linux/scatterlist.h>
 #include <linux/instrumented.h>
 #include <linux/iov_iter.h>
+#include <linux/nommu_swmmu.h>
 
 static __always_inline
 size_t copy_to_user_iter(void __user *iter_to, size_t progress,
@@ -1088,7 +1089,10 @@ static ssize_t __iov_iter_get_pages_alloc(struct iov_iter *i,
 		n = want_pages_array(pages, maxsize, *start, maxpages);
 		if (!n)
 			return -ENOMEM;
-		res = get_user_pages_fast(addr, n, gup_flags, *pages);
+		res = nommu_swmmu_get_user_pages(addr, n, gup_flags, false,
+						 *pages);
+		if (res == -EOPNOTSUPP)
+			res = get_user_pages_fast(addr, n, gup_flags, *pages);
 		if (unlikely(res <= 0))
 			return res;
 		maxsize = min_t(size_t, maxsize, res * PAGE_SIZE - *start);
@@ -1773,7 +1777,10 @@ static ssize_t iov_iter_extract_user_pages(struct iov_iter *i,
 	maxpages = want_pages_array(pages, maxsize, offset, maxpages);
 	if (!maxpages)
 		return -ENOMEM;
-	res = pin_user_pages_fast(addr, maxpages, gup_flags, *pages);
+	res = nommu_swmmu_get_user_pages(addr, maxpages, gup_flags, true,
+					 *pages);
+	if (res == -EOPNOTSUPP)
+		res = pin_user_pages_fast(addr, maxpages, gup_flags, *pages);
 	if (unlikely(res <= 0)) {
 		if (will_alloc) {
 			kvfree(*pages);

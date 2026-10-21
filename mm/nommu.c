@@ -560,6 +560,30 @@ static void put_nommu_region(struct vm_region *region)
 	__put_nommu_region(region);
 }
 
+#ifdef CONFIG_NOMMU_SWMMU
+void nommu_swmmu_get_region(struct vm_region *region)
+{
+	down_write(&nommu_region_sem);
+	region->vm_usage++;
+	up_write(&nommu_region_sem);
+}
+
+bool nommu_swmmu_region_exclusive(struct vm_region *region)
+{
+	bool exclusive;
+
+	down_read(&nommu_region_sem);
+	exclusive = region->vm_usage == 1;
+	up_read(&nommu_region_sem);
+	return exclusive;
+}
+
+void nommu_swmmu_put_region(struct vm_region *region)
+{
+	put_nommu_region(region);
+}
+#endif
+
 static void setup_vma_to_mm(struct vm_area_struct *vma, struct mm_struct *mm)
 {
 	vma->vm_mm = mm;
@@ -1060,6 +1084,18 @@ unsigned long do_mmap_nommu(struct file *file,
 	 * now know into VMA flags */
 	vm_flags |= determine_vm_flags(file, prot, flags, capabilities);
 
+#ifdef CONFIG_NOMMU_SWMMU
+	/*
+	 * NOMMU traditionally treats anonymous MAP_SHARED as private because
+	 * it has no fork.  SWMMU does support fork, so retain the sharing flag
+	 * for these mappings; fork must keep the same backing region in both
+	 * address spaces.
+	 */
+	if (!file && (flags & MAP_SHARED) &&
+	    READ_ONCE(current->mm->swmmu_mode) == NOMMU_SWMMU_ON)
+		vm_flags |= VM_SHARED | VM_MAYSHARE;
+#endif
+
 
 	/* we're going to need to record the mapping */
 	region = kmem_cache_zalloc(vm_region_jar, GFP_KERNEL);
@@ -1092,7 +1128,7 @@ unsigned long do_mmap_nommu(struct file *file,
 	 *   these cases, sharing is handled in the driver or filesystem rather
 	 *   than here
 	 */
-	if (is_nommu_shared_mapping(vm_flags)) {
+	if (file && is_nommu_shared_mapping(vm_flags)) {
 		struct vm_region *pregion;
 		unsigned long pglen, rpglen, pgend, rpgend, start;
 
