@@ -42,7 +42,11 @@ non-instrumented control binary and its applet links under
 the guest rootfs continues to use its profile-specific `/bin` and `/sbin`.
 This separation prevents the UML guest syscall interception from being
 required by container-control `sh`, `sleep`, or `readlink` processes. Those
-processes run outside UML before, during, and after the guest. The focused
+processes run outside UML before, during, and after the guest. Test JSON, HTML
+and console output are generated or copied to the shared artifact directory
+before the guest halts. The post-halt host-control calls only validate those
+shared paths and finish the outer container orchestration; they do not create
+guest test results after shutdown. The focused
 direct SWMMU kselftest runs only in the `um-nommu-sas` build row. The generic
 UML kselftest run remains disabled because it takes too long. Normal CI does
 not publish the UML images.

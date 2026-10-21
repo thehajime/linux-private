@@ -7,8 +7,9 @@ reproducible kselftest build instructions in
 
 ## Project status
 
-- **Current phase:** integrate the fully validated SWMMU/NOMMU series and
-  publish its complete signed userspace package set.
+- **Current phase:** the validated SWMMU/NOMMU series and complete signed
+  userspace package set are integrated. Continue the remaining architecture
+  and performance investigations as separate, reviewable changes.
 - **Handoff and CI branch:** `ci/uml-nommu` (the default branch and the only
   branch on which this ledger is maintained).
 - **Implementation branch:** `feature-swmmu-nommu`; do not maintain a second,
@@ -18,12 +19,17 @@ reproducible kselftest build instructions in
 - **Correctness baseline:** SVM-style all-access instrumentation with raw
   pointers and runtime address translation.
 - **Userspace checkpoint:** instrumented musl, BusyBox, OpenSSL, Python,
-  coreutils, nginx, zlib and apk-tools package profiles have been built. The
-  exact-head gate in run `39561868757` completed 78 jobs with no job failures,
-  including all full LTP rows, six KUnit profiles and direct SWMMU kselftest.
-- **Next validation task:** publish the expanded signed archive containing
-  `zlib-nommu` and `apk-tools-nommu`, consume it in the protected-branch gate,
-  and verify Pages plus the issue #4 report.
+  coreutils, nginx, zlib and apk-tools package profiles have been built and
+  published as an exact-source signed archive. Protected-branch run
+  `39579186764` consumed that archive and completed 78 jobs successfully, with
+  one expected image-publication skip and no failures. All full LTP rows, six
+  KUnit profiles and direct SWMMU kselftest produced complete artifacts.
+- **Report checkpoint:** issue #4 comment `6314635056` contains the corrected
+  report. Its direct kselftest row is 38 pass, 0 fail and 8 skip, and completed
+  signal tests no longer create false crash alerts. The Pages artifact was
+  uploaded, but deployment returned HTTP 404 because GitHub Pages is not yet
+  enabled for the repository. Enabling Pages with GitHub Actions as its source
+  requires repository-administrator access.
 
 ## Whole milestones
 
@@ -197,15 +203,16 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
-Current integration gate (2026-10-21): run `39561868757` completed 78 jobs
-with no job failures. All 11 LTP targets produced complete JSON/HTML reports;
+Current protected-branch integration gate (2026-10-21): run `39579186764`
+completed 78 jobs successfully, with one expected skipped image-publication
+job and no failures. All 11 LTP targets produced complete JSON/HTML reports;
 all six KUnit targets recorded 806 pass, 42 skip and 0 fail; direct SWMMU
 kselftest recorded 38 pass, 8 profile skips and 0 fail. The RISC-V NOMMU row
 completed 1,433 records after the unsupported pthread-based `futex_wait03`
-case was skipped only for that profile. Experimental branches use the
-`ci-report-preview` environment and create the complete report plus issue #4
-comment without attempting protected Pages deployment. The remaining delivery
-gate is the expanded apk-tools/zlib archive and the protected-branch run.
+case was skipped only for that profile. The exact-source signed release also
+contains `zlib-nommu` and `apk-tools-nommu`; Alpine verified all 11 APKs and
+both indexes. Issue #4 publication is complete. The uploaded Pages artifact
+cannot be deployed until an administrator enables Pages for this repository.
 
 - [x] Complete plain NOMMU CI validation. Runs `37711748667` and
   `37713808402` showed that test-0's `NOMMU_USERSPACE_READY` marker could print
