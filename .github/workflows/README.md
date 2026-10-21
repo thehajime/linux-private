@@ -21,9 +21,11 @@ the UML matrix; the build job downloads that matching asset. MMU UML keeps
 Alpine's standard userspace; `um-nommu` uses
 uninstrumented `SWMMU=0` APKs with `CONFIG_NOMMU_SWMMU` disabled, and
 `um-nommu-sas` uses instrumented `SWMMU=1` APKs built with the selected kernel
-ref's GCC plugin and UAPI. The experimental `um-nommu-plain-sas-tt` profile
+ref's GCC plugin and UAPI. The experimental `um-nommu-plain-sas` profile
 combines the plain `SWMMU=0` APKs with `CONFIG_UML_NOMMU_SAS=y`, keeps
-`CONFIG_NOMMU_SWMMU=n`, and runs with UML time-travel mode. These profiles are
+`CONFIG_NOMMU_SWMMU=n`, and runs without UML time-travel mode. Its LTP row is
+the normal syscall suite built with `NOMMU=1`; LTP compile guards and runtime
+`TCONF` results handle tests unsupported without `fork()`. These profiles are
 built and installed into their
 matching local rootfs images. Plain x86_64 NOMMU UML does not support the
 standard `BINFMT_ELF` loader, but its FDPIC loader accepts `ET_DYN` PIE binaries
@@ -34,11 +36,16 @@ SWMMU implementation. The SWMMU SAS profile requires
 SAS and MMU UML also run guest boot tests. For the
 SWMMU image, APK install scripts are skipped because the
 instrumented guest BusyBox cannot run on the build host; a static helper from
-the same aports build recreates its applet links. Kselftest is temporarily disabled because the NOMMU kselftest
-suite is not present in the tested kernel tree and the generic UML run takes
-too long. Re-enable focused kselftest coverage after the NOMMU tests are
-upstream and the matching test target is available in this branch. Normal CI
-does not publish the UML images.
+the same aports build recreates its applet links. NOMMU images install that
+non-instrumented control binary and its applet links under
+`/opt/uml-host-tools`; Actions orchestration uses only that directory, while
+the guest rootfs continues to use its profile-specific `/bin` and `/sbin`.
+This separation prevents the UML guest syscall interception from being
+required by container-control `sh`, `sleep`, or `readlink` processes. Those
+processes run outside UML before, during, and after the guest. The focused
+direct SWMMU kselftest runs only in the `um-nommu-sas` build row. The generic
+UML kselftest run remains disabled because it takes too long. Normal CI does
+not publish the UML images.
 
 To publish the tested images, use **Actions → ci.yml → Run workflow** on
 `ci/uml-nommu` and enable `publish_images`. The publish job only starts after
@@ -104,10 +111,11 @@ independent of the UML SWMMU kernel ref. For now it uses the previously proven
 in `AGENTS.md`. The workflow updates the LTP fork's Buildroot Dockerfile to the
 selected exact commit and kernel version, then publishes an immutable GHCR tag.
 The `riscv-nommu` matrix entry pins that image tag and builds its LTP test
-programs in the same job that runs QEMU, avoiding a large image artifact
-transfer between jobs. Update the image tag in `ci.yml` only after publishing
-and validating a replacement. The RISC-V comparison image can be refreshed
-less often than the main kernel CI.
+programs once in the `build_ltp_riscv` prerequisite job. The QEMU test row
+downloads the resulting install-tree artifact, matching the build-once model
+used by the other LTP profiles. Update the image tag in `ci.yml` only after
+publishing and validating a replacement. The RISC-V comparison image can be
+refreshed less often than the main kernel CI.
 
 The native lmbench, getpid, iperf3, and netperf measurements run in the
 independent `checkpatch` job and are uploaded as `test-result-native`.
@@ -120,11 +128,12 @@ compiler caches are deferred until cache retention or quota is reviewed.
 The LTP runner temporarily excludes `ptrace06` from `um-mmu` and
 `perf_event_open03` from `um-nommu-seccomp` and `um-nommu-sas-seccomp`. The
 root `AGENTS.md` tracks removing these skips after the failures are diagnosed.
-The plain NOMMU SAS row is always restricted to the locally validated
-fork-independent subset, including on manual workflow dispatch. Tests that
-return LTP `TCONF` remain configuration skips in the JSON and HTML reports;
-other nonzero outcomes fail the row. The row reuses the plain NOMMU LTP and
-userspace artifacts and does not use SWMMU-instrumented packages.
+The plain NOMMU SAS row runs the normal NOMMU LTP syscall suite on manual
+workflow dispatch. The LTP artifact is built with `NOMMU=1`, so compile guards
+and runtime `TCONF` results handle cases unsupported without `fork()`.
+Configuration skips remain visible in the JSON and HTML reports; other nonzero
+outcomes fail the row. The row reuses the plain NOMMU LTP and userspace
+artifacts and does not use SWMMU-instrumented packages.
 All time-travel build rows pass `time-travel` to both image boot tests and to
 KUnit. Their KUnit fragments independently enable time-travel and disable the
 incompatible RAID6 benchmark. Plain NOMMU KUnit fragments explicitly disable

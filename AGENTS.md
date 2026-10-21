@@ -65,18 +65,18 @@ reproducible kselftest build instructions in
 - [x] Build a separate plain-SAS config with `MMU=n`, `NOMMU_SWMMU=n`,
   `UML_NOMMU_SAS=y`, and vector networking, then boot it with the Alpine
   derived rootfs and a musl static-PIE smoke init.
-- [x] Define and locally validate a fork-independent LTP subset for plain SAS.
-  Both normal SAS seccomp and time-travel SAS seccomp completed the nine-test
-  subset with 8 passes, 1 configuration skip (`gettimeofday01`), and no
-  failures or broken tests. The proposed `um-nommu-plain-sas-tt` CI row always
-  uses this subset, including manual dispatch, and reuses the plain NOMMU
-  userspace/LTP profile while asserting `NOMMU_SWMMU=n`. The existing
-  `simple-fork` probe exits 10 when `fork()` is attempted; unsupported tests
-  remain outside this bounded profile or report LTP `TCONF`.
-- [ ] Run the proposed plain-SAS time-travel matrix row in GitHub Actions and
-  verify its build, boot, KUnit, JSON/HTML LTP report, and artifact upload.
-  The workflow now passes `time-travel` to both image boot tests and KUnit;
-  KUnit also gets an explicit TT config and plain-NOMMU `SWMMU=n` config.
+- [x] Define and locally validate an initial fork-independent LTP smoke subset
+  for plain SAS. Both normal SAS seccomp and time-travel SAS seccomp completed
+  the nine-test subset with 8 passes, 1 configuration skip
+  (`gettimeofday01`), and no failures or broken tests.
+- [x] The earlier plain-SAS time-travel row completed in GitHub Actions with
+  build, boot, KUnit, JSON/HTML LTP report, and artifact upload. It was useful
+  for proving that SAS and BASIC time travel can coexist, but is no longer the
+  retained plain-SAS matrix profile.
+- [ ] Validate the replacement non-time-travel `um-nommu-plain-sas` row with
+  the full syscall suite built with `NOMMU=1` and explicit `SWMMU=n`
+  assertions. LTP's NOMMU compile guards and runtime `TCONF` results, rather
+  than a CI run-pattern subset, must handle tests unsupported without fork.
 - [ ] `NOMMU_SWMMU` currently depends on `!MMU`; an `MMU=y` plus SWMMU build is
   not a supported matrix. If desired, test normal MMU fork/COW as a separate
   control and label it clearly; it cannot validate SWMMU behavior.
@@ -261,7 +261,7 @@ reproducible kselftest build instructions in
   panic in `epoll_wait01` through `rb_erase_linked()` / `__remove_hrtimer()`;
   investigate this separately and keep the failure visible. The previous run
   `37747988970` also exposed
-  that native/MMU images lack `/tmp/busybox-host`, that runtime `apk add`
+  that native/MMU images lacked a dedicated host-control BusyBox, that runtime `apk add`
   segfaults after replacing musl, and that LTP support files should be checked
   out on the runner. Those issues were addressed by runner-side shell selection,
   build-time runtime dependencies, and a runner-side LTP checkout. The native

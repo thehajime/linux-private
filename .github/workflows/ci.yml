@@ -241,18 +241,17 @@ jobs:
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
             runtime_opts: time-travel
-          - displayTargetName: ubuntu-22.04 (plain nommu-sas time-travel)
+          - displayTargetName: ubuntu-22.04 (plain nommu-sas)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
             defconfig: x86_64_defconfig
             add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_NOMMU_SWMMU=n --kconfig_add CONFIG_NOMMU_SWMMU_DEFAULT_ON=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_NOMMU_SAS=y --kconfig_add CONFIG_RAID6_PQ_BENCHMARK=n --kconfig_add CONFIG_UML_TIME_TRAVEL_SUPPORT=y --kconfig_add CONFIG_UML_MAX_USERSPACE_ITERATIONS=100000 --kernel_args time-travel
-            testname: um-nommu-plain-sas-tt
+            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_NOMMU_SWMMU=n --kconfig_add CONFIG_NOMMU_SWMMU_DEFAULT_ON=n --kconfig_add CONFIG_KUNIT_UML_PCI=n --kconfig_add CONFIG_UML_NOMMU_SAS=y
+            testname: um-nommu-plain-sas
             mode: um-nommu
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
-            runtime_opts: time-travel
           - displayTargetName: ubuntu-22.04 (nommu)
             os: unix
             runs_on: ubuntu-22.04
@@ -403,7 +402,7 @@ jobs:
           echo "# CONFIG_MMU is not set" >> arch/um/configs/x86_64_defconfig
           echo "# CONFIG_NOMMU_SWMMU_DEFAULT_ON is not set" >> arch/um/configs/x86_64_defconfig
       - name: (FIXME) defconfig rewrite for plain nommu-sas
-        if: matrix.testname == 'um-nommu-plain-sas-tt'
+        if: matrix.testname == 'um-nommu-plain-sas'
         run: |
           echo "# CONFIG_MMU is not set" >> arch/um/configs/x86_64_defconfig
           echo "# CONFIG_NOMMU_SWMMU_DEFAULT_ON is not set" >> arch/um/configs/x86_64_defconfig
@@ -420,14 +419,14 @@ jobs:
           make ARCH=um ${{ matrix.defconfig }} O=build
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
-                "${{ matrix.testname }}" == "um-nommu-plain-sas-tt" ]]; then
+                "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
             scripts/config --file build/.config --disable NOMMU_SWMMU_DEFAULT_ON
             scripts/config --file build/.config --disable NOMMU_SWMMU
             make ARCH=um O=build olddefconfig
             ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' build/.config
             ! grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
             ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' build/.config
-            if [[ "${{ matrix.testname }}" == "um-nommu-plain-sas-tt" ]]; then
+            if [[ "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
               grep -q '^CONFIG_UML_NOMMU_SAS=y$' build/.config
             fi
           elif [[ "${{ matrix.testname }}" == "um-nommu-sas" ]]; then
@@ -517,7 +516,7 @@ jobs:
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
-                "${{ matrix.testname }}" == "um-nommu-plain-sas-tt" ]]; then
+                "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
             grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
           fi
           echo "========="
@@ -544,13 +543,13 @@ jobs:
           make ARCH=um ${{ matrix.defconfig }}
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
-                "${{ matrix.testname }}" == "um-nommu-plain-sas-tt" ]]; then
+                "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
             scripts/config --disable NOMMU_SWMMU_DEFAULT_ON --disable NOMMU_SWMMU
             make ARCH=um olddefconfig
             ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' .config
             ! grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
             ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' .config
-            if [[ "${{ matrix.testname }}" == "um-nommu-plain-sas-tt" ]]; then
+            if [[ "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
               grep -q '^CONFIG_UML_NOMMU_SAS=y$' .config
             fi
           elif [[ "${{ matrix.testname }}" == "um-nommu-sas" ]]; then
@@ -1250,9 +1249,50 @@ jobs:
     name: "LTP: build"
     with:
       ltp_ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
+  build_ltp_riscv:
+    runs-on: ubuntu-latest
+    name: "LTP: build-riscv-nommu"
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull prebuilt RISC-V test image
+        run: docker pull ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-dfebc378bc04da60d0bb9ec86989b56f7f1e3909
+      - uses: actions/checkout@v6
+      - name: Checkout LTP source
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/ltp
+          ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
+          path: ltp-source
+          submodules: recursive
+      - name: Build RISC-V LTP install tree
+        run: |
+          mkdir -p "$RUNNER_TEMP/ltp-riscv-artifact" "$RUNNER_TEMP/ltp-home"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE/ltp-source:/work-buildroot/ltp" \
+            --volume "$GITHUB_WORKSPACE/.github/workflows/build-ltp-riscv.sh:/build-ltp-riscv.sh:ro" \
+            --volume "$RUNNER_TEMP/ltp-home:/github/home" \
+            --volume "$RUNNER_TEMP/ltp-riscv-artifact:/run-artifacts" \
+            --workdir /work-buildroot/ltp \
+            --entrypoint /bin/bash \
+            ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-dfebc378bc04da60d0bb9ec86989b56f7f1e3909 \
+            /build-ltp-riscv.sh
+      - name: Upload RISC-V LTP install tree
+        uses: actions/upload-artifact@v7
+        with:
+          name: ltp-alpine-riscv-nommu.tar.gz
+          path: ${{ runner.temp }}/ltp-riscv-artifact/ltp-alpine-riscv-nommu.tar.gz
+          if-no-files-found: error
   test_ltp:
     runs-on: ubuntu-latest
-    needs: [build_uml, build_ltp]
+    needs: [build_uml, build_ltp, build_ltp_riscv]
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 240 || 60 }}
     permissions:
       contents: read
@@ -1291,11 +1331,11 @@ jobs:
             testname: um-nommu-tt-seccomp
             vmlinux_opt: "time-travel seccomp=on"
             name: um-nommu
-          - displayTargetName: um-nommu-plain-sas-tt-s
-            image_name: uml-ci/alpine:edge-um-nommu-plain-sas-tt
-            image_artifact: uml-docker-image-um-nommu-plain-sas-tt
-            testname: um-nommu-plain-sas-tt
-            vmlinux_opt: "time-travel seccomp=on"
+          - displayTargetName: um-nommu-plain-sas-s
+            image_name: uml-ci/alpine:edge-um-nommu-plain-sas
+            image_artifact: uml-docker-image-um-nommu-plain-sas
+            testname: um-nommu-plain-sas
+            vmlinux_opt: "seccomp=on"
             name: um-nommu
           - displayTargetName: um-nommu-s
             image_name: uml-ci/alpine:edge-um-nommu
@@ -1360,33 +1400,14 @@ jobs:
           ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
           path: ltp-source
           submodules: recursive
-      - name: Prepare RISC-V LTP build cache
-        if: matrix.testname == 'riscv-nommu'
-        run: mkdir -p "$RUNNER_TEMP/ltp-riscv-artifact" "$RUNNER_TEMP/ltp-home"
-      - name: Build RISC-V LTP install tree in the prebuilt image
-        if: matrix.testname == 'riscv-nommu'
-        run: |
-          docker run --rm \
-            --volume "$GITHUB_WORKSPACE/ltp-source:/work-buildroot/ltp" \
-            --volume "$GITHUB_WORKSPACE/.github/workflows/build-ltp-riscv.sh:/build-ltp-riscv.sh:ro" \
-            --volume "$RUNNER_TEMP/ltp-home:/github/home" \
-            --volume "$RUNNER_TEMP/ltp-riscv-artifact:/run-artifacts" \
-            --workdir /work-buildroot/ltp \
-            --entrypoint /bin/bash \
-            "${{ matrix.image_name }}" /build-ltp-riscv.sh
       - uses: actions/download-artifact@v7
-        if: matrix.testname != 'riscv-nommu'
         with:
           name: ltp-alpine-${{ matrix.name }}.tar.gz
           path: ${{ runner.temp }}/ltp-install
       - name: Extract LTP install tree on the runner
         run: |
           mkdir -p "$RUNNER_TEMP/ltp-root"
-          if [ "${{ matrix.testname }}" = riscv-nommu ]; then
-            archive="$RUNNER_TEMP/ltp-riscv-artifact/ltp-alpine-riscv-nommu.tar.gz"
-          else
-            archive="$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz"
-          fi
+          archive="$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz"
           tar -xzf "$archive" \
             -C "$RUNNER_TEMP/ltp-root"
           test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
@@ -1406,8 +1427,8 @@ jobs:
           )
           if [[ "$LTP_TESTNAME" == um-nommu* ]]; then
             docker create "${docker_args[@]}" \
-              --entrypoint /tmp/busybox-host "${{ matrix.image_name }}" \
-              sh -c 'exec /tmp/busybox-host sleep infinity'
+              --entrypoint /opt/uml-host-tools/busybox "${{ matrix.image_name }}" \
+              sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
           else
             docker create "${docker_args[@]}" \
               --entrypoint /bin/sh "${{ matrix.image_name }}" -c 'sleep infinity'
@@ -1418,10 +1439,10 @@ jobs:
         run: |
           mkdir -p output/ltp/uml-python-debug
           docker exec -d \
-            -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-            ltp-test /tmp/busybox-host sh \
+            -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            ltp-test /opt/uml-host-tools/busybox sh \
             /github/workspace/.github/workflows/capture-uml-python-maps.sh host
-      - name: Extract test programs and run LTP
+      - name: Run LTP
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
           LTP_ARTIFACT_NAME: ${{ matrix.name }}
@@ -1436,10 +1457,10 @@ jobs:
             um-nommu*)
               mkdir -p output/ltp
               docker exec -t \
-                -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_TIMEOUT_MUL \
                 -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS ltp-test \
-                /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
+                /opt/uml-host-tools/busybox sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
                 | tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
               test -s "output/ltp/ltp-result-${LTP_TESTNAME}.html"
               ;;
@@ -1474,7 +1495,7 @@ jobs:
           fi
           for path in /usr/bin/python3.14 /usr/lib/libpython3.14.so.1.0 \
                       /lib/ld-musl-x86_64.so.1; do
-            source=$(docker exec ltp-test /tmp/busybox-host readlink -f "$path" \
+            source=$(docker exec ltp-test /opt/uml-host-tools/busybox readlink -f "$path" \
               2>> "$diag/collection.log")
             [ -n "$source" ] || continue
             name=$(basename "$path")
@@ -1567,13 +1588,13 @@ jobs:
         with:
             path: output/kunit-results
             pattern: kunit-results-*
-      - name: Download direct SWMMU kselftest result
+      - name: Download direct SWMMU kselftest results
         if: ${{ always() && needs.build_uml.result != 'skipped' }}
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
-          name: swmmu-kselftest-um-nommu-sas
-          path: output/kselftest-artifact
+          pattern: swmmu-kselftest-*
+          path: output/kselftest-artifacts
       - name: Download UML nginx matrix results
         if: ${{ github.event_name == 'workflow_dispatch' }}
         continue-on-error: true

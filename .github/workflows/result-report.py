@@ -18,9 +18,15 @@ LM_BENCHMARKS = [
 LTP_COUNTS = ("passed", "failed", "broken", "skipped", "warnings")
 KUNIT_COUNTS = ("passed", "failed", "crashed", "skipped", "errors")
 KSELFTEST_COUNTS = ("passed", "failed", "skipped")
+KUNIT_TARGETS = (
+    "um-mmu", "um-mmu-tt", "um-nommu", "um-nommu-tt",
+    "um-nommu-plain-sas", "um-nommu-sas",
+)
 LTP_TARGETS = (
-    "native", "um-mmu", "um-mmu-seccomp", "um-nommu", "um-nommu-seccomp",
-    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline", "riscv-nommu",
+    "native", "um-mmu", "um-mmu-seccomp", "um-mmu-tt-seccomp",
+    "um-nommu", "um-nommu-seccomp", "um-nommu-tt-seccomp",
+    "um-nommu-plain-sas", "um-nommu-sas-seccomp",
+    "um-nommu-sas-zpoline", "riscv-nommu",
 )
 LTP_CRASH_SIGNATURES = (
     (
@@ -338,7 +344,13 @@ def collect_kunit(root):
             "counts": {key: int(misc.get(key, 0)) for key in KUNIT_COUNTS},
             "cases": flatten_kunit(data),
         }
-    return {"state": "collected" if suites else "not-collected", "suites": suites}
+    targets = {
+        target: ("collected" if any(name.startswith(f"{target}/") for name in suites)
+                 else "no result artifact")
+        for target in KUNIT_TARGETS
+    }
+    return {"state": "collected" if suites else "not-collected",
+            "targets": targets, "suites": suites}
 
 
 def collect_ltp(root):
@@ -392,19 +404,27 @@ def collect_ltp(root):
 
 
 def collect_kselftest(root):
-    artifact_root = root / "kselftest-artifact"
-    if not artifact_root.exists():
-        artifact_root = root / "kselftest"
-    tap_paths = sorted(artifact_root.rglob("*.tap")) if artifact_root.exists() else []
+    artifact_roots = sorted((root / "kselftest-artifacts").glob("swmmu-kselftest-*"))
+    if not artifact_roots:
+        artifact_roots = [candidate for candidate in
+                          (root / "kselftest-artifact", root / "kselftest")
+                          if candidate.exists()]
+    tap_paths = sorted(path for artifact_root in artifact_roots
+                       for path in artifact_root.rglob("*.tap"))
     suites = {}
     seen_tap_hashes = set()
     for path in tap_paths:
         text = path.read_text(errors="replace")
         digest = hashlib.sha256(text.encode()).hexdigest()
-        if digest in seen_tap_hashes:
+        artifact_dir = next((parent for parent in path.parents
+                             if parent.name.startswith("swmmu-kselftest-")), None)
+        target = (artifact_dir.name.removeprefix("swmmu-kselftest-")
+                  if artifact_dir else "um-nommu-sas")
+        identity = (target, digest)
+        if identity in seen_tap_hashes:
             continue
-        seen_tap_hashes.add(digest)
-        suite_name = path.stem
+        seen_tap_hashes.add(identity)
+        suite_name = f"{target}/{path.stem}"
         cases = {}
         for line in text.splitlines():
             match = re.match(r"^\s*(not )?ok\s+(\d+)(?:\s+(.*?))?\s*$", line)
@@ -697,7 +717,8 @@ def render(snapshot, previous):
         kselftest_status = f"{kselftest['state']}: {counts['passed']} passed, {counts['failed']} failed, {counts['skipped']} skipped"
     else:
         kselftest_status = kselftest["state"]
-    lines.extend(["### kselftest results", f"Current status: {kselftest_status}.", ""])
+    lines.extend(["### kselftest results", f"Current status: {kselftest_status}.",
+                  "The direct SWMMU kselftest applies to the `um-nommu-sas` SWMMU build; plain SAS and TT comparison rows do not enable this SWMMU-specific test.", ""])
     if kselftest.get("suites"):
         lines.extend(["| Suite | State | Passed | Failed | Skipped |",
                       "|---|---|---:|---:|---:|"])
@@ -716,7 +737,8 @@ def render(snapshot, previous):
     ])
     for target, result in sorted(snapshot["ltp"]["targets"].items()):
         counts = result["counts"]
-        target_name = f"[{target}]({result['url']})" if result.get("url") else target
+        display_target = target
+        target_name = f"[{display_target}]({result['url']})" if result.get("url") else display_target
         alerts = result.get("alerts", [])
         if alerts:
             state = "🔴 " + ", ".join(alerts)
@@ -733,7 +755,11 @@ def render(snapshot, previous):
         lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
     lines.append("")
 
-    lines.extend(["### KUnit results", ""])
+    lines.extend(["### KUnit results", "",
+                  "| Build target | Artifact coverage |", "|---|---|"])
+    for target, state in sorted(snapshot["kunit"].get("targets", {}).items()):
+        lines.append(f"| {target} | {state} |")
+    lines.append("")
     if snapshot["kunit"]["suites"]:
         lines.extend(["| Target / suite | Passed | Failed | Crashed | Skipped | Errors |", "|---|---:|---:|---:|---:|---:|"])
         for suite, result in sorted(snapshot["kunit"]["suites"].items()):

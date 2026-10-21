@@ -68,10 +68,11 @@ RUN --mount=type=bind,source=aports-artifacts,target=/tmp/aports-artifacts,ro \
           apk del openssl py3-msgpack python3; \
         fi && \
         cp /tmp/aports-artifacts/keys/*.rsa.pub /etc/apk/keys/ && \
-        cp /tmp/aports-artifacts/${USERSPACE_PROFILE}/tools/busybox-host /tmp/busybox-host && \
-        chmod 755 /tmp/busybox-host && \
-        mkdir -p /tmp/busybox-host-bin && \
-        /tmp/busybox-host --install -s /tmp/busybox-host-bin && \
+        install -d /opt/uml-host-tools/bin && \
+        install -m 0755 \
+          /tmp/aports-artifacts/${USERSPACE_PROFILE}/tools/busybox-host \
+          /opt/uml-host-tools/busybox && \
+        /opt/uml-host-tools/busybox --install -s /opt/uml-host-tools/bin && \
         if [ "${USERSPACE_PROFILE}" = nommu-swmmu ]; then \
           apk add --no-cache --no-scripts --force-overwrite \
             /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/busybox-nommu-*.apk \
@@ -84,7 +85,7 @@ RUN --mount=type=bind,source=aports-artifacts,target=/tmp/aports-artifacts,ro \
             /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/busybox-nommu-*.apk \
             /tmp/aports-artifacts/${USERSPACE_PROFILE}/packages/musl-nommu-*.apk; \
         fi && \
-        /tmp/busybox-host --install -s ;; \
+        /opt/uml-host-tools/busybox --install -s ;; \
       *) echo "unknown USERSPACE_PROFILE: ${USERSPACE_PROFILE}" >&2; exit 1 ;; \
     esac
 
