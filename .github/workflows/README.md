@@ -159,4 +159,7 @@ GitHub Pages site by the `bench-result` job. Pages must be enabled in
 Actions**. The job requests `pages: write` and `id-token: write`, so no Imgur
 client ID or other publishing secret is needed. Each successful deployment
 replaces the site's current report; historical comparisons remain in issue #4
-and in the Actions artifacts for their respective runs.
+and in the Actions artifacts for their respective runs. Runs from experimental
+workflow branches use the unprotected `ci-report-preview` environment: they
+still create the report artifact and issue comment, but only `ci/uml-nommu`
+deploys the generated site to the protected `github-pages` environment.

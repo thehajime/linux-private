@@ -1576,7 +1576,7 @@ jobs:
       pages: write
       id-token: write
     environment:
-      name: github-pages
+      name: ${{ github.ref_name == 'ci/uml-nommu' && 'github-pages' || 'ci-report-preview' }}
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6
@@ -1736,7 +1736,7 @@ jobs:
           path: ${{ runner.temp }}/site
       - name: Deploy report to GitHub Pages
         id: deployment
-        if: ${{ always() && steps.upload_pages.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
+        if: ${{ always() && github.ref_name == 'ci/uml-nommu' && steps.upload_pages.outcome == 'success' && needs.build_uml.result != 'skipped' && needs.benchmark.result != 'skipped' }}
         continue-on-error: true
         uses: actions/deploy-pages@v4
         with:
