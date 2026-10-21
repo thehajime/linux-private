@@ -30,6 +30,12 @@ extern long nommu_swmmu_store_u64(void *address,
 extern uint64_t nommu_swmmu_load_dynamic(const void *address,
 					 size_t size);
 
+uint64_t nommu_swmmu_load_return_value(const void *address, size_t size);
+
+static uint64_t (* const __attribute__((used))
+keep_swmmu_load_return_value)(const void *, size_t) =
+	nommu_swmmu_load_return_value;
+
 extern long nommu_swmmu_store_dynamic(void *address,
 				      size_t size,
 				      uint64_t value);

@@ -3,6 +3,7 @@
 # Standalone compile-only tests for the SWMMU GCC plugin.
 
 SHELL := /bin/sh
+.DEFAULT_GOAL := all
 
 TEST_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SRCTREE := $(abspath $(TEST_DIR)/../../..)
@@ -28,9 +29,66 @@ UNKNOWN_ASM := $(DUMP_DIR_ABS)/swmmu_provenance_unknown.s
 
 ALL_ACCESS_SOURCE := $(TEST_DIR)/swmmu_all_access.c
 ALL_ACCESS_ASM := $(OUTPUT)/swmmu_all_access.s
+ALL_ACCESS_RETURN_ASM := $(OUTPUT)/swmmu_all_access_return_value.s
+ALL_ACCESS_NATIVE_STACK_ASM := $(OUTPUT)/swmmu_all_access_native_stack.s
 
 
 .PHONY: all test compile dump dump-unknown-boundary clean all-access
+.PHONY: all-access-return-value
+.PHONY: all-access-native-stack
+.PHONY: all-access-native-allocator-results
+.PHONY: all-access-native-source-file
+.PHONY: all-access-native-range-guard
+.PHONY: all-access-post-scalar
+.PHONY: all-access-direct-window
+
+all-access-direct-window:
+	@mkdir -p $(OUTPUT)
+	$(CC) -O2 -ffunction-sections -fdata-sections \
+		-fplugin=$(PLUGIN) -fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-direct-window=1 \
+		-include $(TEST_DIR)/swmmu_direct_window_guard.h \
+		-c $(TEST_DIR)/swmmu_post_scalar.c -o $(OUTPUT)/direct-window.o
+	$(CC) -O2 -Wl,--gc-sections -DSWMMU_TEST_DIRECT_WINDOW \
+		$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+		$(OUTPUT)/direct-window.o -o $(OUTPUT)/direct-window
+	$(OUTPUT)/direct-window
+	$(CC) -O2 -Wl,--gc-sections -DSWMMU_TEST_DIRECT_WINDOW \
+		-DSWMMU_TEST_DISABLED_WINDOW \
+		$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+		$(OUTPUT)/direct-window.o -o $(OUTPUT)/direct-window-disabled
+	$(OUTPUT)/direct-window-disabled
+	@set -eu; for opt in 0 1 3 s; do \
+		$(CC) -O$$opt -ffunction-sections -fdata-sections \
+			-fplugin=$(PLUGIN) -fplugin-arg-swmmu_plugin-all-access=1 \
+			-fplugin-arg-swmmu_plugin-direct-window=1 \
+			-include $(TEST_DIR)/swmmu_direct_window_guard.h \
+			-c $(TEST_DIR)/swmmu_post_scalar.c \
+			-o $(OUTPUT)/direct-window-$$opt.o; \
+		$(CC) -O2 -Wl,--gc-sections -DSWMMU_TEST_DIRECT_WINDOW \
+			$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+			$(OUTPUT)/direct-window-$$opt.o \
+			-o $(OUTPUT)/direct-window-$$opt; \
+		$(OUTPUT)/direct-window-$$opt; \
+	done
+
+# The fixture uses addresses that cannot be dereferenced on the host. The
+# uninstrumented runtime translates these tokens to its private backing array.
+all-access-post-scalar:
+	@mkdir -p $(OUTPUT)
+	@set -eu; for opt in 0 1 2 3 s; do \
+		$(CC) -O$$opt -ffunction-sections -fdata-sections \
+			-fplugin=$(PLUGIN) \
+			-fplugin-arg-swmmu_plugin-all-access=1 \
+			-fplugin-arg-swmmu_plugin-post-scalar=1 \
+			-c $(TEST_DIR)/swmmu_post_scalar.c \
+			-o $(OUTPUT)/post-scalar-$$opt.o; \
+		$(CC) -O2 -Wl,--gc-sections \
+			$(TEST_DIR)/swmmu_post_scalar_runtime.c \
+			$(OUTPUT)/post-scalar-$$opt.o \
+			-o $(OUTPUT)/post-scalar-$$opt; \
+		$(OUTPUT)/post-scalar-$$opt; \
+	done
 .PHONY: $(filter test-negative%,$(MAKECMDGOALS))
 
 define check_swmmu_asm
@@ -251,6 +309,19 @@ $(ALL_ACCESS_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
 		-o $(ALL_ACCESS_ASM)
 
 all-access: $(ALL_ACCESS_ASM)
+	@set -eu; \
+	for fn in swmmu_all_access_native_load swmmu_all_access_native_store \
+		swmmu_all_access_native_alias_load; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$(ALL_ACCESS_ASM)"); \
+		test -n "$$body" || { echo "error: $$fn not found"; exit 1; }; \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_' && { \
+			echo "error: $$fn native contract used a helper"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn honors the explicit native-pointer contract"; \
+	done
 	@grep -A8 'swmmu_all_access_load:' $(ALL_ACCESS_ASM) \
 		| grep -q 'nommu_swmmu_load_dynamic' || \
 		{ echo "error: all-access load was not lowered"; exit 1; }
@@ -313,7 +384,142 @@ all-access: $(ALL_ACCESS_ASM)
 	$(call check_swmmu_asm,swmmu_const_hack_asm_store,nommu_swmmu_store_dynamic,const-hack asm store was not lowered)
 	$(call check_swmmu_asm,swmmu_set_global_pointer,nommu_swmmu_store_dynamic,global pointer initialization was not lowered)
 	$(call check_swmmu_asm,swmmu_load_global_pointer_value,nommu_swmmu_load_dynamic,global pointer dereference was not lowered)
+	@grep -A10 'swmmu_all_access_explicit_swmmu_load:' $(ALL_ACCESS_ASM) \
+		| grep -q 'nommu_swmmu_load_dynamic' || \
+		{ echo "error: explicit SWMMU pointer did not use a helper"; exit 1; }
+	@grep -A24 'swmmu_all_access_native_mixed_phi:' $(ALL_ACCESS_ASM) \
+		| grep -q 'nommu_swmmu_load_dynamic' || \
+		{ echo "error: mixed native/unknown phi bypassed the helper"; exit 1; }
+	@awk '/^swmmu_all_access_native_field_load:/{in_fn=1} \
+		in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]+swmmu_all_access_native_field_load,/{exit} \
+		in_fn{print}' $(ALL_ACCESS_ASM) > $(OUTPUT)/native-field.s
+	@test "$$(grep -c 'nommu_swmmu_load_dynamic' $(OUTPUT)/native-field.s)" -eq 1 || \
+		{ echo "error: native field load did not retain exactly one helper"; exit 1; }
+	@grep -Eq 'mov[qwl][[:space:]]+\([^)]*\),[[:space:]]*%[a-z0-9]+' \
+		$(OUTPUT)/native-field.s || \
+		{ echo "error: native field pointee was not loaded directly"; exit 1; }
+	@echo "ok: SWMMU field fetch uses a helper and native pointee load is direct"
 	@echo "ok: SWMMU all-access baseline lowering"
+
+$(ALL_ACCESS_NATIVE_STACK_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-stack=1 \
+		-S -c $(ALL_ACCESS_SOURCE) \
+		-o $(ALL_ACCESS_NATIVE_STACK_ASM)
+
+all-access-native-stack: $(ALL_ACCESS_NATIVE_STACK_ASM)
+	@set -eu; \
+	for fn in swmmu_all_access_native_stack_record \
+		swmmu_all_access_native_stack_array; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$(ALL_ACCESS_NATIVE_STACK_ASM)"); \
+		test -n "$$body" || { echo "error: $$fn not found"; exit 1; }; \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_' && { \
+			echo "error: $$fn used a helper"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn uses native automatic storage"; \
+	done
+	@grep -A10 'swmmu_all_access_load:' $(ALL_ACCESS_NATIVE_STACK_ASM) \
+		| grep -q 'nommu_swmmu_load_dynamic' || \
+		{ echo "error: pointer load bypassed the helper"; exit 1; }
+	@echo "ok: native-stack preserves helper fallback for pointers"
+
+$(OUTPUT)/swmmu_all_access_native_allocator_results.s: $(TEST_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-allocator-results=1 \
+		-fplugin-arg-swmmu_plugin-native-allocator-function=cpython_native_allocator \
+		-fplugin-arg-swmmu_plugin-native-reallocator-function=cpython_native_reallocator \
+		-S -c $(TEST_SOURCE) -o $@
+
+all-access-native-allocator-results: $(OUTPUT)/swmmu_all_access_native_allocator_results.s
+	@set -eu; \
+	for fn in load_from_malloc store_to_malloc load_from_calloc load_from_realloc \
+		load_from_contract_malloc load_from_contract_malloc_alias \
+		store_to_contract_malloc load_from_cpython_native_allocator \
+		load_from_cpython_native_reallocator; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$<"); \
+		test -n "$$body" || { echo "error: $$fn not found"; exit 1; }; \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_' && { \
+			echo "error: $$fn did not use native allocator provenance"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn uses native allocator provenance"; \
+	done; \
+	for fn in dynamic_or_ordinary_load load_from_realloc_swmmu load_from_realloc_ordinary \
+		load_from_cpython_native_reallocator_unknown; do \
+		body=$$(awk -v fn="$$fn" ' \
+			$$0 == fn ":" { in_fn = 1; next } \
+			in_fn && $$0 ~ /^[[:space:]]*\.size[[:space:]]/ { exit } \
+			in_fn { print }' "$<"); \
+		printf '%s\n' "$$body" | grep -q 'nommu_swmmu_load_dynamic' || { \
+			echo "error: $$fn lost its dynamic helper fallback"; \
+			printf '%s\n' "$$body"; exit 1; }; \
+		echo "ok: $$fn retains dynamic helper fallback"; \
+	done
+
+$(OUTPUT)/swmmu_all_access_native_source_file.s: $(ALL_ACCESS_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-source-file=swmmu_all_access.c \
+		-S -c $(ALL_ACCESS_SOURCE) -o $@
+
+all-access-native-source-file: $(OUTPUT)/swmmu_all_access_native_source_file.s
+	@if grep -qE '(call|jmp)[[:space:]].*nommu_swmmu_' "$<"; then \
+		echo "error: native source file still calls SWMMU runtime"; \
+		exit 1; \
+	fi
+	@echo "ok: native source file bypasses SWMMU lowering"
+
+$(OUTPUT)/swmmu_all_access_native_range_guard.s: $(ALL_ACCESS_SOURCE) $(PLUGIN) \
+		$(TEST_DIR)/swmmu_native_range_guard.h
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-builtin \
+		-DSWMMU_NATIVE_VA_BASE=0x1000000000ULL \
+		-include $(TEST_DIR)/swmmu_native_range_guard.h \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-native-range-guard=1 \
+		-S -c $(ALL_ACCESS_SOURCE) -o $@
+
+all-access-native-range-guard: $(OUTPUT)/swmmu_all_access_native_range_guard.s
+	@if grep -qE '(call|jmp)[[:space:]].*dynamic_guarded' "$<"; then \
+		echo "error: native range guard was not inlined"; exit 1; \
+	fi
+	@grep -q 'nommu_swmmu_load_dynamic' "$<" || \
+		{ echo "error: native range load lost helper fallback"; exit 1; }
+	@grep -q 'nommu_swmmu_store_dynamic' "$<" || \
+		{ echo "error: native range store lost helper fallback"; exit 1; }
+	@echo "ok: native range guard is inline with dynamic helper fallback"
+
+$(ALL_ACCESS_RETURN_ASM): $(ALL_ACCESS_SOURCE) $(PLUGIN)
+	@mkdir -p $(OUTPUT)
+	$(CC) $(CFLAGS) -fno-inline -fno-builtin \
+		-fplugin=$(PLUGIN) \
+		-fplugin-arg-swmmu_plugin-all-access=1 \
+		-fplugin-arg-swmmu_plugin-return-value-load=1 \
+		-S -c $(ALL_ACCESS_SOURCE) \
+		-o $(ALL_ACCESS_RETURN_ASM)
+
+all-access-return-value: $(ALL_ACCESS_RETURN_ASM)
+	@grep -A8 'swmmu_all_access_load:' $(ALL_ACCESS_RETURN_ASM) \
+		| grep -q 'nommu_swmmu_load_return_value' || \
+		{ echo "error: all-access load did not use return-value helper"; exit 1; }
+	@grep -A8 'swmmu_all_access_store:' $(ALL_ACCESS_RETURN_ASM) \
+		| grep -q 'nommu_swmmu_store_dynamic' || \
+		{ echo "error: return-value mode changed store lowering"; exit 1; }
+	@echo "ok: return-value mode uses scalar-load helper and preserves store helper"
 
 ALL_ACCESS_BUILTIN_ASM := \
 	$(OUTPUT)/swmmu_all_access_builtin.s
