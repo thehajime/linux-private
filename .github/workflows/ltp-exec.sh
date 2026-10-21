@@ -11,7 +11,8 @@ mount -t tmpfs tmpfs /tmp
 # Capture guest process mappings before Kirk starts Python. A host-side monitor
 # cannot see UML guest task mappings; write snapshots through hostfs so they
 # remain available after the guest panics.
-if [ "${LTP_TESTNAME:-}" = um-nommu-sas-zpoline ]; then
+if [ "${LTP_TESTNAME:-}" = um-nommu-sas-zpoline ] &&
+	[ "${SAS_CAPTURE_PYTHON_MAPS:-false}" = true ]; then
 	/bin/sh /github/workspace/.github/workflows/capture-uml-python-maps.sh \
 		>/github/workspace/output/ltp/uml-python-debug/guest-monitor.log 2>&1 &
 fi

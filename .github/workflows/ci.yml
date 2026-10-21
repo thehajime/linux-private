@@ -33,6 +33,11 @@ on:
         required: false
         type: boolean
         default: false
+      sas_fault_diagnostics:
+        description: 'Continuously capture SAS zpoline Python mappings (slow)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   LMBENCH_REF: ${{ inputs.lmbench_ref || 'codex/lmbench-process-method' }}
@@ -1409,7 +1414,7 @@ jobs:
           fi
           docker start ltp-test
       - name: Monitor UML host process mappings
-        if: ${{ matrix.testname == 'um-nommu-sas-zpoline' }}
+        if: ${{ matrix.testname == 'um-nommu-sas-zpoline' && inputs.sas_fault_diagnostics }}
         run: |
           mkdir -p output/ltp/uml-python-debug
           docker exec -d \
@@ -1424,6 +1429,7 @@ jobs:
           LTP_FULL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           LTP_TIMEOUT_MUL: 10
           LTP_INSTALL_PREEXTRACTED: 1
+          SAS_CAPTURE_PYTHON_MAPS: ${{ inputs.sas_fault_diagnostics || false }}
         run: |
           set -euo pipefail
           case "$LTP_TESTNAME" in
@@ -1432,7 +1438,7 @@ jobs:
               docker exec -t \
                 -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_TIMEOUT_MUL \
-                -e LTP_INSTALL_PREEXTRACTED ltp-test \
+                -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS ltp-test \
                 /tmp/busybox-host sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
                 | tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
               test -s "output/ltp/ltp-result-${LTP_TESTNAME}.html"
@@ -1448,7 +1454,7 @@ jobs:
               ;;
           esac
       - name: Collect UML Python mappings and exact ELF files
-        if: ${{ always() && matrix.testname == 'um-nommu-sas-zpoline' }}
+        if: ${{ always() && matrix.testname == 'um-nommu-sas-zpoline' && inputs.sas_fault_diagnostics }}
         run: |
           set +e
           diag=output/ltp/uml-python-debug
@@ -1499,7 +1505,7 @@ jobs:
             readelf -l "$elf" >> "$diag/elf-metadata.txt" 2>&1
           done
       - name: Upload SAS Python fault diagnostics
-        if: ${{ always() && matrix.testname == 'um-nommu-sas-zpoline' }}
+        if: ${{ always() && matrix.testname == 'um-nommu-sas-zpoline' && inputs.sas_fault_diagnostics }}
         uses: actions/upload-artifact@v4
         with:
           name: sas-python-fault-debug
