@@ -1810,7 +1810,7 @@ jobs:
               "iperf3.png": "iperf3 forward and reverse goodput by UML profile, in Gbit/s.",
               "tcp-stream.png": "netperf TCP_STREAM (positive) and TCP_MAERTS (negative) goodput by payload size. Both directions for a profile share the same x coordinate and legend entry. The vertical range is symmetric and includes native values when available.",
               "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU and plain NOMMU-seccomp compare a single-CPU CONFIG_SMP=n baseline against four CPUs on a separate CONFIG_SMP=y kernel. NOMMU SAS remains CONFIG_SMP=n.",
-              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU and plain NOMMU-seccomp compare a single-CPU CONFIG_SMP=n baseline against four CPUs on a separate CONFIG_SMP=y kernel. NOMMU SAS remains CONFIG_SMP=n.",
+              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU worker=4 legs are skipped because fork is unavailable, so its CPU4 comparison appears only in the worker=1 chart. NOMMU SAS remains CONFIG_SMP=n.",
           }
           for filename, description in descriptions.items():
               marker = f"<!-- report-chart:{filename} -->"
