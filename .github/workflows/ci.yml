@@ -1412,7 +1412,9 @@ jobs:
         if: ${{ matrix.testname == 'um-nommu-sas-zpoline' }}
         run: |
           mkdir -p output/ltp/uml-python-debug
-          docker exec -d ltp-test /bin/sh \
+          docker exec -d \
+            -e PATH=/tmp/busybox-host-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            ltp-test /tmp/busybox-host sh \
             /github/workspace/.github/workflows/capture-uml-python-maps.sh host
       - name: Extract test programs and run LTP
         env:
@@ -1466,7 +1468,8 @@ jobs:
           fi
           for path in /usr/bin/python3.14 /usr/lib/libpython3.14.so.1.0 \
                       /lib/ld-musl-x86_64.so.1; do
-            source=$(docker exec ltp-test readlink -f "$path" 2>> "$diag/collection.log")
+            source=$(docker exec ltp-test /tmp/busybox-host readlink -f "$path" \
+              2>> "$diag/collection.log")
             [ -n "$source" ] || continue
             name=$(basename "$path")
             if ! docker cp "ltp-test:$source" "$diag/elf/$name" \
