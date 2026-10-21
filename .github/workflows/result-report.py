@@ -407,7 +407,8 @@ def collect_kselftest(root):
     artifact_roots = sorted((root / "kselftest-artifacts").glob("swmmu-kselftest-*"))
     if not artifact_roots:
         artifact_roots = [candidate for candidate in
-                          (root / "kselftest-artifact", root / "kselftest")
+                          (root / "kselftest-artifacts",
+                           root / "kselftest-artifact", root / "kselftest")
                           if candidate.exists()]
     tap_paths = sorted(path for artifact_root in artifact_roots
                        for path in artifact_root.rglob("*.tap"))
