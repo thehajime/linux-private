@@ -353,9 +353,22 @@ jobs:
             *) echo "gcc is not routed through the ccache wrapper" >&2; exit 1 ;;
           esac
           ccache --zero-stats
+      - name: Prepare pinned Alpine apk.static from the official CDN
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/apk-tools-static.apk"
+          install_dir="$RUNNER_TEMP/alpine-apk"
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/apk-tools-static-2.14.12-r0.apk \
+            --output "$package"
+          echo 'f44523ae4ded143b3d85e16be4bf7ff386fc052406c3b22f87f045efb0aa4305  '"$package" | sha256sum --check
+          mkdir -p "$install_dir"
+          tar -xzf "$package" -C "$install_dir" sbin/apk.static
+          chmod 0755 "$install_dir/sbin/apk.static"
       - name: Setup latest Alpine Linux
         uses: jirutka/setup-alpine@v1
         with:
+           apk-tools-url: file://${{ runner.temp }}/alpine-apk/sbin/apk.static#!sha256!034d28bbf3d97d90fd76e572ab8ae74a038da0e7593e9d412eabccf69ccd3553
            branch: edge
            packages: >
              alpine-sdk
@@ -766,9 +779,22 @@ jobs:
         with:
           name: aports-nommu-apks
           path: ${{ github.workspace }}/.swmmu-nginx/aport-artifacts
+      - name: Prepare pinned Alpine apk.static from the official CDN
+        run: |
+          set -euo pipefail
+          package="$RUNNER_TEMP/apk-tools-static.apk"
+          install_dir="$RUNNER_TEMP/alpine-apk"
+          curl --fail --location --retry 3 --retry-all-errors \
+            https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/apk-tools-static-2.14.12-r0.apk \
+            --output "$package"
+          echo 'f44523ae4ded143b3d85e16be4bf7ff386fc052406c3b22f87f045efb0aa4305  '"$package" | sha256sum --check
+          mkdir -p "$install_dir"
+          tar -xzf "$package" -C "$install_dir" sbin/apk.static
+          chmod 0755 "$install_dir/sbin/apk.static"
       - name: Set up minimal Alpine rootfs tooling
         uses: jirutka/setup-alpine@v1
         with:
+          apk-tools-url: file://${{ runner.temp }}/alpine-apk/sbin/apk.static#!sha256!034d28bbf3d97d90fd76e572ab8ae74a038da0e7593e9d412eabccf69ccd3553
           branch: edge
           packages: >
             bash
