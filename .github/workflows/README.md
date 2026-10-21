@@ -75,7 +75,9 @@ supported UML profile runs worker counts 1/4 and wrk connections 4/16/64 from
 a separate client container. The native baseline measures the same matrix on
 the runner and records its available CPU count. MMU
 profiles cross one and four online CPUs with both worker counts and all client
-connection counts; NOMMU profiles currently run one CPU. The top-level matrix
+connection counts. Plain NOMMU and plain NOMMU-seccomp now compare a one-CPU
+baseline with a four-CPU `CONFIG_SMP=y` kernel; NOMMU SAS remains single CPU
+because UML's NOMMU SAS configuration disables SMP. The top-level matrix
 calls the reusable workflow per leg so GitHub can group the legs at the caller.
 The run records the online CPU list. Each leg
 uploads raw logs and `measurement.json`; `bench-result` aggregates profile

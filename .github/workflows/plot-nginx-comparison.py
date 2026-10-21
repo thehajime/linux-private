@@ -48,10 +48,10 @@ def load_measurements(source):
 def series_for(worker, statuses, host_cpu_counts):
     series = []
     for profile, label, color in PROFILES:
-        smp = "SMP=y" if profile.startswith("um-mmu") else "SMP=n"
         cpu_counts = sorted({key[1] for key in statuses
                              if key[0] == profile and key[2] == worker})
         for cpus in cpu_counts:
+            smp = "SMP=y" if profile.startswith("um-mmu") or cpus > 1 else "SMP=n"
             if profile == "native":
                 host_cpus = host_cpu_counts.get(profile, "unknown")
                 legend = f"native [host: {host_cpus} CPUs]"
@@ -150,9 +150,10 @@ def main():
             "Separate charts compare workers=1 and workers=4. The x-axis is client "
             "connections. MMU profiles use CONFIG_SMP=y; um-mmu uses one online "
             "CPU, while um-mmu-seccomp compares one and four CPUs (solid versus "
-            "patterned fill). NOMMU profiles use CONFIG_SMP=n and currently show "
-            "one CPU. Add their four-CPU matrix entries when NOMMU SMP is "
-            "supported. Native is measured on the runner and its host CPU count "
+            "patterned fill). Plain NOMMU and plain NOMMU-seccomp compare the "
+            "single-CPU baseline with a separately built CONFIG_SMP=y four-CPU "
+            "kernel. NOMMU SAS profiles remain CONFIG_SMP=n because the kernel "
+            "configuration does not support SMP for UML_NOMMU_SAS. Native is measured on the runner and its host CPU count "
             "is recorded in the legend. "
             "Profile colors are consistent between both charts.\n"
         )

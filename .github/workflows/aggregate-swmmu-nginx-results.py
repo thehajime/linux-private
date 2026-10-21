@@ -22,8 +22,8 @@ CPU_COUNTS = {
     "native": (1,),
     "um-mmu": (1,),
     "um-mmu-seccomp": (1, 4),
-    "um-nommu": (1,),
-    "um-nommu-seccomp": (1,),
+    "um-nommu": (1, 4),
+    "um-nommu-seccomp": (1, 4),
     "um-nommu-sas-seccomp": (1,),
     "um-nommu-sas-zpoline": (1,),
 }
