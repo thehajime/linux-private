@@ -22,7 +22,7 @@ on:
         description: 'Pinned master/edge aports source commit used by the temporary NOMMU APK release'
         required: false
         type: string
-        default: 1879b74ea2b540f5951fd3a2125bcf424b170a46
+        default: a3816eafb3eeb8e1e673d9f43cde169bd684c5a1
       ltp_ref:
         description: 'Branch, tag, or commit in thehajime/ltp to build and test'
         required: false
@@ -58,7 +58,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           KERNEL_REF: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
-          APORTS_REF: ${{ inputs.aports_ref || '1879b74ea2b540f5951fd3a2125bcf424b170a46' }}
+          APORTS_REF: ${{ inputs.aports_ref || 'a3816eafb3eeb8e1e673d9f43cde169bd684c5a1' }}
         run: |
           set -euo pipefail
           kernel_sha=$(gh api repos/thehajime/linux-private/commits \
