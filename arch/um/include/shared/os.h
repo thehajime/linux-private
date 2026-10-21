@@ -218,6 +218,7 @@ extern int os_map_memory_file(void *virt, int fd, unsigned long long off,
 extern int os_protect_memory(void *addr, unsigned long len,
 			     int r, int w, int x);
 extern int os_unmap_memory(void *addr, int len);
+extern int os_reserve_memory(void *addr, unsigned long len, int replace);
 extern int os_drop_memory(void *addr, int length);
 extern int can_drop_memory(void);
 extern int os_arch_prctl(int pid, int option, unsigned long *arg);
@@ -287,6 +288,7 @@ extern void os_idle_sleep(void);
 extern int os_timer_create(void);
 extern int os_timer_set_interval(int cpu, unsigned long long nsecs);
 extern int os_timer_one_shot(int cpu, unsigned long long nsecs);
+extern int os_timer_get_overrun(int cpu);
 extern void os_timer_disable(int cpu);
 extern long long os_persistent_clock_emulation(void);
 extern long long os_nsecs(void);

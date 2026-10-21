@@ -63,12 +63,15 @@ ENTRY(__kernel_vsyscall)
 	PUSH_AND_CLEAR_REGS rax=$-ENOSYS
 
 	mov %rsp, %rdi
+	mov %rdi, %r12
 
 	/*
 	 * Switch to current top of stack, so "current->" points
 	 * to the right task.
 	 */
 	movq	current_top_of_stack, %rsp
+	call	um_syscall_enter
+	mov %r12, %rdi
 
 	call	do_syscall_64
 

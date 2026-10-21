@@ -4,6 +4,8 @@
  */
 
 #include <linux/mm.h>
+#include <linux/mman.h>
+#include <linux/nommu_swmmu.h>
 #include <linux/sched/signal.h>
 #include <linux/hardirq.h>
 #include <linux/module.h>
@@ -64,7 +66,7 @@ static bool nommu_user_ip(unsigned long ip)
 	if (ip > uml_reserved && ip < high_physmem)
 		return true;
 #ifdef CONFIG_NOMMU_SWMMU
-	if (um_nommu_swmmu_address(ip) && ip < TASK_SIZE)
+	if (um_nommu_swmmu_address(ip) && ip < um_nommu_swmmu_user_end)
 		return true;
 #endif
 	return false;
@@ -108,7 +110,13 @@ void segv_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs,
 #endif
 		return;
 	}
-	segv(*fi, UPT_IP(regs), UPT_IS_USER(regs), regs, mc);
+	if (segv(*fi, UPT_IP(regs), UPT_IS_USER(regs), regs, mc) > 0) {
+#ifdef CONFIG_UML_NOMMU_SAS
+		/* Retry a repaired alias through the normal userspace entry path. */
+		nommu_relay_signal(mc);
+#endif
+		return;
+	}
 
 #ifdef CONFIG_UML_NOMMU_SAS
 	/* NOMMU must relay the fault through its userspace signal trampoline. */
@@ -127,6 +135,7 @@ unsigned long segv(struct faultinfo fi, unsigned long ip, int is_user,
 {
 	int si_code;
 	int err;
+	bool alias_recovered = false;
 	int is_write = FAULT_WRITE(fi);
 	unsigned long address = FAULT_ADDRESS(fi);
 
@@ -169,6 +178,31 @@ unsigned long segv(struct faultinfo fi, unsigned long ip, int is_user,
 		       address, ip);
 	}
 
+#ifdef CONFIG_NOMMU_SWMMU
+	/* Retry a user instruction after restoring a displaced host alias. */
+	if (is_user) {
+		unsigned int access = fi.error_code & 0x10 ? PROT_EXEC :
+			(is_write ? PROT_WRITE : PROT_READ);
+
+		err = nommu_swmmu_recover_alias_fault(current->mm,
+						 address, access);
+		if (err > 0) {
+			alias_recovered = true;
+			goto out;
+		}
+
+		/* Invalid CR2 can result from executing a displaced code alias. */
+		if (ip != address) {
+			err = nommu_swmmu_recover_alias_fault(current->mm, ip,
+							     PROT_EXEC);
+			if (err > 0) {
+				alias_recovered = true;
+				goto out;
+			}
+		}
+	}
+#endif
+
 	if (SEGV_IS_FIXABLE(&fi))
 		err = handle_page_fault(address, ip, is_write, is_user,
 					&si_code);
@@ -208,7 +242,7 @@ out:
 	if (regs)
 		current->thread.segv_regs = NULL;
 
-	return 0;
+	return alias_recovered;
 }
 
 void relay_signal(int sig, struct siginfo *si, struct uml_pt_regs *regs,
@@ -229,6 +263,18 @@ void relay_signal(int sig, struct siginfo *si, struct uml_pt_regs *regs,
 			       "mount likely just ran out of space\n");
 		panic("Kernel mode signal %d", sig);
 	}
+
+#ifdef CONFIG_NOMMU_SWMMU
+	/* Retry SIGILL if a displaced code alias has just been restored. */
+	if (sig == SIGILL &&
+	    nommu_swmmu_recover_alias_fault(current->mm, UPT_IP(regs),
+					    PROT_EXEC) > 0) {
+#ifdef CONFIG_UML_NOMMU_SAS
+		nommu_relay_signal(mc);
+#endif
+		return;
+	}
+#endif
 
 	/* if is_user==1, set return to userspace sig handler to relay signal */
 #ifdef CONFIG_UML_NOMMU_SAS

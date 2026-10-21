@@ -9,6 +9,7 @@
 
 #include <asm/elf.h>
 #include <linux/unaligned.h>
+#include <nommu-swmmu.h>
 #include <sysdep/faultinfo.h>
 
 #define __under_task_size(addr, size) \
@@ -35,37 +36,15 @@ static inline int __access_ok(const void __user *ptr, unsigned long size)
 	unsigned long addr = (unsigned long)ptr;
 	return __addr_range_nowrap(addr, size) && __under_task_size(addr, size);
 }
-
-#define __get_kernel_nofault(dst, src, type, err_label)			\
-do {									\
-	int __faulted;							\
-									\
-	___backtrack_faulted(__faulted);				\
-	if (__faulted) {						\
-		*((type *)dst) = (type) 0;				\
-		goto err_label;						\
-	}								\
-	*((type *)dst) = get_unaligned((type *)(src));			\
-	barrier();							\
-	current->thread.segv_continue = NULL;				\
-} while (0)
-
-#define __put_kernel_nofault(dst, src, type, err_label)			\
-do {									\
-	int __faulted;							\
-									\
-	___backtrack_faulted(__faulted);				\
-	if (__faulted)							\
-		goto err_label;						\
-	put_unaligned(*((type *)src), (type *)(dst));			\
-	barrier();							\
-	current->thread.segv_continue = NULL;				\
-} while (0)
 #endif
 
 #ifdef CONFIG_NOMMU_SWMMU
 
-#define UM_NOMMU_SWMMU_VA_BASE	0x1000000000ULL
+static inline bool
+um_nommu_swmmu_address(unsigned long address)
+{
+	return address >= UM_NOMMU_SWMMU_VA_BASE;
+}
 
 extern int nommu_swmmu_copy_to_user(void __user *address,
 				    const void *source,
@@ -74,12 +53,7 @@ extern int nommu_swmmu_copy_to_user(void __user *address,
 extern int nommu_swmmu_copy_from_user(void *destination,
 				      const void __user *address,
 				      size_t size);
-
-static inline bool
-um_nommu_swmmu_address(unsigned long address)
-{
-	return address >= UM_NOMMU_SWMMU_VA_BASE;
-}
+extern bool nommu_swmmu_usercopy_requires_translation(unsigned long address);
 
 static inline __must_check unsigned long
 raw_copy_to_user(void __user *to,
@@ -88,7 +62,7 @@ raw_copy_to_user(void __user *to,
 {
 	int ret;
 
-	if (!um_nommu_swmmu_address((unsigned long)to)) {
+	if (!nommu_swmmu_usercopy_requires_translation((unsigned long)to)) {
 		memcpy((void __force *)to, from, n);
 		return 0;
 	}
@@ -108,7 +82,7 @@ raw_copy_from_user(void *to,
 {
 	int ret;
 
-	if (!um_nommu_swmmu_address((unsigned long)from)) {
+	if (!nommu_swmmu_usercopy_requires_translation((unsigned long)from)) {
 		memcpy(to, (const void __force *)from, n);
 		return 0;
 	}
@@ -156,5 +130,37 @@ um_nommu_swmmu_clear_user(void __user *to, unsigned long n)
 #endif /* CONFIG_NOMMU_SWMMU */
 
 #include <asm-generic/uaccess.h>
+
+/*
+ * Keep UML's fault-recovery nofault accessors available without MMU too.
+ * Override the asm-generic direct-dereference fallback after including it.
+ */
+#undef __get_kernel_nofault
+#define __get_kernel_nofault(dst, src, type, err_label)			\
+do {									\
+	int __faulted;							\
+									\
+	___backtrack_faulted(__faulted);				\
+	if (__faulted) {						\
+		*((type *)dst) = (type) 0;				\
+		goto err_label;						\
+	}								\
+	*((type *)dst) = get_unaligned((type *)(src));			\
+	barrier();							\
+	current->thread.segv_continue = NULL;				\
+} while (0)
+
+#undef __put_kernel_nofault
+#define __put_kernel_nofault(dst, src, type, err_label)			\
+do {									\
+	int __faulted;							\
+									\
+	___backtrack_faulted(__faulted);				\
+	if (__faulted)							\
+		goto err_label;						\
+	put_unaligned(*((type *)src), (type *)(dst));			\
+	barrier();							\
+	current->thread.segv_continue = NULL;				\
+} while (0)
 
 #endif

@@ -17,6 +17,7 @@ __visible void do_syscall_64(struct pt_regs *regs)
 
 	syscall = PT_SYSCALL_NR(regs->regs.gp);
 	UPT_SYSCALL_NR(&regs->regs) = syscall;
+	PT_REGS_SET_SYSCALL_RETURN(regs, -ENOSYS);
 
 	/* set fs register to the original host one */
 	os_x86_arch_prctl(0, ARCH_SET_FS, (void *)host_fs);
@@ -26,7 +27,7 @@ __visible void do_syscall_64(struct pt_regs *regs)
 
 	if (!seccomp_permit_syscall())
 		return;
-	if (likely(syscall < NR_syscalls)) {
+	if (likely(syscall >= 0 && syscall < NR_syscalls)) {
 		unsigned long ret;
 
 		ret = (*sys_call_table[syscall])(UPT_SYSCALL_ARG1(&regs->regs),

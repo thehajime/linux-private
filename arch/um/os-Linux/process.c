@@ -142,6 +142,23 @@ int os_unmap_memory(void *addr, int len)
 	return 0;
 }
 
+int os_reserve_memory(void *addr, unsigned long len, int replace)
+{
+	void *mapped;
+	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+
+	flags |= replace ? MAP_FIXED : MAP_FIXED_NOREPLACE;
+	mapped = mmap(addr, len, PROT_NONE, flags, -1, 0);
+	if (mapped == MAP_FAILED)
+		return -errno;
+	/* Old hosts may ignore MAP_FIXED_NOREPLACE. Never accept relocation. */
+	if (mapped != addr) {
+		munmap(mapped, len);
+		return -EEXIST;
+	}
+	return 0;
+}
+
 #ifndef MADV_REMOVE
 #define MADV_REMOVE KERNEL_MADV_REMOVE
 #endif

@@ -7,6 +7,7 @@
 #define __START_H__
 
 #include <generated/asm-offsets.h>
+#include <nommu-swmmu.h>
 
 /*
  * Stolen from linux/const.h, which can't be directly included since
@@ -40,6 +41,11 @@ extern unsigned long long physmem_size;
 extern unsigned long high_physmem;
 extern unsigned long uml_physmem;
 extern unsigned long uml_reserved;
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_NOMMU_SWMMU)
+extern unsigned long um_nommu_swmmu_user_end;
+extern unsigned long um_nommu_swmmu_direct_start;
+extern unsigned long um_nommu_swmmu_direct_end;
+#endif
 extern unsigned long end_vm;
 extern unsigned long start_vm;
 
