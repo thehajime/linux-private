@@ -24,9 +24,10 @@ SWMMU checked accesses support sizes of 1, 2, 4, and 8 bytes. The complete
 access is validated before data is copied.
 
 A successful load returns zero and writes the loaded value to the result
-argument. A successful store returns zero.
+argument unless ``NOMMU_SWMMU_ACCESS_RETURN_VALUE`` is set. A successful
+store returns zero.
 
-The access syscall supports two modes:
+The access syscall supports these flags:
 
 ``NOMMU_SWMMU_ACCESS_CHECKED``
    Return an error to the caller without delivering a signal.
@@ -34,6 +35,22 @@ The access syscall supports two modes:
 ``NOMMU_SWMMU_ACCESS_SIGNAL``
    Convert SWMMU address and permission faults into synchronous ``SIGSEGV``
    delivery.
+
+``NOMMU_SWMMU_ACCESS_DYNAMIC``
+   Allow the access to target either an ordinary NOMMU mapping or an SWMMU
+   mapping. This mode validates VMA coverage and permissions for both.
+
+``NOMMU_SWMMU_ACCESS_RETURN_VALUE``
+   For loads, return the loaded 64-bit value directly from the syscall instead
+   of copying it to the result pointer. This flag requires
+   ``NOMMU_SWMMU_ACCESS_SIGNAL`` and a NULL result pointer. Access errors are
+   delivered as ``SIGSEGV`` so a successful load can return any 64-bit value,
+   including values in the syscall error range. Userspace must issue the
+   syscall directly and must not pass its raw result through libc's
+   ``syscall()`` errno conversion. The caller must pass a valid access size and
+   flags because malformed arguments still return an errno value. This ABI is
+   available only when ``long`` is 64 bits. Stores and compare-exchange reject
+   this flag.
 
 The checked-access error contract is:
 
@@ -102,11 +119,214 @@ For SAS mode, host aliases are active mappings for the currently running
 When the current task changes, the active host aliases must be replaced with
 the aliases belonging to the new ``mm_struct``.
 
+Per-VMA host-alias eligibility
+------------------------------
+
+An SWMMU VMA is eligible for a kernel direct alias copy only when its alias is
+currently mapped for the active ``mm_struct``, the alias starts at the VMA's
+virtual start, the range metadata covers the whole VMA, and the range
+permissions allow the requested read or write. The kernel holds the SWMMU
+space read lock while using that alias so an address-space switch cannot
+replace it during the copy. If any condition fails, the user-copy path uses
+the SWMMU pagetable translation path.
+
+In UML SAS mode, the host alias must not overlap UML's own host virtual memory
+range from ``uml_physmem`` through ``end_vm``, or reach the first host mapping
+recorded by the seccomp setup. The first range includes the UML executable
+image below ``start_vm`` and the physical-memory mapping above it. A SWMMU VMA
+that intersects a reserved range remains valid, but its host alias is left
+unmapped and accesses must use the SWMMU helper path. This prevents a
+fixed-address guest mapping from replacing UML kernel text, physical memory,
+or another host mapping in the UML process.
+
+This fallback is insufficient for a VMA converted from native memory during
+fork when userspace still executes ordinary instructions against it. The VMA
+keeps its virtual address, but compiler-generated stack frames, returns, and
+assembly can access the old native mapping without a helper. In a default-off
+mixed-VMA run, the alias guard refused the executable and stack VMAs. A forced
+shadow-stack-copy experiment also failed because its
+relocated stack had no VMA for SWMMU helper access. The current investigation
+narrowed the nested-fork failure: with
+``uml_physmem=0x60000000`` and ``end_vm=0x68800000``, the executable VMA
+``0x61420000-0x6143d000`` and stack VMA ``0x61740000-0x61780000`` both fell in
+the reserved alias interval. The native-fork path previously continued after
+the alias callback refused these ranges and published SWMMU metadata anyway.
+That left the original native host mappings in place and could expose shared
+stack contents across a later fork. The path now rejects the fork with
+``-EOPNOTSUPP`` before publishing any replacement VMA when a required native
+alias is refused; earlier prepared ranges are rolled back. This is a
+fail-closed correctness measure, not support for fork in this layout.
+Supporting mixed native/SWMMU fork here requires a coherent directly
+accessible stack and native view across fork, or a different address-space
+layout that keeps user mappings outside the reserved host interval.
+
+This is an internal kernel user-copy path. It does not remove
+compiler-generated load/store helper calls from userspace. A userspace runtime
+fast path would also need a way to discover per-VMA eligible ranges and keep
+that information current across ``mmap()``, ``mprotect()``, ``munmap()``,
+``mremap()``, and address-space switches; the current kernel exposes no such
+ABI. KUnit coverage checks the eligibility predicate and its boundaries.
+
+Reserved direct alias window (experimental)
+-------------------------------------------
+
+On single-CPU x86_64 UML SAS, ``swmmu_direct=1`` requests an exclusively
+guest-owned host virtual-address reservation starting at the SWMMU VA base.
+It is capped at 1 TiB and at the first existing host mapping, and is refused
+if it would overlap UML's physical or virtual memory range. Reservation uses
+``MAP_FIXED_NOREPLACE`` and ``PROT_NONE``; failure leaves the optimization
+disabled. It reserves address space, without committing 1 TiB of memory.
+
+Every page in the reserved window is either a current guest host alias or an
+inaccessible guard. Removing an alias restores ``PROT_NONE`` with a fixed
+anonymous reservation instead of leaving a hole that an unrelated host mmap
+could reuse. Failure to restore this invariant is fatal. Address-space
+activation replaces aliases with the active mm's backing before userspace
+runs. Mapping permissions remain enforced by the host. Current private fork
+clones copy backing eagerly; any future lazy COW implementation must protect
+shared host pages before permitting direct stores. Native physical addresses
+outside the window retain their existing helper path. Alias teardown uses the
+optional host ``unmap_range`` callback to restore guards once per range;
+backends without it retain page-by-page teardown. A partial activation failure
+clears the complete affected range before retrying.
+
+The ``nommu_swmmu_load`` syscall accepts the standalone query flag
+``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` with a null address, a size of 16, and an
+output pointer to two ``u64`` values. It returns the immutable inclusive start
+and exclusive end, or ``-EOPNOTSUPP`` when the backend or boot configuration
+does not provide the reservation. Other combinations with this flag are
+invalid. This geometry remains valid across mapping changes and fork; the
+actual host mapping at an address supplies its current backing and permission.
+It is not a cache of mutable VMA permissions. Code must not infer eligibility
+for addresses outside the returned interval.
+
+The matching runtime can initialize zero bounds on its first fallback access
+and publish start followed by a release-store of end for its internal span
+checks. Its inline scalar guards can use a one-time published key describing
+an aligned power-of-two subset of that reservation; see ``swmmu-gcc-plugin.rst``
+for the encoding and initial sentinel value. The reference compiler header
+limits direct scalar accesses to one 4 KiB page and sizes 1, 2, 4 or 8;
+other operations keep their runtime fallback path. This optional
+backend optimization is separate from the unresolved default-off migration of
+native stacks without aliases.
+
+``tools/testing/selftests/nommu/nommu_swmmu_direct_test`` exercises the query,
+direct/helper backing agreement, repeated parent/child isolation, protection
+fault codes, inaccessible holes, fixed replacement, and mapping growth. Build
+it with the documented musl toolchain and run in a default-on guest with
+``swmmu_direct=1``. It intentionally executes direct instructions to test the
+backend contract, independently of compiler instrumentation. An unavailable
+query causes a skip.
+
+Explicit native-pointer compiler contract
+-----------------------------------------
+
+The SWMMU GCC plugin accepts the type attribute ``swmmu_native_ptr`` as an
+explicit assertion that a pointer always refers to memory directly accessible
+by ordinary userspace loads and stores. Under all-access instrumentation, a
+dereference through this pointer type is emitted as a native instruction;
+ordinary pointers and SWMMU pointers continue to use SWMMU helpers. Pointer
+aliases and pointer arithmetic preserve the assertion, while a control-flow
+merge with a pointer of a different state falls back to a helper. Loading a
+native pointer value from a SWMMU structure still reads that field through a
+helper and can use the native contract for the pointee; global pointer loads
+currently remain conservatively dynamic.
+
+For example, a userspace build can declare a trusted pointer type as:
+
+.. code-block:: c
+
+   typedef void * __attribute__((swmmu_native_ptr)) native_ptr;
+
+The attribute is a caller-supplied promise, not a check of the address or its
+VMA. Applying it to a pointer whose target can be an SWMMU mapping can bypass
+SWMMU translation and fault or corrupt memory. A valid contract must cover the
+target mapping's full lifetime, including allocator reuse, remapping, process
+fork behavior, and calls across library boundaries. The kernel currently has
+no userspace ABI to establish or maintain that native-VMA guarantee. A live
+Kirk map snapshot showed that all VMAs in the tested default-off profile were
+below the SWMMU range, but the default-on profile uses SWMMU mappings. This
+snapshot is evidence for a profile-specific experiment, not a general CPython
+or musl pointer contract.
+
+Experimental allocator-result provenance
+-----------------------------------------
+
+The all-access plugin has opt-in allocator provenance controls for a build
+whose runtime guarantees that selected allocator results always refer to
+ordinary native mappings:
+
+``-fplugin-arg-swmmu_plugin-native-allocator-results=1``
+   Treat results from ``malloc``, ``calloc``, ``realloc`` (only when its input
+   is already native), and declarations carrying ``swmmu_allocator_result`` as
+   native.
+
+``-fplugin-arg-swmmu_plugin-native-allocator-function=NAME``
+   Treat a call returning a pointer from the named function as native. Pass the
+   option once for each allocator function. This is intended for application
+   allocators such as CPython's ``PyObject_Malloc`` when the selected runtime
+   profile proves their returned arenas are native.
+
+``-fplugin-arg-swmmu_plugin-native-reallocator-function=NAME``
+   Treat a call to the named realloc function as native only when its input
+   pointer already has native provenance. This keeps unknown or SWMMU inputs
+   on the helper path.
+
+The plugin propagates this state through pointer aliases. A merge with an
+ordinary, SWMMU, or otherwise dynamic pointer keeps conservative helper
+lowering. These options are assertions made by the build profile; the compiler
+does not inspect mappings or check the allocator implementation. They are
+unsafe when an allocator can return an SWMMU mapping, including a default-on
+SWMMU heap, or when an allocator can be replaced with an implementation that
+returns a different mapping class. Validate the complete allocator family,
+including reallocations, custom hooks, mapping changes and fork behavior, for
+each runtime profile before use.
+
+The focused compiler check is:
+
+.. code-block:: sh
+
+   make -C scripts/gcc-plugins/tests \
+           PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           OUTPUT="$PWD/build-kselftest/plugin-tests" \
+           all-access-native-allocator-results
+
+This only checks generated code and conservative fallback paths. Guest tests
+must verify the allocator's actual mapping class and process behavior.
+
+Experimental native automatic-storage lowering
+----------------------------------------------
+
+The plugin option ``-fplugin-arg-swmmu_plugin-native-stack=1`` treats direct
+accesses to automatic local variables, and pointers derived from their
+addresses, as native while retaining all-access helper lowering for other
+pointers. This reflects the current UML SAS execution stack and removes helper
+calls for compiler-visible local scalar, array, and aggregate storage. GIMPLE
+lifetime ``CLOBBER`` markers are metadata and are left unchanged rather than
+lowered to an aggregate helper call.
+
+This option is experimental and must be measured on the target application.
+It does not prove that allocator results, Python objects, globals, TLS, escaped
+unknown pointers, or a VMA selected only from its address are native. Those
+accesses continue to use helpers. It also does not cover stack accesses added
+after GIMPLE lowering, including target stack-clash probes. Guest runtime tests
+must cover process creation and stack switching before enabling it as a general
+userspace profile.
+
+The focused compiler check is:
+
+.. code-block:: sh
+
+   make -C scripts/gcc-plugins/tests \
+           PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
+           OUTPUT="$PWD/build-kselftest/plugin-tests" \
+           all-access-native-stack
+
 Testing
 -------
 
 SWMMU UML testing uses the NOMMU selftests in
-``tools/testing/selftests/mm/nommu``. Build the kernel with the SAS and SWMMU
+``tools/testing/selftests/nommu``. Build the kernel with the SAS and SWMMU
 options enabled, then build the GCC plugin and install the tests into a
 separate output directory. The host compiler must have GCC plugin headers
 installed for its GCC version.
@@ -126,24 +346,30 @@ For example, configure the kernel output directory with:
            --enable BINFMT_ELF_FDPIC
    make ARCH=um O=build -j32
 
-Build the selftest plugin and install the selftests with:
+Build the selftest plugin with:
 
 .. code-block:: sh
 
-   make -C tools/testing/selftests/mm/nommu \
+   make -C tools/testing/selftests/nommu \
            SWMMU_BUILD_PLUGIN=1 SWMMU_HOSTCXX=g++ \
            SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
            swmmu-plugin
-   make ARCH=um NOMMU=1 O=build-kselftest \
-           SWMMU_ALL_ACCESS=1 \
-           SWMMU_PLUGIN="$PWD/build-kselftest/swmmu_plugin.so" \
-           TARGETS=mm/nommu kselftest-all kselftest-install
 
-The installed tests are under
-``build-kselftest/kselftest/kselftest_install``. Copy the installed tree into
-the test root filesystem used by the UML init script. Keep this output
-directory separate from the kernel build directory so each build can be
-cleaned independently.
+To compile all-access scalar loads to the direct-return helper, also pass
+``SWMMU_RETURN_VALUE_LOAD=1`` when building ``nommu_swmmu_test``. The plugin
+option is ``-fplugin-arg-swmmu_plugin-return-value-load=1``. The userspace
+runtime must provide ``nommu_swmmu_load_return_value`` and use a raw syscall
+instruction so data values in the errno range are preserved. This option
+changes scalar loads only; stores and bulk memory helpers retain their existing
+interfaces.
+
+The Codex Cloud setup, cross-build, rootfs staging, guest run, KUnit, kselftest,
+LTP, and GDB commands are documented together in
+``Documentation/mm/swmmu-kselftest-build.rst``.
+
+For the full compiler plugin option and attribute reference, including
+``all-access`` and experimental native-access options, see
+``Documentation/mm/swmmu-gcc-plugin.rst``.
 
 Run the resulting UML kernel with a root filesystem containing the installed
 tests. For example, when the root filesystem is at ``rootfs``:
