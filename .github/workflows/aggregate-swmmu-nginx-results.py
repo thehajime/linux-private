@@ -9,23 +9,17 @@ from pathlib import Path
 
 PROFILES = (
     "native",
-    "um-mmu",
     "um-mmu-seccomp",
-    "um-nommu",
     "um-nommu-seccomp",
     "um-nommu-sas-seccomp",
-    "um-nommu-sas-zpoline",
 )
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
 CPU_COUNTS = {
     "native": (1,),
-    "um-mmu": (1,),
     "um-mmu-seccomp": (1, 4),
-    "um-nommu": (1, 4),
     "um-nommu-seccomp": (1, 4),
     "um-nommu-sas-seccomp": (1,),
-    "um-nommu-sas-zpoline": (1,),
 }
 
 
