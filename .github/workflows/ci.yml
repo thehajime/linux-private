@@ -98,6 +98,11 @@ jobs:
                   all(.files[]; .filename == "arch/um/kernel/trap.c")
                 or
                   (
+                    (.files | length > 0 and length < 300) and
+                    all(.files[]; .filename | startswith("Documentation/"))
+                  )
+                or
+                  (
                     (.files | length == 4) and
                     all(.files[];
                       .status == "renamed" and
