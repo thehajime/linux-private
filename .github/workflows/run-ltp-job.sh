@@ -34,6 +34,14 @@ if [ "$LTP_TESTNAME" = um-nommu-sas-zpoline ]; then
 	mkdir -p output/ltp/uml-python-debug
 fi
 case "$LTP_TESTNAME" in
+	riscv-nommu)
+		# This pthread futex test reports TBROK under the uClibc NOMMU
+		# target and leaves Kirk's QEMU channel waiting for the next shell
+		# prompt.  An otherwise identical full run completes in about eight
+		# minutes when this unsupported case is omitted.
+		echo futex_wait03 >> /ltp-skip
+		echo "Skipping futex_wait03: RISC-V NOMMU pthread failure stalls the QEMU channel"
+		;;
 	um-nommu)
 		echo epoll_wait01 >> /ltp-skip
 		echo "Skipping known epoll_wait01 kernel panic for um-nommu"

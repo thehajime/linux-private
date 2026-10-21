@@ -115,7 +115,10 @@ programs once in the `build_ltp_riscv` prerequisite job. The QEMU test row
 downloads the resulting install-tree artifact, matching the build-once model
 used by the other LTP profiles. Update the image tag in `ci.yml` only after
 publishing and validating a replacement. The RISC-V comparison image can be
-refreshed less often than the main kernel CI.
+refreshed less often than the main kernel CI. Its uClibc NOMMU profile skips
+`futex_wait03`: the pthread test reports a broken result and leaves Kirk's
+QEMU channel waiting for the next shell prompt. The same full syscall suite
+completes and writes its report when that unsupported case is omitted.
 
 The native lmbench, getpid, iperf3, and netperf measurements run in the
 independent `checkpatch` job and are uploaded as `test-result-native`.
