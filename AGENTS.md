@@ -7,7 +7,8 @@ reproducible kselftest build instructions in
 
 ## Project status
 
-- **Current phase:** cleanup and validation before feature development.
+- **Current phase:** integrate the fully validated SWMMU/NOMMU series and
+  publish its complete signed userspace package set.
 - **Handoff and CI branch:** `ci/uml-nommu` (the default branch and the only
   branch on which this ledger is maintained).
 - **Implementation branch:** `feature-swmmu-nommu`; do not maintain a second,
@@ -16,13 +17,13 @@ reproducible kselftest build instructions in
   `CONFIG_NOMMU_SWMMU=y`, and `CONFIG_UML_NOMMU_SAS=y`.
 - **Correctness baseline:** SVM-style all-access instrumentation with raw
   pointers and runtime address translation.
-- **Userspace checkpoint:** instrumented Bash and a short lmbench smoke have
-  completed. Coreutils is the next package-profile target. Nginx has exploratory
-  CI smoke/benchmark coverage, but broader application validation and OpenSSL
-  testing have not started.
-- **Next validation task:** build a fresh kselftest tree using the documented
-  workflow, run both `zpoline=0` and `zpoline=1`, and record exact KUnit and
-  kselftest TAP totals.
+- **Userspace checkpoint:** instrumented musl, BusyBox, OpenSSL, Python,
+  coreutils, nginx, zlib and apk-tools package profiles have been built. The
+  exact-head gate in run `39561868757` completed 78 jobs with no job failures,
+  including all full LTP rows, six KUnit profiles and direct SWMMU kselftest.
+- **Next validation task:** publish the expanded signed archive containing
+  `zlib-nommu` and `apk-tools-nommu`, consume it in the protected-branch gate,
+  and verify Pages plus the issue #4 report.
 
 ## Whole milestones
 
@@ -57,7 +58,7 @@ reproducible kselftest build instructions in
   activating aliases under the same `mmap_lock`. Treat this as a promising
   lock-inversion fix; repeat it and complete the full LTP run before closing
   the issue.
-- [ ] Rerun the full loop-enabled SAS syscalls suite with this kernel. The
+- [x] Rerun the full loop-enabled SAS syscalls suite with this kernel. The
   previous full attempt never produced a final result; `accept4_01` faulted,
   `access02` failed, and the `add_key03` cleanup stall prevented completion.
   Compare against the archived plain-NOMMU result only after obtaining a
@@ -73,10 +74,12 @@ reproducible kselftest build instructions in
   build, boot, KUnit, JSON/HTML LTP report, and artifact upload. It was useful
   for proving that SAS and BASIC time travel can coexist, but is no longer the
   retained plain-SAS matrix profile.
-- [ ] Validate the replacement non-time-travel `um-nommu-plain-sas` row with
+- [x] Validate the replacement non-time-travel `um-nommu-plain-sas` row with
   the full syscall suite built with `NOMMU=1` and explicit `SWMMU=n`
   assertions. LTP's NOMMU compile guards and runtime `TCONF` results, rather
-  than a CI run-pattern subset, must handle tests unsupported without fork.
+  than a CI run-pattern subset, handle tests unsupported without fork. Run
+  `39561868757` completed all 1,434 records with an empty run pattern and
+  uploaded JSON and HTML.
 - [ ] `NOMMU_SWMMU` currently depends on `!MMU`; an `MMU=y` plus SWMMU build is
   not a supported matrix. If desired, test normal MMU fork/COW as a separate
   control and label it clearly; it cannot validate SWMMU behavior.
@@ -194,7 +197,17 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
-- [ ] Complete plain NOMMU CI validation. Runs `37711748667` and
+Current integration gate (2026-10-21): run `39561868757` completed 78 jobs
+with no job failures. All 11 LTP targets produced complete JSON/HTML reports;
+all six KUnit targets recorded 806 pass, 42 skip and 0 fail; direct SWMMU
+kselftest recorded 38 pass, 8 profile skips and 0 fail. The RISC-V NOMMU row
+completed 1,433 records after the unsupported pthread-based `futex_wait03`
+case was skipped only for that profile. Experimental branches use the
+`ci-report-preview` environment and create the complete report plus issue #4
+comment without attempting protected Pages deployment. The remaining delivery
+gate is the expanded apk-tools/zlib archive and the protected-branch run.
+
+- [x] Complete plain NOMMU CI validation. Runs `37711748667` and
   `37713808402` showed that test-0's `NOMMU_USERSPACE_READY` marker could print
   after `/bin/mkdir` failed to load shared libraries and `/dev/shm` and
   `/dev/pts` mounts failed; the prior readiness check was a false positive.
@@ -223,7 +236,7 @@ reproducible kselftest build instructions in
   pending there. Replace the UML-specific `cpu_tasks[0]->pid` diagnostic in
   `mm/nommu_swmmu.c` with an architecture-independent current-task PID lookup
   and verify the generic code compiles for RISC-V.
-- [ ] Re-run RISC-V LTP build after fixing the install archive path. Run
+- [x] Re-run RISC-V LTP build after fixing the install archive path. Run
   `37701275797` built and installed LTP successfully, then failed because the
   helper archived `/github/home/ltp-install` while the Buildroot container
   installed under `/root/ltp-install`. The archive now uses the actual install
@@ -231,7 +244,7 @@ reproducible kselftest build instructions in
 - [ ] Remove the temporary LTP skips for `ptrace06` on `um-mmu` and
   `perf_event_open03` on `um-nommu-seccomp` and `um-nommu-sas-seccomp` after
   their failure causes are understood and fixed.
-- [ ] Validate the three UML userspace profiles in CI: Alpine standard for
+- [x] Validate the three UML userspace profiles in CI: Alpine standard for
   MMU, plain `SWMMU=0` NOMMU APKs for non-SAS UML, and instrumented `SWMMU=1`
   NOMMU APKs for NOMMU-SAS. The SWMMU plugin and UAPI must come from the same
   kernel ref tested by the workflow.
@@ -294,7 +307,7 @@ reproducible kselftest build instructions in
   `docker exec | tee` without `pipefail` and did not require a valid report.
   Commit `7ba857697899` adds `pipefail` and a nonempty HTML report check; verify
   this guard in the next run.
-- [ ] Investigate NOMMU-SAS LTP startup under both seccomp and zpoline. Run
+- [x] Investigate NOMMU-SAS LTP startup under both seccomp and zpoline. Run
   `37843548583` confirms that Kirk's guest Python 3.12 starts, then both modes
   panic while Python is running, before the first LTP result is written.
   Determine whether Python and any native dependencies must be built with the
@@ -309,27 +322,31 @@ reproducible kselftest build instructions in
   `netdev_wait_allrefs_any()` at `net/core/dev.c:11718`, but the mapped PC is
   inside an x86 instruction encoding, so validate the relocation/control flow
   before treating that source location as definitive. Preserve the raw logs
-  under the corresponding Obsidian CI record. Run `38006360842` still needs
-  its SAS-seccomp outcome to establish whether both modes fail this way.
-- [ ] Investigate abnormal completion in both non-SAS NOMMU LTP profiles from
+  under the corresponding Obsidian CI record. Run `39561868757` supersedes
+  those failures: both modes completed 1,433 records and uploaded JSON/HTML.
+- [x] Investigate abnormal completion in both non-SAS NOMMU LTP profiles from
   run `37843548583`. Plain NOMMU ran 1,433 tests (6,755 passed, 73 failed,
   4 broken, 1,039 skipped), then panicked while Kirk's Python exited through
   `exit_mmap()` / `vm_area_free()` (`Segfault with no mm`). NOMMU-seccomp ran
   tests through `fcntl30_64`, then guest Python segfaulted at address zero and
   produced no JSON/HTML report. Establish whether these failures share a kernel
   cause or need separate fixes; keep the `epoll_wait01` and `waitpid01` skips
-  provisional until their underlying failures are understood.
-- [ ] Validate the LTP false-success guard in a new run. Run `37843548583` has
+  provisional until their underlying failures are understood. In run
+  `39561868757`, both non-SAS NOMMU profiles completed 1,434 records, shut down
+  normally and uploaded nonempty JSON/HTML.
+- [x] Validate the LTP false-success guard in a new run. Run `37843548583` has
   overall conclusion `success`, but it used workflow SHA `47ddab30b50b`, before
   `7ba857697899` added `pipefail` and the nonempty HTML report requirement.
   Therefore its success conclusion does not mean the four NOMMU LTP jobs
   passed: SAS jobs produced no report, and NOMMU-seccomp uploaded a zero-byte
   HTML file. Confirm the new guard makes these conditions fail visibly.
-- [ ] Verify that benchmark plots are embedded in issue #4 after a run using
+- [x] Verify that benchmark plots are embedded in issue #4 after a run using
   commit `6758daaedbeb` or later. The previous run predates that change, which
   adds Markdown image embeds for chart files actually deployed to GitHub Pages.
   Keep the Pages report link and compare the displayed chart URLs with the
-  deployed files.
+  deployed files. Issue comment `6311751119` embeds all six immutable chart
+  URLs from run `39561868757`; protected-branch Pages deployment remains the
+  final publication check.
 - [x] Verify UML ccache restore and save. Run `37761713019` restored exact
   immutable keys such as `Linux-um-nommu-ccache-build`, so the cache action
   skipped its post-job save. Run `37767571411` then missed its old
@@ -360,9 +377,9 @@ reproducible kselftest build instructions in
   dispatch; record kernel/aports revisions and the image digest.
 - [ ] Propose the UML `.lbss` linker-script placement fix upstream after
   validating static and dynamic UML builds against the `uml/next` base.
-- [ ] Implement and compare the full SWMMU/non-SWMMU benchmark suite: lmbench,
+- [x] Implement and compare the full SWMMU/non-SWMMU benchmark suite: lmbench,
   getpid, iperf3, netperf, and LTP.
-- [ ] Publish benchmark results in a durable, reviewable location. Investigate
+- [x] Publish benchmark results in a durable, reviewable location. Investigate
   embedding the GitHub Pages report or its charts in the results issue.
 - [ ] Group “Changes from previous report” by benchmark family and distinguish
   missing samples from regressions or benchmarks that did not run.
@@ -653,22 +670,24 @@ does not close broad application validation. OpenSSL has not been started.
 
 ### CI plot and full-run follow-up (2026-10-13)
 
-- [ ] Render and visually review the requested palette update: keep the MMU
+- [x] Render and visually review the requested palette update: keep the MMU
   colors consistent, set SAS-seccomp to blue and SAS-zpoline to royal blue,
   and reuse the previous SAS colors for plain NOMMU. Check that the lmbench
   bandwidth plot no longer has excess right padding and that the nginx legend
-  sits above the bars without overlap.
-- [ ] Re-run the complete manual CI with KUnit, LTP, native network benchmarks,
+  sits above the bars without overlap. The six charts in run `39561868757`
+  were inspected from the report artifact; the palette, bounds and legends
+  satisfy these checks.
+- [x] Re-run the complete manual CI with KUnit, LTP, native network benchmarks,
   all UML benchmark profiles, and the nginx matrix enabled. Measure end-to-end
   time and compare it with a full run from the RISC-V image-build period; do
   not compare a shortened manual run to the complete run.
-- [ ] Verify in the Actions web log that nginx UML console output streams while
+- [x] Verify in the Actions web log that nginx UML console output streams while
   the guest runs, including its boot/readiness and HTTP/TLS/wrk milestones.
 - [x] Diagnose run `38350772429`: all 36 nginx matrix legs failed before the
   guest or benchmark started. The workflow executed `run-nginx-benchmark.sh`
   directly even though it is stored as mode `100644`, producing exit 126
   (`Permission denied`). The step now invokes it through `bash`.
-- [ ] Repeat the full CI after this harness fix. The nginx measurements and
+- [x] Repeat the full CI after this harness fix. The nginx measurements and
   plots from run `38350772429` are invalid; do not use them for comparison.
 
 ### CI, rootfs, and plot follow-up (2026-10-13)
@@ -693,7 +712,7 @@ does not close broad application validation. OpenSSL has not been started.
   need visual confirmation from the next full Actions run.
 - [x] Make nginx UML console output stream into the Actions job log while the
   guest runs, with explicit boot, readiness, smoke-test, and wrk phase markers.
-- [ ] Run the complete manual CI with KUnit, LTP, native network benchmarks,
+- [x] Run the complete manual CI with KUnit, LTP, native network benchmarks,
   UML benchmark profiles, and nginx matrix enabled. Compare its elapsed time to
   the full CI baseline from the RISC-V image-build period; shortened manual runs
   are not comparable. If that period has no complete run, record the closest
