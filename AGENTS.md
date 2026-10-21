@@ -93,6 +93,13 @@ reproducible kselftest build instructions in
   section addresses, and separately loaded FDPIC interpreter/executable to
   `Documentation/mm/swmmu-kselftest-build.rst`.
 
+### TODO: Reproduce intermittent bind04/SCTP modprobe panic (2026-10-22)
+
+- [ ] The CI run `39628932961` panicked while running `bind04` on the SAS zpoline profile. The recorded stack is `call_usermodehelper_exec_async()` on `kworker/u4:1` -> `kernel_execve()` -> FDPIC interpreter load -> hostfs `open()` -> host glibc `__libc_open()` / `__pthread_enable_asynccancel()`, with `RAX=0`. The CI log does not establish the helper argv or prove that modprobe caused the panic.
+- A local diagnostic kernel rebuilt with the CI Ubuntu 22.04 / GCC 11.4.0 toolchain and the exact vector build invocation (`CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"`) boots with `vec0`. Its embedded `.config` intentionally still reports `CONFIG_UML_NET_VECTOR` unset under static-link configuration. In the CI Alpine image, 20 repeated `bind04` records each passed 6 subtests and skipped SCTP with expected `EPROTONOSUPPORT`; no panic reproduced. Each run issued both `net-pf-2-proto-132-type-1` and `net-pf-2-proto-132` modprobe requests, and both opened `/lib/ld-musl-x86_64.so.1` from a no-mm worker. This proves the path is exercised locally, not that it caused the CI panic. The local kernel included temporary printk diagnostics, which may affect timing.
+- Follow up by replaying bind04 with a no-instrumentation kernel built using the same CI flags and image. If it recurs, capture the usermodehelper argv, the interpreter open return path and worker registers under GDB. Compare the CI guest setup and local module/rootfs state; keep the issue open until the fault is reproduced or a concrete trigger is proven. Do not attribute unrelated `EOPNOTSUPP` output to this panic without a matching stack or trace.
+- Full local config, logs, JSON and runner scripts are recorded in Obsidian: [bind04 CI vector-build reproduction](https://github.com/thehajime/obsidian/blob/main/nommu-swmmu/Codex-Logs/2026-10-22_083900%2B0900-bind04-ci-vector-build/result.md), Obsidian commit `bc968fb`.
+
 ### Immediate
 
 - [ ] Build the disposable kselftest tree described in
