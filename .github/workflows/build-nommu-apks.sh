@@ -34,6 +34,29 @@ for profile in nommu-plain nommu-swmmu; do
 			/src/main/python3 /src/main/nginx /src/main/coreutils \
 			"/home/builder/aports-$profile/main/"
 		cp -a /src/scripts/swmmu-prepare.sh "/home/builder/aports-$profile/scripts/"
+		# GitLab rejects unauthenticated archive downloads from GitHub-hosted
+		# runners with HTTP 418.  The Alpine GitHub mirror carries the same
+		# signed tag and resolves to the same commit; use its archive with an
+		# explicit filename and checksum in this disposable package tree.
+		python3 - "/home/builder/aports-$profile/main/apk-tools/APKBUILD" <<'PYAPKTOOLS'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+old_source = "source=\"https://gitlab.alpinelinux.org/alpine/apk-tools/-/archive/v$pkgver/apk-tools-v$pkgver.tar.gz"
+new_source = "source=\"apk-tools-v$pkgver.tar.gz::https://github.com/alpinelinux/apk-tools/archive/refs/tags/v$pkgver.tar.gz"
+old_builddir = 'builddir="$srcdir/apk-tools-v$pkgver"'
+new_builddir = 'builddir="$srcdir/apk-tools-$pkgver"'
+old_sum = "3616435508dead5240f8d9fe74e87e2aa93262f9e466f50af8f60100e166403393b1e491c115395864d4179b219699831ecb61dc60960b5dfb1f10816d75f95f  apk-tools-v3.0.8.tar.gz"
+new_sum = "3149277dd14c0f4a0698bf7a0eb4e09a264105f24f9bcd7f6a7b2262e3a2d142402cbc0bade83f5ea23ef2a414c4393abfa63260c0659f70978425bc036ea6ed  apk-tools-v3.0.8.tar.gz"
+for old in (old_source, old_builddir, old_sum):
+    if text.count(old) != 1:
+        raise SystemExit(f"expected one apk-tools source layout entry in {path}: {old}")
+text = (text.replace(old_source, new_source)
+        .replace(old_builddir, new_builddir)
+        .replace(old_sum, new_sum))
+path.write_text(text)
+PYAPKTOOLS
 		# Avoid enabling target extensions against host-only libraries.
 		python3 - "/home/builder/aports-$profile/main/python3/APKBUILD" <<'PYAPK'
 from pathlib import Path
