@@ -92,6 +92,103 @@ This mode requires the application to identify SWMMU pointer boundaries
 correctly and is not an equivalent drop-in safety baseline for arbitrary
 ordinary pointers.
 
+Access decision flow
+====================
+
+The names used by the compiler and kernel describe different decisions.
+``all-access`` selects which compiler-visible accesses are covered. It does
+not mean that every covered access necessarily executes a helper. A covered
+access can still take a compiler-proven or kernel-authorized direct path::
+
+   compiler-visible memory operation
+                  |
+                  v
+       eligible for instrumentation? ---- no ---> ordinary native access
+                  |
+                 yes
+                  |
+                  v
+       compiler proves native storage? --- yes --> ordinary native access
+                  |
+                  no
+                  |
+                  v
+       direct-window guard authorizes
+       this complete access? ------------- yes --> ordinary native access
+                  |
+                  no
+                  |
+                  v
+          dynamic userspace helper
+                  |
+                  v
+       runtime can use a guaranteed
+       native path? ---------------------- yes --> ordinary native access
+                  |
+                  no
+                  |
+                  v
+       kernel SWMMU load/store helper
+                  |
+                  v
+       validate current mm and VMA, then access backing storage
+
+The current production-oriented build-wide experiment uses ``all-access``
+coverage with the ``direct-window`` guard and dynamic helpers as the fallback.
+The source-file, source-directory, allocator-result, native-stack, and numeric
+range options are narrower experiments. They require guarantees that a generic
+package build cannot infer on its own.
+
+Terminology
+===========
+
+``all-access``
+   A compiler coverage policy. The plugin considers eligible GIMPLE memory
+   operations throughout every compiled function. Direct paths can still
+   remove helper calls after an access has entered this coverage.
+
+``selective``
+   The compiler policy used without ``all-access``. Only annotated functions,
+   pointer types, and supported annotated operations are transformed. It
+   requires application-specific pointer-boundary information.
+
+``dynamic helper``
+   The fallback route for a pointer whose storage cannot be proved native by
+   the compiler or authorized by a direct guard. The runtime and kernel decide
+   from the current process mapping whether native or SWMMU backing applies.
+
+``direct window``
+   A kernel-authorized, immutable host alias interval. An inline guard permits
+   ordinary CPU loads and stores only when the complete access lies in the
+   published interval. It is a backend contract, rather than a conclusion
+   drawn from an application's source layout.
+
+``default-on``
+   The kernel mapping policy in which eligible NOMMU mappings start under
+   SWMMU management. This is independent of whether the plugin was compiled in
+   all-access or selective mode.
+
+``default-off``
+   The experimental kernel mapping policy in which eligible mappings start as
+   native and may need conversion when process semantics such as private COW
+   are required. The compiler policy does not make that conversion safe by
+   itself.
+
+``guarded lowering``
+   Plugin lowering that emits an inline direct-access eligibility check and a
+   dynamic-helper fallback for the same operation.
+
+``post-scalar``
+   Experimental pass placement that leaves ordinary GIMPLE accesses visible
+   through GCC scalar optimization before lowering them to helpers. It changes
+   transformation order, not mapping policy.
+
+``native proof``
+   Compiler-visible provenance or an explicit build assertion that allows an
+   access to bypass helpers. A numerical address alone is not a native proof,
+   because fork or mapping operations can change the VMA without changing the
+   pointer value.
+
 Attributes
 ==========
 
