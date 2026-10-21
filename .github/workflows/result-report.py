@@ -388,11 +388,12 @@ def collect_ltp(root):
             "counts": {key: 0 for key in LTP_COUNTS},
             "cases": {},
         })
-        log = path.read_text(errors="replace")
-        result["alerts"] = [
-            label for label, pattern in LTP_CRASH_SIGNATURES
-            if pattern.search(log)
-        ]
+        if result["state"] != "complete":
+            log = path.read_text(errors="replace")
+            result["alerts"] = [
+                label for label, pattern in LTP_CRASH_SIGNATURES
+                if pattern.search(log)
+            ]
     for target in LTP_TARGETS:
         results.setdefault(target, {
             "state": "no result artifact",
