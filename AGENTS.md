@@ -27,9 +27,9 @@ reproducible kselftest build instructions in
 - **Report checkpoint:** issue #4 comment `6314635056` contains the corrected
   report. Its direct kselftest row is 38 pass, 0 fail and 8 skip, and completed
   signal tests no longer create false crash alerts. The Pages artifact was
-  uploaded, but deployment returned HTTP 404 because GitHub Pages is not yet
-  enabled for the repository. Enabling Pages with GitHub Actions as its source
-  requires repository-administrator access.
+  uploaded. Its deployment returned HTTP 404 before Pages was enabled. Pages
+  is now configured with GitHub Actions as its source; the next report run must
+  verify a successful deployment.
 
 ## Whole milestones
 
@@ -203,7 +203,7 @@ reproducible kselftest build instructions in
 
 ### CI, packaging, and delivery
 
-Current protected-branch integration gate (2026-10-21): run `39579186764`
+Previous protected-branch integration gate (2026-10-21): run `39579186764`
 completed 78 jobs successfully, with one expected skipped image-publication
 job and no failures. All 11 LTP targets produced complete JSON/HTML reports;
 all six KUnit targets recorded 806 pass, 42 skip and 0 fail; direct SWMMU
@@ -211,8 +211,31 @@ kselftest recorded 38 pass, 8 profile skips and 0 fail. The RISC-V NOMMU row
 completed 1,433 records after the unsupported pthread-based `futex_wait03`
 case was skipped only for that profile. The exact-source signed release also
 contains `zlib-nommu` and `apk-tools-nommu`; Alpine verified all 11 APKs and
-both indexes. Issue #4 publication is complete. The uploaded Pages artifact
-cannot be deployed until an administrator enables Pages for this repository.
+both indexes. Issue #4 publication is complete. Pages was disabled during this
+run and returned 404; the repository setting has since been changed to use
+GitHub Actions. The report gate needs a new run to publish and verify the site.
+
+### CI/report follow-up requested (2026-10-21)
+
+- The LTP report retains a distinct `um-nommu-plain-sas` row and explains that
+  it uses plain NOMMU SAS with seccomp and SWMMU disabled. SWMMU targets display
+  as `um-nommu (sas-seccomp)` and `um-nommu (sas-zpoline)`.
+- RISC-V NOMMU LTP build and test jobs remain implemented but are disabled by
+  default. `run_riscv_ltp=true` on manual dispatch enables them; disabled runs
+  label the report row explicitly.
+- Netperf chart data now stores one payload per row with separate TCP_STREAM
+  and TCP_MAERTS columns. Both directions for a profile use the same x value;
+  STREAM is positive and MAERTS negative, with one legend item per profile.
+- The previous nginx matrix excluded four CPUs for every NOMMU profile. Run
+  `39579186764` succeeded for its full nginx matrix; the old worker-4 stall did
+  not reproduce. Per user direction, the throughput-stall follow-up is closed
+  for now. The separate historical worker SIGSEGV remains an independent item.
+- Native lmbench printed `Pipe bandwidth: 3027.57 MB/sec` and then exited with
+  137 after its 120-second timeout. The native host benchmark had been compiled
+  with `CONFIG_NOMMU`, selecting lmbench's clone-based NOMMU pipe path. The
+  native build now omits that define and propagates pipeline failures. The
+  report retains a partial pipe measurement but labels the timeout until the
+  new run verifies normal cleanup.
 
 - [x] Complete plain NOMMU CI validation. Runs `37711748667` and
   `37713808402` showed that test-0's `NOMMU_USERSPACE_READY` marker could print
@@ -730,11 +753,12 @@ does not close broad application validation. OpenSSL has not been started.
   userspace faults. Keep failures visible in reports; determine whether the
   control connection, guest netserver, or UML vector transport fails first
   before changing buffer defaults.
-- [ ] Resolve the nginx throughput stall in run `38333192770`, profile
-  `um-nommu-sas-seccomp`, workers 4, connections 64. HTTP/TLS smoke tests
-  passed, but wrk reported zero requests in 30 seconds. Packet capture showed
-  delayed responses arriving during and after the measurement. The new job-log
-  streaming should make the next reproduction easier to follow.
+- [x] Close the historical nginx throughput-stall follow-up for now, per user
+  direction. It has not reproduced in the official protected-branch matrix
+  `39579186764`, including SAS-seccomp, workers=4, connections=64. The prior
+  delayed-response observation and suspected userspace overhead remain useful
+  historical context, but no root cause was established. A separate historical
+  worker SIGSEGV entry below remains distinct and unresolved.
 - [ ] **Unresolved: reproduce and root-cause the intermittent SAS/SWMMU nginx
   worker SIGSEGV from run `38397978801`.** The CI mitigation that tolerates a
   failed wrk warmup and extends request deadlines is not a fix for this fault.

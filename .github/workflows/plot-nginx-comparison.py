@@ -14,8 +14,8 @@ PROFILES = (
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
     ("um-nommu", "um-nommu", "#d68910"),
     ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-sas-seccomp", "sas-s", "#0000ff"),
-    ("um-nommu-sas-zpoline", "sas-z", "#4169e1"),
+    ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)", "#0000ff"),
+    ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)", "#4169e1"),
 )
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)

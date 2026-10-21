@@ -38,6 +38,11 @@ on:
         required: false
         type: boolean
         default: false
+      run_riscv_ltp:
+        description: 'Run the long RISC-V NOMMU LTP build and test jobs'
+        required: false
+        type: boolean
+        default: false
 
 env:
   LMBENCH_REF: ${{ inputs.lmbench_ref || 'codex/lmbench-process-method' }}
@@ -377,7 +382,7 @@ jobs:
           chmod +x "$RUNNER_TEMP/lmbench-gcc"
           lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
           mkdir -p "$lmbench_bin"
-          lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
+          lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
           if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
             gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
             lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
@@ -1153,6 +1158,7 @@ jobs:
             CFLAGS="$lmbench_cflags"
       - name: Run native benchmarks
         run: |
+          set -o pipefail
           mkdir -p output
           LMBENCH_BIN_DIR="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1" \
             LMBENCH_MEASUREMENT_TIMEOUT_SECONDS=120 \
@@ -1255,6 +1261,7 @@ jobs:
     with:
       ltp_ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
   build_ltp_riscv:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_riscv_ltp }}
     runs-on: ubuntu-latest
     name: "LTP: build-riscv-nommu"
     permissions:
@@ -1296,6 +1303,7 @@ jobs:
           path: ${{ runner.temp }}/ltp-riscv-artifact/ltp-alpine-riscv-nommu.tar.gz
           if-no-files-found: error
   test_ltp:
+    if: ${{ always() && needs.build_uml.result == 'success' && needs.build_ltp.result == 'success' }}
     runs-on: ubuntu-latest
     needs: [build_uml, build_ltp, build_ltp_riscv]
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 240 || 60 }}
@@ -1385,20 +1393,21 @@ jobs:
         if: matrix.image_artifact != ''
         run: docker load -i "$(find "$RUNNER_TEMP/local-image" -maxdepth 1 -name '*.tar' -print -quit)"
       - name: Log in to ghcr.io for RISC-V test image
-        if: matrix.testname == 'riscv-nommu'
+        if: ${{ matrix.testname == 'riscv-nommu' && inputs.run_riscv_ltp }}
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Pull prebuilt RISC-V test image
-        if: matrix.testname == 'riscv-nommu'
+        if: ${{ matrix.testname == 'riscv-nommu' && inputs.run_riscv_ltp }}
         run: docker pull "${{ matrix.image_name }}"
       - name: Pull native Alpine test image
         if: matrix.testname == 'native'
         run: docker pull mirror.gcr.io/library/alpine:edge
       - uses: actions/checkout@v6
       - name: Checkout LTP test support files
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         uses: actions/checkout@v6
         with:
           repository: thehajime/ltp
@@ -1406,10 +1415,12 @@ jobs:
           path: ltp-source
           submodules: recursive
       - uses: actions/download-artifact@v7
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         with:
           name: ltp-alpine-${{ matrix.name }}.tar.gz
           path: ${{ runner.temp }}/ltp-install
       - name: Extract LTP install tree on the runner
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         run: |
           mkdir -p "$RUNNER_TEMP/ltp-root"
           archive="$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz"
@@ -1417,6 +1428,7 @@ jobs:
             -C "$RUNNER_TEMP/ltp-root"
           test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
       - name: Create local test container
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
         run: |
@@ -1448,6 +1460,7 @@ jobs:
             ltp-test /opt/uml-host-tools/busybox sh \
             /github/workspace/.github/workflows/capture-uml-python-maps.sh host
       - name: Run LTP
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
           LTP_ARTIFACT_NAME: ${{ matrix.name }}
@@ -1539,10 +1552,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Stop local test container
-        if: always()
+        if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         run: docker rm -f ltp-test || true
       - name: Restore runner ownership of LTP results
-        if: always()
+        if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         run: |
           if [ -d output/ltp ]; then
             sudo chown -R "$(id -u):$(id -g)" output/ltp
@@ -1550,16 +1563,18 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         id: upload_html
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         with:
           name: ltp-result-${{ matrix.testname }}.html
           path: output/ltp/ltp-result-${{ matrix.testname }}.html
           archive: false
       - name: retrieve artifact URL
+        if: ${{ matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp }}
         run: |
           echo "${{ matrix.testname }} report: ${{ steps.upload_html.outputs.artifact-url }}" > \
              output/ltp/${{ matrix.testname }}-url.txt
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         with:
           name: test-result-ltp-${{ matrix.testname }}
           path: output/ltp/*
@@ -1689,6 +1704,10 @@ jobs:
           BENCHMARK_STATUS: ${{ needs.benchmark.result }}
           LTP_STATUS: "not a report dependency; available LTP artifacts included"
         run: |
+          disabled_targets=()
+          if [[ "${{ inputs.run_riscv_ltp }}" != "true" ]]; then
+            disabled_targets+=(riscv-nommu)
+          fi
           python3 .github/workflows/result-report.py \
             --data-dir output \
             --previous "$RUNNER_TEMP/previous-results.json" \
@@ -1699,7 +1718,8 @@ jobs:
             --tested-ref "$TESTED_REF" \
             --build-status "$BUILD_STATUS" \
             --benchmark-status "$BENCHMARK_STATUS" \
-            --ltp-status "$LTP_STATUS"
+            --ltp-status "$LTP_STATUS" \
+            --disabled-targets "${disabled_targets[@]}"
       - name: Render comparison benchmark plots
         if: ${{ always() && needs.build_uml.result == 'success' && needs.benchmark.result != 'skipped' }}
         run: |
@@ -1761,7 +1781,7 @@ jobs:
               "lmbench.png": "lmbench operation latency by UML profile; the logarithmic vertical axis uses microseconds.",
               "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
               "iperf3.png": "iperf3 forward and reverse goodput by UML profile, in Gbit/s.",
-              "tcp-stream.png": "netperf TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero. The vertical range is symmetric and includes native values when available.",
+              "tcp-stream.png": "netperf TCP_STREAM (positive) and TCP_MAERTS (negative) goodput by payload size. Both directions for a profile share the same x coordinate and legend entry. The vertical range is symmetric and includes native values when available.",
               "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. NOMMU uses CONFIG_SMP=n and one CPU.",
               "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. NOMMU uses CONFIG_SMP=n and one CPU.",
           }

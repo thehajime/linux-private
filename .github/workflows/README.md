@@ -114,12 +114,15 @@ independent of the UML SWMMU kernel ref. For now it uses the previously proven
 `zpoline-nommu-v6.10` branch; updating to a newer RISC-V NOMMU kernel is tracked
 in `AGENTS.md`. The workflow updates the LTP fork's Buildroot Dockerfile to the
 selected exact commit and kernel version, then publishes an immutable GHCR tag.
-The `riscv-nommu` matrix entry pins that image tag and builds its LTP test
-programs once in the `build_ltp_riscv` prerequisite job. The QEMU test row
-downloads the resulting install-tree artifact, matching the build-once model
-used by the other LTP profiles. Update the image tag in `ci.yml` only after
-publishing and validating a replacement. The RISC-V comparison image can be
-refreshed less often than the main kernel CI. Its uClibc NOMMU profile skips
+The optional `riscv-nommu` matrix entry pins that image tag and builds its LTP
+test programs once in the `build_ltp_riscv` prerequisite job. Both jobs are
+disabled by default because the QEMU LTP run is unusually slow; enable them
+with the `run_riscv_ltp` workflow-dispatch input when explicitly needed. The
+report labels the omitted row as disabled. The QEMU test row downloads the
+resulting install-tree artifact, matching the build-once model used by the
+other LTP profiles. Update the image tag in `ci.yml` only after publishing and
+validating a replacement. The RISC-V comparison image can be refreshed less
+often than the main kernel CI. Its uClibc NOMMU profile skips
 `futex_wait03`: the pthread test reports a broken result and leaves Kirk's
 QEMU channel waiting for the next shell prompt. The same full syscall suite
 completes and writes its report when that unsupported case is omitted.

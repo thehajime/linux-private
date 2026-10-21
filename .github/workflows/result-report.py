@@ -28,6 +28,11 @@ LTP_TARGETS = (
     "um-nommu-plain-sas", "um-nommu-sas-seccomp",
     "um-nommu-sas-zpoline", "riscv-nommu",
 )
+LTP_TARGET_LABELS = {
+    "um-nommu-plain-sas": "um-nommu-plain-sas (plain SAS, seccomp; SWMMU off)",
+    "um-nommu-sas-seccomp": "um-nommu (sas-seccomp; SWMMU on)",
+    "um-nommu-sas-zpoline": "um-nommu (sas-zpoline; SWMMU on)",
+}
 LTP_CRASH_SIGNATURES = (
     (
         "kernel panic",
@@ -46,8 +51,8 @@ LMBENCH_COLUMNS = (
     ("um-mmu-seccomp", "um-mmu(s)"),
     ("um-nommu", "um-nommu"),
     ("um-nommu-seccomp", "um-nommu(s)"),
-    ("um-nommu-sas-seccomp", "um-nommu(sas-s)"),
-    ("um-nommu-sas-zpoline", "um-nommu(sas-z)"),
+    ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)"),
+    ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)"),
 )
 LMBENCH_TABLE_ROWS = (
     ("select-10", "select-10"),
@@ -151,6 +156,7 @@ def collect_benchmarks(root):
             raw_lmbench[target] = [
                 item for item in parsed
                 if statuses.get(item[3].get("operation"), ("PASS", None))[0] == "PASS"
+                or item[3].get("operation") == "bw_pipe_64k"
             ]
 
     def add(name, target, value, unit, labels=None):
@@ -293,8 +299,11 @@ def collect_lmbench_table(root, benchmark_records):
                     )
                     if match:
                         exit_code = f"; exit {match.group(1)}"
-                suffix = f"; partial {partial:.2f}" if partial is not None else ""
-                cells[operation] = f"FAIL{exit_code}{suffix}"
+                suffix = f"; measured {partial:.2f} MB/sec before timeout" if partial is not None else ""
+                if operation == "bw_pipe_64k" and partial is not None:
+                    cells[operation] = f"TIMEOUT after measurement{exit_code}{suffix}"
+                else:
+                    cells[operation] = f"FAIL{exit_code}{suffix}"
             elif operation not in target_values:
                 cells[operation] = "FAIL"
             else:
@@ -353,7 +362,7 @@ def collect_kunit(root):
             "targets": targets, "suites": suites}
 
 
-def collect_ltp(root):
+def collect_ltp(root, disabled_targets=()):
     results = {}
     report_urls = {}
     for path in root.rglob("*-url.txt"):
@@ -396,7 +405,8 @@ def collect_ltp(root):
             ]
     for target in LTP_TARGETS:
         results.setdefault(target, {
-            "state": "no result artifact",
+            "state": ("disabled by workflow input (long runtime)"
+                      if target in disabled_targets else "no result artifact"),
             "url": report_urls.get(target, ""),
             "counts": {key: 0 for key in LTP_COUNTS},
             "cases": {},
@@ -491,7 +501,7 @@ def collect_nginx(root):
     return {"state": "collected", "matrix": matrix}
 
 
-def collect(root, run_url, sha, tested_ref, job_status):
+def collect(root, run_url, sha, tested_ref, job_status, disabled_targets=()):
     benchmarks = collect_benchmarks(root)
     return {
         "version": 2,
@@ -504,7 +514,7 @@ def collect(root, run_url, sha, tested_ref, job_status):
         "kunit": collect_kunit(root),
         "kselftest": collect_kselftest(root),
         "nginx": collect_nginx(root),
-        "ltp": collect_ltp(root),
+        "ltp": collect_ltp(root, disabled_targets),
     }
 
 
@@ -600,6 +610,7 @@ def render(snapshot, previous):
     lines.append("")
 
     profiles = [target for target, _header in LMBENCH_COLUMNS]
+    profile_headers = [header for _target, header in LMBENCH_COLUMNS]
     getpid_values = {
         item.get("target"): item.get("value")
         for item in snapshot.get("benchmark", []) if item.get("name") == "getpid"
@@ -633,7 +644,7 @@ def render(snapshot, previous):
         elif item.get("name") == "netperf":
             netperf_values[(item.get("target"), labels.get("test"), labels.get("payload_bytes"))] = item.get("value")
 
-    lines.extend(["### iperf3 (Mbps)", "", "| Direction | " + " | ".join(profiles) + " |",
+    lines.extend(["### iperf3 (Mbps)", "", "| Direction | " + " | ".join(profile_headers) + " |",
                   "|---|" + "---:|" * len(profiles)])
     for direction, label in (("forward", "Forward"), ("reverse", "Reverse")):
         cells = [iperf_values.get((profile, direction), "N/A") for profile in profiles]
@@ -645,7 +656,7 @@ def render(snapshot, previous):
     payloads = (64, 128, 256, 512, 1024, 1500, 65507)
     for test, title in (("TCP_STREAM", "TCP_STREAM"), ("TCP_MAERTS", "TCP_MAERTS")):
         lines.extend([f"### netperf {title} (Mbps)", "",
-                      "| Payload bytes | " + " | ".join(profiles) + " |",
+                      "| Payload bytes | " + " | ".join(profile_headers) + " |",
                       "|---:|" + "---:|" * len(profiles)])
         for payload in payloads:
             cells = [netperf_values.get((profile, test, payload), "N/A") for profile in profiles]
@@ -734,16 +745,19 @@ def render(snapshot, previous):
     lines.extend([
         "### LTP results",
         "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
+        "Mode labels: `um-nommu-plain-sas` is plain NOMMU SAS with seccomp and SWMMU disabled; `um-nommu (sas-seccomp)` and `um-nommu (sas-zpoline)` use SWMMU.",
         "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
         "|---|---|---:|---:|---:|---:|---:|",
     ])
     for target, result in sorted(snapshot["ltp"]["targets"].items()):
         counts = result["counts"]
-        display_target = target
+        display_target = LTP_TARGET_LABELS.get(target, target)
         target_name = f"[{display_target}]({result['url']})" if result.get("url") else display_target
         alerts = result.get("alerts", [])
         if alerts:
             state = "🔴 " + ", ".join(alerts)
+        elif result["state"].startswith("disabled"):
+            state = f"⚪ {result['state']}"
         elif result["state"] != "complete":
             state = f"🟠 {result['state']}"
         elif counts["failed"]:
@@ -843,13 +857,14 @@ def main():
     parser.add_argument("--build-status", required=True)
     parser.add_argument("--benchmark-status", required=True)
     parser.add_argument("--ltp-status", required=True)
+    parser.add_argument("--disabled-targets", nargs="*", default=[])
     args = parser.parse_args()
 
     snapshot = collect(args.data_dir, args.run_url, args.sha, args.tested_ref, {
         "UML/KUnit build": args.build_status,
         "benchmarks": args.benchmark_status,
         "LTP": args.ltp_status,
-    })
+    }, args.disabled_targets)
     previous = load_json(args.previous) if args.previous else None
     args.snapshot.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
     report = render(snapshot, previous)
