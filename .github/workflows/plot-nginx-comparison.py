@@ -10,9 +10,12 @@ from pathlib import Path
 
 PROFILES = (
     ("native", "native", "#c0392b"),
+    ("um-mmu", "um", "#27ae60"),
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu-seccomp", "um-nommu", "#a04000"),
+    ("um-nommu", "um-nommu", "#d68910"),
+    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
     ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)", "#0000ff"),
+    ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)", "#4169e1"),
 )
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
@@ -48,7 +51,7 @@ def series_for(worker, statuses, host_cpu_counts):
         cpu_counts = sorted({key[1] for key in statuses
                              if key[0] == profile and key[2] == worker})
         for cpus in cpu_counts:
-            smp = "SMP=y" if profile == "um-mmu-seccomp" or cpus > 1 else "SMP=n"
+            smp = "SMP=y" if profile.startswith("um-mmu") or cpus > 1 else "SMP=n"
             if profile == "native":
                 host_cpus = host_cpu_counts.get(profile, "unknown")
                 legend = f"native [host: {host_cpus} CPUs]"
@@ -145,12 +148,15 @@ def main():
     if generated:
         status.write_text(
             "Separate charts compare workers=1 and workers=4. The x-axis is client "
-            "connections. UML nginx runs use seccomp userspace. The MMU and plain "
-            "NOMMU profiles compare one and four CPUs (solid versus patterned "
-            "fill); the four-CPU plain NOMMU kernel has SWMMU disabled. NOMMU SAS "
-            "remains CONFIG_SMP=n because the kernel configuration does not support "
-            "SMP for UML_NOMMU_SAS. Native is measured on the runner and its host CPU "
-            "count is recorded in the legend. "
+            "connections. MMU profiles use CONFIG_SMP=y; um-mmu uses one online "
+            "CPU, while um-mmu-seccomp compares one and four CPUs (solid versus "
+            "patterned fill). Plain NOMMU PTRACE uses one CPU. In the workers=1 "
+            "chart, plain NOMMU-seccomp compares its single-CPU baseline with a "
+            "separately built CONFIG_SMP=y four-CPU kernel. Plain NOMMU worker=4 is skipped "
+            "because fork is unavailable. NOMMU SAS profiles remain CONFIG_SMP=n "
+            "because the kernel configuration does not support SMP for "
+            "UML_NOMMU_SAS. Native is measured on the runner and its host CPU count "
+            "is recorded in the legend. "
             "Profile colors are consistent between both charts.\n"
         )
         for image in generated:

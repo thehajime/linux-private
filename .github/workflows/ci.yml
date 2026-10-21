@@ -1835,8 +1835,8 @@ jobs:
               "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
               "iperf3.png": "iperf3 forward and reverse goodput by UML profile, in Gbit/s.",
               "tcp-stream.png": "netperf TCP_STREAM (positive) and TCP_MAERTS (negative) goodput by payload size. Both directions for a profile share the same x coordinate and legend entry. The vertical range is symmetric and includes native values when available.",
-              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). UML nginx runs use seccomp userspace. MMU and plain NOMMU compare one/four CPUs; the four-CPU plain NOMMU kernel has SWMMU disabled. NOMMU SAS remains CONFIG_SMP=n.",
-              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). UML nginx runs use seccomp userspace. MMU compares one/four CPUs. Plain NOMMU worker=4 legs are skipped because fork is unavailable. NOMMU SAS remains CONFIG_SMP=n.",
+              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU PTRACE uses one CPU; the plain NOMMU SMP comparison uses um-nommu-seccomp with one/four CPUs. NOMMU SAS remains CONFIG_SMP=n.",
+              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU worker=4 legs are skipped because fork is unavailable. Plain NOMMU PTRACE uses one CPU; the plain NOMMU SMP comparison uses um-nommu-seccomp. NOMMU SAS remains CONFIG_SMP=n.",
           }
           for filename, description in descriptions.items():
               marker = f"<!-- report-chart:{filename} -->"

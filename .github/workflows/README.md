@@ -69,15 +69,16 @@ dispatch inputs and uses the selected kernel ref plus the pinned aports commit
 recorded in each UML rootfs manifest. A native runner baseline is measured in a
 separate folded matrix while the UML rootfs and kernels build. APKs are built
 once. MMU, plain NOMMU, and SWMMU rootfs artifacts are each prepared once and
-shared across three seccomp UML profiles (`um-mmu-seccomp`, `um-nommu-seccomp`,
-and NOMMU SAS with `zpoline=0`). PTRACE and `zpoline=1` are excluded from nginx
-benchmarking. Every supported UML profile runs worker counts 1/4 and wrk
-connections 4/16/64 from a separate client container. The native baseline
-measures the same matrix on the runner and records its available CPU count. MMU
+shared across six UML profiles (`um-mmu`, `um-mmu-seccomp`, `um-nommu`,
+`um-nommu-seccomp`, SAS with `zpoline=0`, and SAS with `zpoline=1`). Every
+supported UML profile runs worker counts 1/4 and wrk connections 4/16/64 from
+a separate client container. The native baseline measures the same matrix on
+the runner and records its available CPU count. MMU
 profiles cross one and four online CPUs with both worker counts and all client
-connection counts. Plain NOMMU seccomp compares a one-CPU baseline with a
-four-CPU `CONFIG_SMP=y` kernel; NOMMU SAS remains single CPU because UML's NOMMU
-SAS configuration disables SMP. The top-level matrix
+connection counts. Plain NOMMU PTRACE is single CPU; the plain NOMMU SMP
+comparison uses `um-nommu-seccomp`, with a one-CPU baseline and a separately
+built four-CPU `CONFIG_SMP=y` kernel. NOMMU SAS remains single CPU because UML's
+NOMMU SAS configuration disables SMP. The top-level matrix
 calls the reusable workflow per leg so GitHub can group the legs at the caller.
 The run records the online CPU list. Each leg
 uploads raw logs and `measurement.json`; `bench-result` aggregates profile
