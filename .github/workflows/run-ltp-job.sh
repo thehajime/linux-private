@@ -82,7 +82,9 @@ case "$LTP_TESTNAME" in
 		# BROK after their child has already printed TPASS. The remaining
 		# cases require MMU-only services (kcmp, mlock/munlock, or a MAP_32BIT
 		# allocation below 2 GiB) that this NOMMU address-space model lacks.
-		for test in clone06 clone08 setns02 kcmp03 mincore02 mmap23; do
+		# Keep setns02 enabled: its standalone failure is not explained by the
+		# shared-result issue and needs kernel-side investigation.
+		for test in clone06 clone08 kcmp03 mincore02 mmap23; do
 			echo "$test" >> /ltp-skip
 		done
 		echo "Skipping NOMMU-incompatible LTP result IPC/MMU-only cases"
