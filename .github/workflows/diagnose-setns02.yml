@@ -120,19 +120,12 @@ jobs:
           set confirm off
           set breakpoint pending on
           handle SIGSYS nostop noprint pass
-          break ../arch/um/nommu/trap.c:82
+          break show_segv_info
           commands
             silent
-            printf "GDB_NOMMU_UNFIXABLE_USER_FAULT\n"
+            printf "GDB_UNHANDLED_USER_FAULT_PATH\n"
             info args
-            bt 30
-            continue
-          end
-          break ../arch/um/nommu/trap.c:142
-          commands
-            silent
-            printf "GDB_NOMMU_UNHANDLED_USER_FAULT\n"
-            info args
+            p *regs
             bt 30
             continue
           end
@@ -147,21 +140,17 @@ jobs:
           break sys_setns
           commands
             silent
+            set $last_setns_fd = $rdi
+            set $last_setns_flags = $rsi
             printf "GDB_SETNS_ENTRY fd=%d flags=0x%x\n", $rdi, $rsi
             info registers rip rsp rdi rsi rdx rax
             bt 12
             continue
           end
-          break ../kernel/nsproxy.c:577
-          commands
-            silent
-            printf "GDB_SETNS_EARLY_RETURN fd=%d flags=0x%x error=-9\n", fd, flags
-            continue
-          end
           break ../kernel/nsproxy.c:606
           commands
             silent
-            printf "GDB_SETNS_RETURN fd=%d flags=0x%x error=%d\n", fd, flags, err
+            printf "GDB_SETNS_RETURN fd=%d flags=0x%x result=%lld\n", $last_setns_fd, $last_setns_flags, $rax
             continue
           end
           continue
