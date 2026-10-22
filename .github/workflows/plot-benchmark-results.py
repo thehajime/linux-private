@@ -14,6 +14,7 @@ PROFILES = (
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
     ("um-nommu", "um-nommu", "#d68910"),
     ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
+    ("um-nommu-plain-sas", "um-nommu-plain-sas", "#566573"),
     ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)", "#0000ff"),
     ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)", "#4169e1"),
 )
@@ -52,11 +53,11 @@ def write_rows(path, values):
     path.write_text("".join(f"{value if finite(value) else 'NaN'}\n" for value in values))
 
 
-def has_finite_measurement(files, *, netperf=False):
+def has_finite_measurement(files, *, paired=False):
     for path, _name, _color in files:
         for line in path.read_text().splitlines():
             fields = line.split()
-            if netperf:
+            if paired:
                 fields = fields[1:]
             for field in fields:
                 try:
@@ -68,13 +69,13 @@ def has_finite_measurement(files, *, netperf=False):
     return False
 
 
-def symmetric_plot_limit(files, *, netperf=False):
-    """Return a symmetric, rounded range with at least 50 Gbps of headroom."""
+def symmetric_plot_limit(files, *, paired=False, minimum=0.0):
+    """Return a symmetric rounded range, honoring an optional lower bound."""
     peak = 0.0
     for path, _name, _color in files:
         for line in path.read_text().splitlines():
             fields = line.split()
-            if netperf:
+            if paired:
                 fields = fields[1:]
             for field in fields:
                 try:
@@ -84,39 +85,39 @@ def symmetric_plot_limit(files, *, netperf=False):
                 if math.isfinite(value):
                     peak = max(peak, value)
     if peak == 0:
-        return 50.0
+        return minimum if minimum else 1.0
 
     magnitude = 10 ** math.floor(math.log10(peak))
     for factor in (1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10):
         limit = factor * magnitude
         if peak <= limit:
-            return max(50.0, limit)
-    return max(50.0, 10 * magnitude)
+            return max(minimum, limit)
+    return max(minimum, 10 * magnitude)
 
 
-def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, netperf=False):
+def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, paired=False):
     status_path = out_dir / f"{Path(filename).stem}-plot-status.txt"
-    if not has_finite_measurement(files, netperf=netperf):
+    if not has_finite_measurement(files, paired=paired):
         status_path.write_text("Plot omitted: no finite measurements are available for this metric.\n")
         print(f"{filename}: omitted because all measurements are unavailable")
         return
 
     colors = [color for _target, _label, color in PROFILES]
     names = [label for _target, label, _color in PROFILES]
-    group_width = 1.5 if netperf else 0.9
+    group_width = 1.5 if paired else 0.9
     width = group_width / len(files)
     offsets = [(index - (len(files) - 1) / 2) * width for index in range(len(files))]
     xtics = ", ".join(f"{gnuplot_quote(label)} {position}" for label, position in labels)
     plot_items = []
     for index, (path, _name, color) in enumerate(files):
-        xexpr = f"($1+({offsets[index]:.4f}))" if netperf else f"($0+({offsets[index]:.4f}))"
+        xexpr = f"($1+({offsets[index]:.4f}))" if paired else f"($0+({offsets[index]:.4f}))"
         style = (
             f"with boxes fc rgb {gnuplot_quote(color)} fs pattern 2 "
             f"lt 1 lc rgb {gnuplot_quote(color)} lw 0.4"
         )
-        if netperf:
-            # STREAM and MAERTS use separate columns at the same x coordinate;
-            # their positive and negative bars share a single profile legend.
+        if paired:
+            # Direction pairs use separate columns at the same x coordinate;
+            # their positive and negative bars share one profile legend.
             plot_items.append(
                 f"{gnuplot_quote(path)} using {xexpr}:2 {style} "
                 f"title {gnuplot_quote(names[index])}"
@@ -136,14 +137,13 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         "set pointsize 2",
         *([] if logscale else ["set xzeroaxis"]),
         (
-            "set xlabel 'Payload size (bytes)'" if netperf
-            else "set xlabel 'Direction'" if filename == "iperf3.png"
+            "set xlabel 'Payload size (bytes)'" if filename == "tcp-stream.png"
             else "set xlabel 'Benchmark'"
         ),
         f"set ylabel {gnuplot_quote(ylabel)}",
         "set grid ytics",
         "set style fill pattern 2",
-        f"set boxwidth {width:.4f}",
+        f"set boxwidth {width:.4f} absolute" if paired else f"set boxwidth {width:.4f}",
         "set size 1.0,1.0",
         'set key font ",12"',
         "set key top left Left reverse",
@@ -155,12 +155,14 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, net
         commands.extend(["set logscale y", "set yrange [0.01:*]"])
     else:
         commands.append("unset logscale y")
-        if netperf:
-            limit = symmetric_plot_limit(files, netperf=True)
+        if paired:
+            minimum = 50.0 if filename == "tcp-stream.png" else 0.0
+            limit = symmetric_plot_limit(files, paired=True, minimum=minimum)
             commands.append(f"set yrange [-{limit:g}:{limit:g}]")
-            native_available = has_finite_measurement(files[:1], netperf=True)
-            basis = "native plus other profiles" if native_available else "available non-native profiles (native was unavailable)"
-            range_note = f" Symmetric y-range: +/- {limit:g} Gbps (50 Gbps minimum; expanded to contain the largest finite value in {basis})."
+            if filename == "tcp-stream.png":
+                native_available = has_finite_measurement(files[:1], paired=True)
+                basis = "native plus other profiles" if native_available else "available non-native profiles (native was unavailable)"
+                range_note = f" Symmetric y-range: +/- {limit:g} Gbps (50 Gbps minimum; expanded to contain the largest finite value in {basis})."
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))
     script.write_text("\n".join(commands) + "\n")
     subprocess.run(["gnuplot", str(script)], check=True)
@@ -229,18 +231,20 @@ def main():
     netperf_reverse_files = []
     for target, label, color in PROFILES:
         path = out_dir / f"iperf3-{target}.dat"
-        write_rows(path, [
-            iperf_values[target][key] / 1000
-            if finite(iperf_values[target][key]) else None
-            for key in ("forward", "reverse")
-        ])
+        forward = iperf_values[target]["forward"]
+        reverse = iperf_values[target]["reverse"]
+        path.write_text(
+            f"0 {forward / 1000 if finite(forward) else 'NaN'} "
+            f"{-reverse / 1000 if finite(reverse) else 'NaN'}\n"
+        )
         iperf_files.append((path, label, color))
     render_plot(
         out_dir,
         "iperf3.png",
         "Goodput (Gbps)",
-        [("forward", 0), ("reverse", 1)],
+        [("iperf3", 0)],
         iperf_files,
+        paired=True,
     )
 
     # Keep STREAM and MAERTS in separate columns on each payload row, so the
@@ -261,7 +265,7 @@ def main():
         "Goodput (Gbps)",
         [(str(size), index) for index, size in enumerate(PAYLOADS)],
         interleaved,
-        netperf=True,
+        paired=True,
     )
 
 

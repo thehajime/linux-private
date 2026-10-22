@@ -5,7 +5,7 @@ mkdir -p "$OUTPUT/out"
 
 declare -A getpid forward reverse
 profiles=(native um-mmu um-mmu-seccomp um-nommu um-nommu-seccomp \
-          um-nommu-sas-seccomp um-nommu-sas-zpoline)
+          um-nommu-plain-sas um-nommu-sas-seccomp um-nommu-sas-zpoline)
 mkdir -p "$OUTPUT/out"
 
 # Keep normalized legacy files for consumers that still read them.  Missing

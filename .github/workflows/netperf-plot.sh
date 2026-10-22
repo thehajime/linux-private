@@ -10,7 +10,7 @@ import sys
 root = sys.argv[1]
 profiles = (
     "native", "um-mmu", "um-mmu-seccomp", "um-nommu", "um-nommu-seccomp",
-    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
+    "um-nommu-plain-sas", "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
 )
 payloads = (64, 128, 256, 512, 1024, 1500, 65507)
 results = {}

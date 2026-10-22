@@ -326,7 +326,7 @@ finish() {
 }
 trap finish EXIT
 
-if [[ ( "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp ) && "$WORKERS" -gt 1 ]]; then
+if [[ ( "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp || "$PROFILE" == um-nommu-plain-sas ) && "$WORKERS" -gt 1 ]]; then
 	HARNESS_STATUS=SKIP
 	HARNESS_ERROR="plain NOMMU UML does not support fork(), so nginx worker_processes=$WORKERS is unavailable"
 	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
@@ -374,7 +374,7 @@ if [[ "$PROFILE" == um-nommu-sas-seccomp || "$PROFILE" == um-nommu-sas-zpoline ]
 fi
 sed -i -E "s/^worker_processes[[:space:]]+[0-9]+;/worker_processes ${WORKERS};/" "$NGINX_CONF"
 sed -i -E 's#^error_log[[:space:]].*;#error_log /run/nginx-error.log notice;#' "$NGINX_CONF"
-if [[ "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp ]]; then
+if [[ "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp || "$PROFILE" == um-nommu-plain-sas ]]; then
 	sed -i -e 's/^daemon on;$/daemon off;/' \
 		-e 's/^master_process on;$/master_process off;/' "$NGINX_CONF"
 fi

@@ -233,6 +233,14 @@ GitHub Actions. The report gate needs a new run to publish and verify the site.
 - Netperf chart data now stores one payload per row with separate TCP_STREAM
   and TCP_MAERTS columns. Both directions for a profile use the same x value;
   STREAM is positive and MAERTS negative, with one legend item per profile.
+- The benchmark matrix and all report charts now include the distinct
+  `um-nommu-plain-sas` profile (SAS on, SWMMU off, seccomp on). The iperf3
+  chart puts forward throughput above zero and reverse below zero at the same
+  x coordinate per profile. The netperf chart uses absolute box widths so
+  TCP_STREAM and TCP_MAERTS remain vertically paired on the same payload x.
+- The nginx matrix also includes plain NOMMU SAS using the plain NOMMU nginx
+  rootfs and kernel image. It is limited to one CPU; worker=4 is reported as
+  unavailable because this profile has no `fork()` support.
 - The previous nginx matrix excluded four CPUs for every NOMMU profile. Run
   `39579186764` succeeded for its full nginx matrix; the old worker-4 stall did
   not reproduce. Per user direction, the throughput-stall follow-up is closed

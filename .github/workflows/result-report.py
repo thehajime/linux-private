@@ -51,6 +51,7 @@ LMBENCH_COLUMNS = (
     ("um-mmu-seccomp", "um-mmu(s)"),
     ("um-nommu", "um-nommu"),
     ("um-nommu-seccomp", "um-nommu(s)"),
+    ("um-nommu-plain-sas", "um-nommu-plain-sas"),
     ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)"),
     ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)"),
 )
