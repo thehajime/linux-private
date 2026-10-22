@@ -482,11 +482,16 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		printf 'FAIL\n' >"$OUTPUT/smoke-http.status"
 		fail "HTTP smoke test returned an error or unexpected body"
 	fi
-	tls_outer_timeout=10
-	tls_curl_timeout=5
-	if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
-		tls_outer_timeout=40
-		tls_curl_timeout=30
+	if [[ -n "${NGINX_TLS_CURL_TIMEOUT:-}" ]]; then
+		tls_curl_timeout=$NGINX_TLS_CURL_TIMEOUT
+		tls_outer_timeout=$((tls_curl_timeout + 10))
+	else
+		tls_outer_timeout=10
+		tls_curl_timeout=5
+		if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
+			tls_outer_timeout=40
+			tls_curl_timeout=30
+		fi
 	fi
 	if timeout "${tls_outer_timeout}s" docker exec "$CLIENT" curl --fail --silent --show-error --verbose \
 		--insecure --max-time "$tls_curl_timeout" "https://$GUEST_IP:8443/" >"$OUTPUT/tls.body" \

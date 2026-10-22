@@ -238,9 +238,10 @@ jobs:
           CONNECTIONS: '4'
           THREADS: '2'
           NEEDS_RAWIO: 'true'
-          KERNEL_ARGS: zpoline=1
+          KERNEL_ARGS: zpoline=1${{ inputs.swmmu_direct && ' swmmu_direct=1' || '' }}
           NGINX_WRK_TIMEOUT_SECONDS: '60'
           NGINX_WRK_WARMUP_TIMEOUT_SECONDS: '90'
+          NGINX_TLS_CURL_TIMEOUT: '60'
         run: |
           set -euo pipefail
           kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs-artifact/manifest.txt")
