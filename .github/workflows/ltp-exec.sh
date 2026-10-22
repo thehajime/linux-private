@@ -2,6 +2,11 @@
 
 set -x
 mount proc /proc -t proc
+mkdir -p /sys
+mount -t sysfs sysfs /sys || {
+	echo "Failed to mount guest sysfs on /sys" >&2
+	exit 1
+}
 mkdir -p /dev/shm
 mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
 mkdir -p /dev/pts
