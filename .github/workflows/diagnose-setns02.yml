@@ -13,8 +13,18 @@ on:
         required: false
         type: boolean
         default: false
+      run_timer:
+        description: Compare clock_gettime04 with and without UML virtualization override
+        required: false
+        type: boolean
+        default: false
       nginx_source_run_id:
         description: CI run containing the candidate nginx rootfs and UML image
+        required: false
+        type: string
+        default: '39753406782'
+      timer_source_run_id:
+        description: CI run containing the candidate UML image and uninstrumented LTP build
         required: false
         type: string
         default: '39753406782'
@@ -25,7 +35,7 @@ permissions:
 
 jobs:
   setns02-gdb:
-    if: ${{ !inputs.run_nginx }}
+    if: ${{ !inputs.run_nginx && !inputs.run_timer }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -254,3 +264,125 @@ jobs:
           path: output/nginx-tls-diagnostic/
           if-no-files-found: warn
           retention-days: 14
+
+  clock-gettime-virt-check:
+    if: ${{ inputs.run_timer }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download candidate UML image
+        uses: actions/download-artifact@v7
+        with:
+          name: uml-docker-image-um-nommu-sas
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/uml-image
+
+      - name: Download uninstrumented LTP build
+        uses: actions/download-artifact@v7
+        with:
+          name: ltp-alpine-um-nommu.tar.gz
+          run-id: ${{ inputs.timer_source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/ltp-install
+
+      - name: Extract candidate UML kernel and LTP runtime
+        run: |
+          set -euo pipefail
+          docker load -i "$(find "$RUNNER_TEMP/uml-image" -maxdepth 1 -name '*.tar' -print -quit)"
+          cid=$(docker create uml-ci/alpine:edge-um-nommu-sas)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 "$RUNNER_TEMP/vmlinux"
+          mkdir -p "$RUNNER_TEMP/ltp-root" "$RUNNER_TEMP/ltp-home"
+          tar -xzf "$RUNNER_TEMP/ltp-install/ltp-alpine-um-nommu.tar.gz" \
+            -C "$RUNNER_TEMP/ltp-root"
+          test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
+
+      - name: Check out matching LTP reporting helpers
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/ltp
+          ref: hajime/nommu-runtime-upstream
+          path: ltp-source
+          submodules: recursive
+
+      - name: Create privileged UML test container
+        run: |
+          set -euo pipefail
+          docker_args=(
+            --name ltp-clock-debug --privileged -t
+            -v /boot:/boot -v /home:/home -v /dev:/dev
+            -v "$GITHUB_WORKSPACE:/github/workspace"
+            -v "$RUNNER_TEMP/ltp-root/opt/ltp:/opt/ltp"
+            -v "$RUNNER_TEMP/ltp-home:/github/home"
+            -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro"
+          )
+          docker create "${docker_args[@]}" \
+            --entrypoint /opt/uml-host-tools/busybox \
+            uml-ci/alpine:edge-um-nommu-sas \
+            sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
+          docker start ltp-clock-debug
+
+      - name: Compare clock_gettime04 with and without UML override
+        env:
+          LTP_TESTNAME: um-nommu-sas-zpoline
+          LTP_ARTIFACT_NAME: um-nommu
+          UML_OPTIONS: zpoline=1
+          LTP_FULL_RUN: 'false'
+          LTP_RUN_PATTERN_OVERRIDE: '^clock_gettime04$'
+          LTP_SUITE_TIMEOUT: 10m
+          LTP_TIMEOUT_MUL: 10
+          LTP_INSTALL_PREEXTRACTED: 1
+          SAS_CAPTURE_PYTHON_MAPS: 'false'
+        run: |
+          set -uo pipefail
+          mkdir -p output/ltp
+          run_guest() {
+            local override=${1:-}
+            local label=${2:-default}
+            local status=0
+            local -a extra_env=()
+            if [ -n "$override" ]; then
+              extra_env=(-e "LTP_VIRT_OVERRIDE=$override")
+            fi
+            docker exec -t \
+              -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN \
+              -e LTP_RUN_PATTERN_OVERRIDE -e LTP_TIMEOUT_MUL -e LTP_SUITE_TIMEOUT \
+              -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS \
+              "${extra_env[@]}" ltp-clock-debug \
+              /opt/uml-host-tools/busybox sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
+              2>&1 | tee "output/ltp/clock-gettime04-${label}.log" || status=${PIPESTATUS[0]}
+            cp "output/ltp/result-${LTP_TESTNAME}.json" \
+              "output/ltp/result-clock-gettime04-${label}.json"
+            cp "output/ltp/ltp-result-${LTP_TESTNAME}.html" \
+              "output/ltp/clock-gettime04-${label}.html"
+            return "$status"
+          }
+
+          run_guest '' default || true
+          run_guest other uml-override || true
+          for result in output/ltp/result-clock-gettime04-*.json; do
+            jq -r '.results[] | select(.test_fqn == "clock_gettime04") |
+              [.status,.test.failed,.test.passed,
+               (.test.log|split("\n")|map(select(test("Running in a virtual machine|TFAIL|TPASS")))|join(" | "))] | @tsv' \
+              "$result"
+          done
+
+      - name: Upload clock_gettime04 comparison
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: clock-gettime04-uml-override-diagnostic
+          path: output/ltp/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop UML test container
+        if: always()
+        run: docker rm -f ltp-clock-debug || true

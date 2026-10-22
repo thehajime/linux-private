@@ -149,9 +149,13 @@ else
 	mv /tmp/ltp-entrypoint.sh .github/workflows/ltp-entrypoint.sh
 	case "$LTP_TESTNAME" in
 		um-nommu*)
-			run_faketty sh -x .github/workflows/ltp-entrypoint.sh \
-				LTP_SINGLE_FS_TYPE=ext4 LTP_TESTNAME="$LTP_TESTNAME" \
+			set -- LTP_SINGLE_FS_TYPE=ext4
+			if [ -n "${LTP_VIRT_OVERRIDE:-}" ]; then
+				set -- "$@" "LTP_VIRT_OVERRIDE=$LTP_VIRT_OVERRIDE"
+			fi
+			set -- "$@" LTP_TESTNAME="$LTP_TESTNAME" \
 				LTP_SUITE_TIMEOUT="$LTP_SUITE_TIMEOUT"
+			run_faketty sh -x .github/workflows/ltp-entrypoint.sh "$@"
 			;;
 		*)
 			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \

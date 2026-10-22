@@ -458,7 +458,7 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		fail "could not start separate curl/wrk client container"
 	elif ! docker exec "$CLIENT" /usr/bin/curl --version \
 		>>"$OUTPUT/client-setup.log" 2>&1 || \
-		! docker exec "$CLIENT" /usr/bin/wrk --version \
+		! docker exec "$CLIENT" /usr/bin/wrk -v \
 		>>"$OUTPUT/client-setup.log" 2>&1; then
 		fail "host curl/wrk binaries are not runnable in the separate client container"
 	fi
