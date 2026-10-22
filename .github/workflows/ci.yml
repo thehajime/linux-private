@@ -1215,7 +1215,10 @@ jobs:
           chmod +x "$RUNNER_TEMP/lmbench-gcc"
           lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
           mkdir -p "$lmbench_bin"
-          lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DCONFIG_NOMMU -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
+          # This benchmark executes on the native Linux host.  Do not define
+          # CONFIG_NOMMU here: it selects lmbench's clone-based NOMMU pipe
+          # worker and leaves bw_pipe_64k hanging during teardown.
+          lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
           if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
             gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
             lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"

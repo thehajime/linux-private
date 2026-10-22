@@ -238,11 +238,11 @@ GitHub Actions. The report gate needs a new run to publish and verify the site.
   not reproduce. Per user direction, the throughput-stall follow-up is closed
   for now. The separate historical worker SIGSEGV remains an independent item.
 - Native lmbench printed `Pipe bandwidth: 3027.57 MB/sec` and then exited with
-  137 after its 120-second timeout. The native host benchmark had been compiled
+  137 after its 120-second timeout in run `39699280247`. Inspection of the
+  exact compiler command showed the native host benchmark was still compiled
   with `CONFIG_NOMMU`, selecting lmbench's clone-based NOMMU pipe path. The
-  native build now omits that define and propagates pipeline failures. The
-  report retains a partial pipe measurement but labels the timeout until the
-  new run verifies normal cleanup.
+  CI now omits that define; verify `bw_pipe_64k` completes and the host
+  benchmark job exits normally in the rerun.
 
 ### LTP candidate CI configuration follow-up (2026-10-22)
 
