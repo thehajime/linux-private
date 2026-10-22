@@ -493,7 +493,7 @@ jobs:
           PY
             sampler_pid=$!
             if command -v perf >/dev/null 2>&1; then
-              sudo perf record -F 19 -g --call-graph fp --max-stack 16 -p "$host_pids" \
+              sudo perf record -F 19 -g --call-graph fp -p "$host_pids" \
                 -o output/ltp/nanosleep01-host.perf.data \
                 > output/ltp/nanosleep01-host-perf-record.log 2>&1 &
               perf_pid=$!
