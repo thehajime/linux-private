@@ -30,7 +30,8 @@ else
 fi
 
 cp .github/workflows/ltp-skip /ltp-skip
-if [ "$LTP_TESTNAME" = um-nommu-sas-zpoline ]; then
+if [ "$LTP_TESTNAME" = um-nommu-sas-zpoline ] ||
+	[ "$LTP_TESTNAME" = um-nommu-plain-sas-zpoline ]; then
 	mkdir -p output/ltp/uml-python-debug
 fi
 case "$LTP_TESTNAME" in
@@ -60,7 +61,7 @@ case "$LTP_TESTNAME" in
 		echo perf_event_open03 >> /ltp-skip
 		echo "Skipping known perf_event_open03 failure for $LTP_TESTNAME"
 		;;
-	um-nommu-sas-zpoline)
+	um-nommu-sas-zpoline|um-nommu-plain-sas-zpoline)
 		# This LTP case deliberately dereferences a low address in the guest.
 		# On SAS NOMMU the kernel panics without exiting UML, leaving Kirk's
 		# docker exec blocked indefinitely and preventing diagnostics upload.

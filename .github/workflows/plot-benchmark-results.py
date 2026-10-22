@@ -9,14 +9,17 @@ from pathlib import Path
 
 
 PROFILES = (
-    ("native", "native", "#c0392b"),
-    ("um-mmu", "um", "#27ae60"),
+    ("native", "(native)", "#c0392b"),
+    ("um-mmu", "um-mmu(p)", "#27ae60"),
     ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu", "#d68910"),
+    ("um-mmu-tt-seccomp", "um-mmu-tt(s)", "#196f3d"),
+    ("um-nommu", "um-nommu(p)", "#d68910"),
     ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-plain-sas", "um-nommu-plain-sas", "#566573"),
-    ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)", "#0000ff"),
-    ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)", "#4169e1"),
+    ("um-nommu-tt-seccomp", "um-nommu-tt(s)", "#873600"),
+    ("um-nommu-plain-sas", "um-nommu-sas(s)", "#566573"),
+    ("um-nommu-plain-sas-zpoline", "um-nommu-sas(z)", "#85929e"),
+    ("um-nommu-sas-seccomp", "um-nommu-sas-swmmu(s)", "#0000ff"),
+    ("um-nommu-sas-zpoline", "um-nommu-sas-swmmu(z)", "#4169e1"),
 )
 LATENCY_ROWS = (
     ("select-10", "select-10"),
@@ -104,9 +107,10 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, pai
 
     colors = [color for _target, _label, color in PROFILES]
     names = [label for _target, label, _color in PROFILES]
-    group_width = 1.5 if paired else 0.9
-    width = group_width / len(files)
-    offsets = [(index - (len(files) - 1) / 2) * width for index in range(len(files))]
+    group_width = 0.72 if paired else 0.9
+    step = group_width / len(files)
+    width = step * 0.62 if paired else step
+    offsets = [(index - (len(files) - 1) / 2) * step for index in range(len(files))]
     xtics = ", ".join(f"{gnuplot_quote(label)} {position}" for label, position in labels)
     plot_items = []
     for index, (path, _name, color) in enumerate(files):

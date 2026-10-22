@@ -25,13 +25,21 @@ KUNIT_TARGETS = (
 LTP_TARGETS = (
     "native", "um-mmu", "um-mmu-seccomp", "um-mmu-tt-seccomp",
     "um-nommu", "um-nommu-seccomp", "um-nommu-tt-seccomp",
-    "um-nommu-plain-sas", "um-nommu-sas-seccomp",
-    "um-nommu-sas-zpoline", "riscv-nommu",
+    "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline",
+    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
 )
 LTP_TARGET_LABELS = {
-    "um-nommu-plain-sas": "um-nommu-plain-sas (plain SAS, seccomp; SWMMU off)",
-    "um-nommu-sas-seccomp": "um-nommu (sas-seccomp; SWMMU on)",
-    "um-nommu-sas-zpoline": "um-nommu (sas-zpoline; SWMMU on)",
+    "native": "(native)",
+    "um-mmu": "um-mmu(p)",
+    "um-mmu-seccomp": "um-mmu(s)",
+    "um-mmu-tt-seccomp": "um-mmu-tt(s)",
+    "um-nommu": "um-nommu(p)",
+    "um-nommu-seccomp": "um-nommu(s)",
+    "um-nommu-tt-seccomp": "um-nommu-tt(s)",
+    "um-nommu-plain-sas": "um-nommu-sas(s)",
+    "um-nommu-plain-sas-zpoline": "um-nommu-sas(z)",
+    "um-nommu-sas-seccomp": "um-nommu-sas-swmmu(s)",
+    "um-nommu-sas-zpoline": "um-nommu-sas-swmmu(z)",
 }
 LTP_CRASH_SIGNATURES = (
     (
@@ -46,14 +54,17 @@ LTP_CRASH_SIGNATURES = (
     ("SIGABRT", re.compile(r"\bAborted \(core dumped\)|\bSIGABRT\b", re.IGNORECASE)),
 )
 LMBENCH_COLUMNS = (
-    ("native", "native"),
-    ("um-mmu", "um"),
+    ("native", "(native)"),
+    ("um-mmu", "um-mmu(p)"),
     ("um-mmu-seccomp", "um-mmu(s)"),
-    ("um-nommu", "um-nommu"),
+    ("um-mmu-tt-seccomp", "um-mmu-tt(s)"),
+    ("um-nommu", "um-nommu(p)"),
     ("um-nommu-seccomp", "um-nommu(s)"),
-    ("um-nommu-plain-sas", "um-nommu-plain-sas"),
-    ("um-nommu-sas-seccomp", "um-nommu (sas-seccomp)"),
-    ("um-nommu-sas-zpoline", "um-nommu (sas-zpoline)"),
+    ("um-nommu-tt-seccomp", "um-nommu-tt(s)"),
+    ("um-nommu-plain-sas", "um-nommu-sas(s)"),
+    ("um-nommu-plain-sas-zpoline", "um-nommu-sas(z)"),
+    ("um-nommu-sas-seccomp", "um-nommu-sas-swmmu(s)"),
+    ("um-nommu-sas-zpoline", "um-nommu-sas-swmmu(z)"),
 )
 LMBENCH_TABLE_ROWS = (
     ("select-10", "select-10"),
@@ -616,7 +627,7 @@ def render(snapshot, previous):
         item.get("target"): item.get("value")
         for item in snapshot.get("benchmark", []) if item.get("name") == "getpid"
     }
-    lines.extend(["### do_getpid (nsec)", "", "| | " + " | ".join(profiles) + " |",
+    lines.extend(["### do_getpid (nsec)", "", "| | " + " | ".join(profile_headers) + " |",
                   "|---|" + "---:|" * len(profiles)])
     lines.append("| getpid | " + " | ".join(
         f"{getpid_values[profile]:.2f}" if isinstance(getpid_values.get(profile), (int, float)) else "N/A"
@@ -691,7 +702,7 @@ def render(snapshot, previous):
                     host_label = f"host, {host_counts[0]} CPUs" if host_counts and host_counts[0] else "host"
                     series.extend((profile, cpus, f"native ({host_label})") for cpus in cpu_counts)
                 else:
-                    smp = "SMP=y" if profile.startswith("um-mmu") else "SMP=n"
+                    smp = "SMP=y" if profile.startswith("um-mmu") or profile in ("um-nommu", "um-nommu-seccomp") else "SMP=n"
                     series.extend((profile, cpus,
                                    f"{label} ({smp}, {cpus} CPU{'s' if cpus != 1 else ''})")
                                   for cpus in cpu_counts)
@@ -746,7 +757,7 @@ def render(snapshot, previous):
     lines.extend([
         "### LTP results",
         "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
-        "Mode labels: `um-nommu-plain-sas` is plain NOMMU SAS with seccomp and SWMMU disabled; `um-nommu (sas-seccomp)` and `um-nommu (sas-zpoline)` use SWMMU.",
+        "Profile labels follow the CI matrix: `(native)`, `um-mmu(p/s)`, `um-mmu-tt(s)`, `um-nommu(p/s)`, `um-nommu-tt(s)`, `um-nommu-sas(s/z)`, and `um-nommu-sas-swmmu(s/z)`.",
         "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
         "|---|---|---:|---:|---:|---:|---:|",
     ])

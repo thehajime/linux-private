@@ -69,16 +69,15 @@ dispatch inputs and uses the selected kernel ref plus the pinned aports commit
 recorded in each UML rootfs manifest. A native runner baseline is measured in a
 separate folded matrix while the UML rootfs and kernels build. APKs are built
 once. MMU, plain NOMMU, and SWMMU rootfs artifacts are each prepared once and
-shared across six UML profiles (`um-mmu`, `um-mmu-seccomp`, `um-nommu`,
-`um-nommu-seccomp`, SAS with `zpoline=0`, and SAS with `zpoline=1`). Every
-supported UML profile runs worker counts 1/4 and wrk connections 4/16/64 from
+shared across UML runtime profiles. Every supported UML profile runs worker
+counts 1/4 and wrk connections 4/16/64 from
 a separate client container. The native baseline measures the same matrix on
-the runner and records its available CPU count. MMU
-profiles cross one and four online CPUs with both worker counts and all client
-connection counts. Plain NOMMU PTRACE is single CPU; the plain NOMMU SMP
-comparison uses `um-nommu-seccomp`, with a one-CPU baseline and a separately
-built four-CPU `CONFIG_SMP=y` kernel. NOMMU SAS remains single CPU because UML's
-NOMMU SAS configuration disables SMP. The top-level matrix
+the runner and records its available CPU count. MMU profiles cross one and
+four online CPUs with both worker counts and all client
+connection counts. Plain NOMMU uses a single `CONFIG_SMP=y` kernel build for
+both PTRACE and seccomp profiles; the PTRACE runtime remains limited to one
+online CPU, while the seccomp profile compares one and four. NOMMU SAS remains
+single CPU because UML's NOMMU SAS configuration disables SMP. The top-level matrix
 calls the reusable workflow per leg so GitHub can group the legs at the caller.
 The run records the online CPU list. Each leg
 uploads raw logs and `measurement.json`; `bench-result` aggregates profile
@@ -89,6 +88,17 @@ LTP remains under investigation by Task A, so its result must be read as
 diagnostic evidence rather than a resolved or stable test outcome.
 Manual diagnostic dispatch also skips benchmark-2 iperf3/netperf jobs;
 lmbench benchmark-1 remains enabled.
+
+### CI profile names
+
+Issue #4 reports, comparison plots, and visible UML build, benchmark, and LTP
+matrix job names use the same profile labels: `(native)`, `um-mmu(p)`,
+`um-mmu(s)`, `um-mmu-tt(s)`, `um-nommu(p)`, `um-nommu(s)`,
+`um-nommu-tt(s)`, `um-nommu-sas(s)`, `um-nommu-sas(z)`,
+`um-nommu-sas-swmmu(s)`, and `um-nommu-sas-swmmu(z)`. The parenthetical
+suffix identifies the runtime: `p` for PTRACE, `s` for seccomp, and `z` for
+zpoline. Plain SAS means SWMMU is disabled; `sas-swmmu` means SWMMU is enabled.
+Artifact and image identifiers remain machine-safe internal names.
 The SWMMU package/rootfs build runs as root in the Alpine chroot so it can
 create the unprivileged `abuild` user, then restores runner ownership before
 uploading diagnostics.

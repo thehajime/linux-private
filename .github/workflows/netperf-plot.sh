@@ -9,9 +9,24 @@ import sys
 
 root = sys.argv[1]
 profiles = (
-    "native", "um-mmu", "um-mmu-seccomp", "um-nommu", "um-nommu-seccomp",
-    "um-nommu-plain-sas", "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
+    "native", "um-mmu", "um-mmu-seccomp", "um-mmu-tt-seccomp",
+    "um-nommu", "um-nommu-seccomp", "um-nommu-tt-seccomp",
+    "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline",
+    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
 )
+display_names = {
+    "native": "(native)",
+    "um-mmu": "um-mmu(p)",
+    "um-mmu-seccomp": "um-mmu(s)",
+    "um-mmu-tt-seccomp": "um-mmu-tt(s)",
+    "um-nommu": "um-nommu(p)",
+    "um-nommu-seccomp": "um-nommu(s)",
+    "um-nommu-tt-seccomp": "um-nommu-tt(s)",
+    "um-nommu-plain-sas": "um-nommu-sas(s)",
+    "um-nommu-plain-sas-zpoline": "um-nommu-sas(z)",
+    "um-nommu-sas-seccomp": "um-nommu-sas-swmmu(s)",
+    "um-nommu-sas-zpoline": "um-nommu-sas-swmmu(z)",
+}
 payloads = (64, 128, 256, 512, 1024, 1500, 65507)
 results = {}
 out_dir = os.path.join(root, "out")
@@ -50,7 +65,7 @@ for target in profiles:
 
 for test, heading in (("TCP_STREAM", "TCP_STREAM"), ("TCP_MAERTS", "TCP_MAERTS")):
     print(f"\n### netperf bench ({heading}) (Mbps)\n")
-    print("| Payload bytes | " + " | ".join(profiles) + " |")
+    print("| Payload bytes | " + " | ".join(display_names[profile] for profile in profiles) + " |")
     print("|---:|" + "---:|" * len(profiles))
     for size in payloads:
         cells = []

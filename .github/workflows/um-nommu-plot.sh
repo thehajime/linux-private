@@ -4,8 +4,24 @@ OUTPUT="$1"
 mkdir -p "$OUTPUT/out"
 
 declare -A getpid forward reverse
-profiles=(native um-mmu um-mmu-seccomp um-nommu um-nommu-seccomp \
-          um-nommu-plain-sas um-nommu-sas-seccomp um-nommu-sas-zpoline)
+profiles=(native um-mmu um-mmu-seccomp um-mmu-tt-seccomp um-nommu \
+          um-nommu-seccomp um-nommu-tt-seccomp um-nommu-plain-sas \
+          um-nommu-plain-sas-zpoline um-nommu-sas-seccomp um-nommu-sas-zpoline)
+display_profile() {
+    case "$1" in
+        native) echo '(native)' ;;
+        um-mmu) echo 'um-mmu(p)' ;;
+        um-mmu-seccomp) echo 'um-mmu(s)' ;;
+        um-mmu-tt-seccomp) echo 'um-mmu-tt(s)' ;;
+        um-nommu) echo 'um-nommu(p)' ;;
+        um-nommu-seccomp) echo 'um-nommu(s)' ;;
+        um-nommu-tt-seccomp) echo 'um-nommu-tt(s)' ;;
+        um-nommu-plain-sas) echo 'um-nommu-sas(s)' ;;
+        um-nommu-plain-sas-zpoline) echo 'um-nommu-sas(z)' ;;
+        um-nommu-sas-seccomp) echo 'um-nommu-sas-swmmu(s)' ;;
+        um-nommu-sas-zpoline) echo 'um-nommu-sas-swmmu(z)' ;;
+    esac
+}
 mkdir -p "$OUTPUT/out"
 
 # Keep normalized legacy files for consumers that still read them.  Missing
@@ -65,7 +81,7 @@ value_or_na() {
 
 printf '\n### do_getpid bench (nsec)\n\n'
 printf '| |'
-for profile in "${profiles[@]}"; do printf '%s|' "$profile"; done
+for profile in "${profiles[@]}"; do printf '%s|' "$(display_profile "$profile")"; done
 printf '\n|--|'
 for profile in "${profiles[@]}"; do printf -- '--|'; done
 printf '\n|getpid|'
@@ -74,7 +90,7 @@ printf '\n'
 
 printf '\n### iperf3 bench (Mbps)\n\n'
 printf '| |'
-for profile in "${profiles[@]}"; do printf '%s|' "$profile"; done
+for profile in "${profiles[@]}"; do printf '%s|' "$(display_profile "$profile")"; done
 printf '\n|--|'
 for profile in "${profiles[@]}"; do printf -- '--|'; done
 printf '\n|iperf3(f)|'

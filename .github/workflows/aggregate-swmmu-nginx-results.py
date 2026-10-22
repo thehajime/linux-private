@@ -14,6 +14,7 @@ PROFILES = (
     "um-nommu",
     "um-nommu-seccomp",
     "um-nommu-plain-sas",
+    "um-nommu-plain-sas-zpoline",
     "um-nommu-sas-seccomp",
     "um-nommu-sas-zpoline",
 )
@@ -26,6 +27,7 @@ CPU_COUNTS = {
     "um-nommu": (1,),
     "um-nommu-seccomp": (1, 4),
     "um-nommu-plain-sas": (1,),
+    "um-nommu-plain-sas-zpoline": (1,),
     "um-nommu-sas-seccomp": (1,),
     "um-nommu-sas-zpoline": (1,),
 }

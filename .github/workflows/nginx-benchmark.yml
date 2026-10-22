@@ -5,7 +5,7 @@ on:
 
 jobs:
   nginx_benchmark:
-    name: "nginx benchmark"
+    name: "nginx ${{ matrix.profile == 'um-mmu' && 'um-mmu(p)' || matrix.profile == 'um-mmu-seccomp' && 'um-mmu(s)' || matrix.profile == 'um-nommu' && 'um-nommu(p)' || matrix.profile == 'um-nommu-seccomp' && 'um-nommu(s)' || matrix.profile == 'um-nommu-plain-sas' && 'um-nommu-sas(s)' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'um-nommu-sas(z)' || matrix.profile == 'um-nommu-sas-seccomp' && 'um-nommu-sas-swmmu(s)' || 'um-nommu-sas-swmmu(z)' }} (workers=${{ matrix.workers }}, CPUs=${{ matrix.ncpus }}, clients=${{ matrix.connections }})"
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -19,6 +19,7 @@ jobs:
           - um-nommu
           - um-nommu-seccomp
           - um-nommu-plain-sas
+          - um-nommu-plain-sas-zpoline
           - um-nommu-sas-seccomp
           - um-nommu-sas-zpoline
         ncpus: [1, 4]
@@ -30,12 +31,16 @@ jobs:
           # Keep the four-CPU comparison on the seccomp UML profile below.
           - profile: um-mmu
             ncpus: 4
-          # The plain NOMMU SMP comparison uses seccomp userspace; PTRACE
-          # userspace cannot start a multi-CPU UML kernel.
+          # Plain NOMMU has one SMP=y kernel build. PTRACE userspace rejects
+          # booting that kernel with more than one online CPU.
           - profile: um-nommu
             ncpus: 4
           - profile: um-nommu-plain-sas
             ncpus: 4
+          - profile: um-nommu-plain-sas-zpoline
+            ncpus: 4
+          - profile: um-nommu-plain-sas-zpoline
+            workers: 4
           # NOMMU SAS remains unavailable with SMP.
           - profile: um-nommu-sas-seccomp
             ncpus: 4
@@ -47,10 +52,10 @@ jobs:
       NGINX_WORKERS: ${{ matrix.workers }}
       NGINX_CONNECTIONS: ${{ matrix.connections }}
       NGINX_THREADS: ${{ matrix.wrk_threads }}
-      NGINX_IMAGE_NAME: ${{ (matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4 && 'um-nommu-smp' || (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || matrix.profile == 'um-nommu-plain-sas' && 'um-nommu-plain-sas' || 'um-nommu' }}
+      NGINX_IMAGE_NAME: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || (matrix.profile == 'um-nommu-plain-sas' || matrix.profile == 'um-nommu-plain-sas-zpoline') && 'um-nommu-plain-sas' || 'um-nommu' }}
       NGINX_ROOTFS_ARTIFACT: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
-      NGINX_KERNEL_ARGS: ${{ ((matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4) && (matrix.profile == 'um-nommu-seccomp' && 'ncpus=4 seccomp=on' || 'ncpus=4') || matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
-      NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
+      NGINX_KERNEL_ARGS: ${{ ((matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4) && (matrix.profile == 'um-nommu-seccomp' && 'ncpus=4 seccomp=on' || 'ncpus=4') || matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'zpoline=1' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+      NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-plain-sas-zpoline' || matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
@@ -102,8 +107,8 @@ jobs:
           CONNECTIONS: ${{ matrix.connections }}
           PROFILE: ${{ matrix.profile }}
           NCPUS: ${{ matrix.ncpus }}
-          KERNEL_ARGS: ${{ ((matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4) && (matrix.profile == 'um-nommu-seccomp' && 'ncpus=4 seccomp=on' || 'ncpus=4') || matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas' && 'seccomp=on' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
-          NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-sas-zpoline' }}
+          KERNEL_ARGS: ${{ ((matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4) && (matrix.profile == 'um-nommu-seccomp' && 'ncpus=4 seccomp=on' || 'ncpus=4') || matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'zpoline=1' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1' || '' }}
+          NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-plain-sas-zpoline' || matrix.profile == 'um-nommu-sas-zpoline' }}
           # SAS/SWMMU may need longer request deadlines than other UML profiles.
           NGINX_WRK_WARMUP_SECONDS: "15"
           NGINX_WRK_TIMEOUT_SECONDS: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && '60' || '30' }}

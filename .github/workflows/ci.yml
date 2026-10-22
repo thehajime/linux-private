@@ -216,7 +216,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - displayTargetName: ubuntu-22.04
+          - displayTargetName: um-mmu(p)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
@@ -227,7 +227,7 @@ jobs:
             mode: um-mmu
             userspace_profile: alpine
             base_image: mirror.gcr.io/library/alpine:edge
-          - displayTargetName: ubuntu-22.04 (time-travel)
+          - displayTargetName: um-mmu-tt(s)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
@@ -239,7 +239,7 @@ jobs:
             userspace_profile: alpine
             base_image: mirror.gcr.io/library/alpine:edge
             runtime_opts: time-travel
-          - displayTargetName: ubuntu-22.04 (nommu time-travel)
+          - displayTargetName: um-nommu-tt(s)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
@@ -251,7 +251,7 @@ jobs:
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
             runtime_opts: time-travel
-          - displayTargetName: ubuntu-22.04 (plain nommu-sas)
+          - displayTargetName: um-nommu-sas(s)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
@@ -262,7 +262,7 @@ jobs:
             mode: um-nommu
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
-          - displayTargetName: ubuntu-22.04 (nommu)
+          - displayTargetName: um-nommu(p)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
@@ -273,18 +273,7 @@ jobs:
             mode: um-nommu
             userspace_profile: nommu-plain
             base_image: mirror.gcr.io/library/alpine:edge
-          - displayTargetName: ubuntu-22.04 (nommu SMP, four CPUs)
-            os: unix
-            runs_on: ubuntu-22.04
-            shell: bash
-            defconfig: x86_64_defconfig
-            add_configs: CONFIG_UML_NET_VECTOR=y CFLAGS+="-DCONFIG_UML_NET_VECTOR"
-            kunit_opts: --kconfig_add CONFIG_MMU=n --kconfig_add CONFIG_NOMMU_SWMMU=n --kconfig_add CONFIG_NOMMU_SWMMU_DEFAULT_ON=n --kconfig_add CONFIG_KUNIT_UML_PCI=n
-            testname: um-nommu-smp
-            mode: um-nommu
-            userspace_profile: nommu-plain
-            base_image: mirror.gcr.io/library/alpine:edge
-          - displayTargetName: ubuntu-22.04 (nommu-sas)
+          - displayTargetName: um-nommu-sas-swmmu(s)
             os: unix
             runs_on: ubuntu-22.04
             shell: bash
@@ -295,7 +284,7 @@ jobs:
             mode: um-nommu
             userspace_profile: nommu-swmmu
             base_image: mirror.gcr.io/library/alpine:edge
-    name: "UML: build (${{ matrix.testname }})"
+    name: "UML: build (${{ matrix.displayTargetName }})"
     timeout-minutes: 100
     permissions:
       contents: read
@@ -431,7 +420,7 @@ jobs:
            sudo ip link set up dev tap100
            iperf3 -s &
       - name: (FIXME) defconfig rewrite for nommu
-        if: matrix.testname == 'um-nommu' || matrix.testname == 'um-nommu-smp' || matrix.testname == 'um-nommu-tt'
+        if: matrix.testname == 'um-nommu' || matrix.testname == 'um-nommu-tt'
         run: |
           echo "# CONFIG_MMU is not set" >> arch/um/configs/x86_64_defconfig
           echo "# CONFIG_NOMMU_SWMMU_DEFAULT_ON is not set" >> arch/um/configs/x86_64_defconfig
@@ -459,7 +448,6 @@ jobs:
             }
           done
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
-                "${{ matrix.testname }}" == "um-nommu-smp" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
                 "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
             scripts/config --file build/.config --disable NOMMU_SWMMU_DEFAULT_ON
@@ -468,7 +456,7 @@ jobs:
             ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' build/.config
             ! grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
             ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' build/.config
-            if [[ "${{ matrix.testname }}" == "um-nommu-smp" ]]; then
+            if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
               scripts/config --file build/.config --enable SMP --set-val NR_CPUS 4
               make ARCH=um O=build olddefconfig
               grep -q '^CONFIG_SMP=y$' build/.config
@@ -563,7 +551,6 @@ jobs:
           set -e
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
-                "${{ matrix.testname }}" == "um-nommu-smp" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
                 "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
             grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
@@ -598,7 +585,6 @@ jobs:
             }
           done
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
-                "${{ matrix.testname }}" == "um-nommu-smp" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
                 "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
             scripts/config --disable NOMMU_SWMMU_DEFAULT_ON --disable NOMMU_SWMMU
@@ -606,7 +592,7 @@ jobs:
             ! grep -q '^CONFIG_NOMMU_SWMMU_DEFAULT_ON=y$' .config
             ! grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
             ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' .config
-            if [[ "${{ matrix.testname }}" == "um-nommu-smp" ]]; then
+            if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
               scripts/config --enable SMP --set-val NR_CPUS 4
               make ARCH=um olddefconfig
               grep -q '^CONFIG_SMP=y$' .config
@@ -706,8 +692,7 @@ jobs:
           rc=${PIPESTATUS[0]}
           set -e
           if [[ $rc -ne 0 && $rc -ne 124 && $rc -ne 143 ]]; then exit "$rc"; fi
-          if [[ "${{ matrix.testname }}" == "um-nommu" || \
-                "${{ matrix.testname }}" == "um-nommu-smp" ]]; then
+          if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
             grep -q 'NOMMU_USERSPACE_READY' /tmp/log.txt
           fi
           echo "========="
@@ -904,47 +889,64 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - displayTargetName: um-mmu
+          - displayTargetName: um-mmu(p)
             image_name: um-mmu
             testname: um-mmu
             vmlinux_opt: ""
             runs_on: ubuntu-22.04
-          - displayTargetName: um-mmu-s
+          - displayTargetName: um-mmu(s)
             image_name: um-mmu
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
             runs_on: ubuntu-22.04
-          - displayTargetName: um-nommu
+          - displayTargetName: um-mmu-tt(s)
+            image_name: um-mmu-tt
+            testname: um-mmu-tt-seccomp
+            vmlinux_opt: "time-travel seccomp=on"
+            runs_on: ubuntu-22.04
+          - displayTargetName: um-nommu(p)
             image_name: um-nommu
             testname: um-nommu
             vmlinux_opt: ""
             runs_on: ubuntu-22.04
             base_tag: edge
-          - displayTargetName: um-nommu-s
+          - displayTargetName: um-nommu(s)
             image_name: um-nommu
             testname: um-nommu-seccomp
             vmlinux_opt: "seccomp=on"
             runs_on: ubuntu-22.04
             base_tag: edge
-          - displayTargetName: um-nommu-plain-sas
+          - displayTargetName: um-nommu-tt(s)
+            image_name: um-nommu-tt
+            testname: um-nommu-tt-seccomp
+            vmlinux_opt: "time-travel seccomp=on"
+            runs_on: ubuntu-22.04
+            base_tag: edge
+          - displayTargetName: um-nommu-sas(s)
             image_name: um-nommu-plain-sas
             testname: um-nommu-plain-sas
             vmlinux_opt: "seccomp=on"
             runs_on: ubuntu-22.04
             base_tag: edge
-          - displayTargetName: um-nommu-sas-s
+          - displayTargetName: um-nommu-sas(z)
+            image_name: um-nommu-plain-sas
+            testname: um-nommu-plain-sas-zpoline
+            vmlinux_opt: "zpoline=1"
+            runs_on: ubuntu-22.04
+            base_tag: edge
+          - displayTargetName: um-nommu-sas-swmmu(s)
             image_name: um-nommu-sas
             testname: um-nommu-sas-seccomp
             vmlinux_opt: "zpoline=0 swmmu_direct=1"
             runs_on: ubuntu-22.04
             base_tag: edge
-          - displayTargetName: um-nommu-sas-z
+          - displayTargetName: um-nommu-sas-swmmu(z)
             image_name: um-nommu-sas
             testname: um-nommu-sas-zpoline
             vmlinux_opt: "zpoline=1 swmmu_direct=1"
             runs_on: ubuntu-22.04
             base_tag: edge
-    name: "UML: bench (${{ matrix.testname }}) "
+    name: "UML: bench (${{ matrix.displayTargetName }}) "
     timeout-minutes: 100
     steps:
       - name: Check out CI benchmark helpers
@@ -1390,74 +1392,80 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - displayTargetName: um-mmu
+          - displayTargetName: um-mmu(p)
             image_name: uml-ci/alpine:edge-um-mmu
             image_artifact: uml-docker-image-um-mmu
             testname: um-mmu
             vmlinux_opt: ""
             name: um-mmu
-          - displayTargetName: um-mmu-s
+          - displayTargetName: um-mmu(s)
             image_name: uml-ci/alpine:edge-um-mmu
             image_artifact: uml-docker-image-um-mmu
             testname: um-mmu-seccomp
             vmlinux_opt: "seccomp=on"
             name: um-mmu
-          - displayTargetName: um-nommu
-            image_name: uml-ci/alpine:edge-um-nommu
-            image_artifact: uml-docker-image-um-nommu
-            testname: um-nommu
-            vmlinux_opt: ""
-            name: um-nommu
-          - displayTargetName: um-mmu-tt-s
+          - displayTargetName: um-mmu-tt(s)
             image_name: uml-ci/alpine:edge-um-mmu-tt
             image_artifact: uml-docker-image-um-mmu-tt
             testname: um-mmu-tt-seccomp
             vmlinux_opt: "time-travel seccomp=on"
             name: um-mmu
-          - displayTargetName: um-nommu-tt-s
-            image_name: uml-ci/alpine:edge-um-nommu-tt
-            image_artifact: uml-docker-image-um-nommu-tt
-            testname: um-nommu-tt-seccomp
-            vmlinux_opt: "time-travel seccomp=on"
+          - displayTargetName: um-nommu(p)
+            image_name: uml-ci/alpine:edge-um-nommu
+            image_artifact: uml-docker-image-um-nommu
+            testname: um-nommu
+            vmlinux_opt: ""
             name: um-nommu
-          - displayTargetName: um-nommu-plain-sas-s
-            image_name: uml-ci/alpine:edge-um-nommu-plain-sas
-            image_artifact: uml-docker-image-um-nommu-plain-sas
-            testname: um-nommu-plain-sas
-            vmlinux_opt: "seccomp=on"
-            name: um-nommu
-          - displayTargetName: um-nommu-s
+          - displayTargetName: um-nommu(s)
             image_name: uml-ci/alpine:edge-um-nommu
             image_artifact: uml-docker-image-um-nommu
             testname: um-nommu-seccomp
             vmlinux_opt: "seccomp=on"
             name: um-nommu
-          - displayTargetName: qemu-riscv-nommu
-            image_name: ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-dfebc378bc04da60d0bb9ec86989b56f7f1e3909
-            image_artifact: ''
-            testname: riscv-nommu
-            vmlinux_opt: ""
-            name: riscv-nommu
-          - displayTargetName: native
+          - displayTargetName: um-nommu-tt(s)
+            image_name: uml-ci/alpine:edge-um-nommu-tt
+            image_artifact: uml-docker-image-um-nommu-tt
+            testname: um-nommu-tt-seccomp
+            vmlinux_opt: "time-travel seccomp=on"
+            name: um-nommu
+          - displayTargetName: um-nommu-sas(s)
+            image_name: uml-ci/alpine:edge-um-nommu-plain-sas
+            image_artifact: uml-docker-image-um-nommu-plain-sas
+            testname: um-nommu-plain-sas
+            vmlinux_opt: "seccomp=on"
+            name: um-nommu
+          - displayTargetName: um-nommu-sas(z)
+            image_name: uml-ci/alpine:edge-um-nommu-plain-sas
+            image_artifact: uml-docker-image-um-nommu-plain-sas
+            testname: um-nommu-plain-sas-zpoline
+            vmlinux_opt: "zpoline=1"
+            name: um-nommu
+          - displayTargetName: um-nommu-sas-swmmu(s)
+            image_name: uml-ci/alpine:edge-um-nommu-sas
+            image_artifact: uml-docker-image-um-nommu-sas
+            testname: um-nommu-sas-seccomp
+            vmlinux_opt: "swmmu_direct=1"
+            name: um-nommu
+          - displayTargetName: um-nommu-sas-swmmu(z)
+            image_name: uml-ci/alpine:edge-um-nommu-sas
+            image_artifact: uml-docker-image-um-nommu-sas
+            testname: um-nommu-sas-zpoline
+            vmlinux_opt: "zpoline=1 swmmu_direct=1"
+            name: um-nommu
+          - displayTargetName: (native)
             image_name: mirror.gcr.io/library/alpine:edge
             image_artifact: ''
             testname: native
             vmlinux_opt: ""
             name: um-mmu
             docker_opt: "-v /lib/modules:/lib/modules"
-          - displayTargetName: um-nommu-sas-s
-            image_name: uml-ci/alpine:edge-um-nommu-sas
-            image_artifact: uml-docker-image-um-nommu-sas
-            testname: um-nommu-sas-seccomp
-            vmlinux_opt: "swmmu_direct=1"
-            name: um-nommu
-          - displayTargetName: um-nommu-sas-z
-            image_name: uml-ci/alpine:edge-um-nommu-sas
-            image_artifact: uml-docker-image-um-nommu-sas
-            testname: um-nommu-sas-zpoline
-            vmlinux_opt: "zpoline=1 swmmu_direct=1"
-            name: um-nommu
-    name: "LTP: test-${{ matrix.testname }}"
+          - displayTargetName: qemu-riscv-nommu
+            image_name: ghcr.io/thehajime/linux-private-riscv64-buildroot:sha-dfebc378bc04da60d0bb9ec86989b56f7f1e3909
+            image_artifact: ''
+            testname: riscv-nommu
+            vmlinux_opt: ""
+            name: riscv-nommu
+    name: "LTP: test-${{ matrix.displayTargetName }}"
     steps:
       - name: Download local test image
         if: matrix.image_artifact != ''
@@ -1856,10 +1864,10 @@ jobs:
           descriptions = {
               "lmbench.png": "lmbench operation latency by UML profile; the logarithmic vertical axis uses microseconds.",
               "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
-              "iperf3.png": "iperf3 forward goodput is positive and reverse goodput is negative. Both directions for each profile share the same x coordinate, in Gbit/s.",
+              "iperf3.png": "iperf3 forward goodput is positive and reverse goodput is negative. Both directions for each profile share the same x coordinate and legend entry, in Gbit/s.",
               "tcp-stream.png": "netperf TCP_STREAM (positive) and TCP_MAERTS (negative) goodput by payload size. Both directions for a profile share the same x coordinate and legend entry. The vertical range is symmetric and includes native values when available.",
-              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU PTRACE uses one CPU; plain NOMMU SAS is included with SWMMU off and seccomp on. The plain NOMMU SMP comparison uses um-nommu-seccomp with one/four CPUs. SWMMU SAS remains CONFIG_SMP=n.",
-              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Both MMU UML profiles use CONFIG_SMP=y; um-mmu uses one CPU and um-mmu-seccomp compares one/four CPUs. Plain NOMMU and plain NOMMU SAS worker=4 legs are skipped because fork is unavailable. The plain NOMMU SMP comparison uses um-nommu-seccomp. SWMMU SAS remains CONFIG_SMP=n.",
+              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Both MMU profiles use CONFIG_SMP=y; um-mmu(p) uses one CPU and um-mmu(s) compares one/four CPUs. Plain NOMMU SAS includes um-nommu-sas(s/z); SWMMU SAS profiles use um-nommu-sas-swmmu(s/z).",
+              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Plain NOMMU worker=4 legs are unavailable because fork is not implemented; SAS labels are um-nommu-sas(s/z) and um-nommu-sas-swmmu(s/z).",
           }
           for filename, description in descriptions.items():
               marker = f"<!-- report-chart:{filename} -->"

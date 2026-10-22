@@ -11,17 +11,17 @@ from pathlib import Path
 CHARTS = {
     "lmbench.png": ("lmbench latency", "Latency measurements across the UML profiles."),
     "lmbench-bandwidth.png": ("lmbench bandwidth", "Pipe and memory bandwidth measurements across the UML profiles."),
-    "iperf3.png": ("iperf3 throughput", "Forward iperf3 goodput is positive and reverse goodput is negative. Both directions for each profile share the same x coordinate; values are in Gbit/s."),
-    "tcp-stream.png": ("netperf TCP throughput", "TCP_STREAM and TCP_MAERTS goodput by payload size and UML profile; reverse-direction bars extend below zero."),
+    "iperf3.png": ("iperf3 throughput", "Forward goodput is positive and reverse goodput is negative. Each profile's two bars share an x coordinate and one legend entry; values are in Gbit/s."),
+    "tcp-stream.png": ("netperf TCP throughput", "TCP_STREAM is positive and TCP_MAERTS is negative. Paired bars share an x coordinate and one legend entry for each profile and payload size."),
 }
 NGINX_CHARTS = (
     (
         "nginx-workers-1.png",
-        "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Includes plain NOMMU SAS with SWMMU disabled. Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+        "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Plain NOMMU SAS appears as um-nommu-sas(s/z); SWMMU SAS uses um-nommu-sas-swmmu(s/z).",
     ),
     (
         "nginx-workers-4.png",
-        "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Plain NOMMU SAS and other plain NOMMU profiles are marked unavailable because they do not support fork(). Each group compares UML profiles; color identifies the profile, and labels identify whether CONFIG_SMP is enabled.",
+        "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Plain NOMMU profiles are unavailable because they do not support fork(); the SAS labels are um-nommu-sas(s/z) and um-nommu-sas-swmmu(s/z).",
     ),
 )
 
