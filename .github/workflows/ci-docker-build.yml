@@ -229,8 +229,21 @@ jobs:
 
     - name: patch kirk
       run: |
-        curl -L -O https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || matrix.env.branch }}/kirk-block.patch
-        patch -p1 < ./kirk-block.patch
+        patch_url="https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || matrix.env.branch }}/kirk-block.patch"
+        http_code=$(curl --location --silent --show-error \
+          --output kirk-block.patch --write-out '%{http_code}' "$patch_url")
+        case "$http_code" in
+          200)
+            patch -p1 < ./kirk-block.patch
+            ;;
+          404)
+            echo "No Kirk compatibility patch for selected LTP ref; using its Kirk submodule as-is."
+            ;;
+          *)
+            echo "Unexpected HTTP status fetching Kirk compatibility patch: $http_code" >&2
+            exit 1
+            ;;
+        esac
 
     - name: Compile
       run: ./build.sh -r build -o ${TREE:-in}
