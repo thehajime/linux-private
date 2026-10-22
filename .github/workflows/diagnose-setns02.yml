@@ -454,6 +454,12 @@ jobs:
                     -e signal:signal_deliver --filter 'sig == 31' \
                     -e signal:signal_generate --filter 'sig == 14' \
                     -e signal:signal_deliver --filter 'sig == 14' \
+                    -e seccomp:seccomp_filter \
+                    -e seccomp:seccomp_filter --filter 'syscall == 473' \
+                    -e seccomp:seccomp_filter --filter 'syscall == 474' \
+                    -e seccomp:seccomp_filter --filter 'syscall == 475' \
+                    -e seccomp:seccomp_filter --filter 'syscall == 476' \
+                    -e seccomp:seccomp_filter --filter 'syscall == 477' \
                     -e task-clock -e context-switches -p "$host_pids" \
                     -o "$counters" >/dev/null 2>&1 &
                 perf_pid=$!
@@ -545,7 +551,8 @@ jobs:
                 syscalls:sys_enter_clone syscalls:sys_enter_clone3 \
                 syscalls:sys_enter_wait4 syscalls:sys_enter_kill \
                 syscalls:sys_enter_tgkill syscalls:sys_enter_restart_syscall \
-                signal:signal_generate signal:signal_deliver; do
+                signal:signal_generate signal:signal_deliver \
+                seccomp:seccomp_filter; do
                 if [[ "$perf_events" == *"$event"* ]]; then
                   perf_args+=(-e "$event")
                 fi
@@ -560,6 +567,13 @@ jobs:
                   done
                 fi
               done
+              # The guest's SWMMU helper syscall numbers are 473-477. Count
+              # those seccomp trap events separately from ordinary syscalls.
+              if [[ "$perf_events" == *"seccomp:seccomp_filter"* ]]; then
+                for syscall_nr in 473 474 475 476 477; do
+                  perf_args+=(-e seccomp:seccomp_filter --filter "syscall == $syscall_nr")
+                done
+              fi
               if [ "${#perf_args[@]}" -gt 0 ]; then
                 perf_args+=(-e task-clock -e context-switches -e cpu-migrations)
                 sudo timeout --foreground --signal=INT --kill-after=2s 45s \
