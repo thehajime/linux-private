@@ -19,7 +19,6 @@
 
 #include <cstring>
 #include <string>
-#include <vector>
 
 #define SWMMU_LOAD_NAME  "nommu_swmmu_load_u64"
 #define SWMMU_STORE_NAME "nommu_swmmu_store_u64"
@@ -74,16 +73,9 @@ int plugin_is_GPL_compatible;
 
 static bool swmmu_all_access;
 static bool swmmu_return_value_load;
-static bool swmmu_native_stack;
-static bool swmmu_native_allocator_results;
-static bool swmmu_native_range_guard;
+static bool swmmu_guarded_lowering;
 static bool swmmu_direct_window;
 static bool swmmu_post_scalar;
-static std::vector<std::string> swmmu_excluded_functions;
-static std::vector<std::string> swmmu_native_allocator_functions;
-static std::vector<std::string> swmmu_native_reallocator_functions;
-static std::vector<std::string> swmmu_native_source_files;
-static std::vector<std::string> swmmu_native_source_directories;
 
 enum swmmu_pointer_state {
 	SWMMU_POINTER_ORDINARY,
@@ -175,7 +167,7 @@ swmmu_dynamic_runtime_decl(bool store, bool volatile_access = false,
 {
 	tree *decl;
 	const char *name;
-	bool guarded = swmmu_native_range_guard &&
+	bool guarded = swmmu_guarded_lowering &&
 		!(swmmu_direct_window && volatile_access);
 
 	if (store) {
@@ -494,18 +486,6 @@ is_swmmu_native_pointer_type(tree type)
 }
 
 static bool
-is_swmmu_native_stack_decl(tree expr)
-{
-	return swmmu_native_stack &&
-	       expr &&
-	       TREE_CODE(expr) == VAR_DECL &&
-	       !TREE_STATIC(expr) &&
-	       !DECL_EXTERNAL(expr) &&
-	       DECL_CONTEXT(expr) &&
-	       TREE_CODE(DECL_CONTEXT(expr)) == FUNCTION_DECL;
-}
-
-static bool
 is_swmmu_provenance_lvalue(tree expr)
 {
 	tree address;
@@ -576,78 +556,19 @@ is_swmmu_reallocator(tree fndecl)
 
 	function_name = IDENTIFIER_POINTER(name);
 
-	if (!strcmp(function_name, "realloc") ||
-	    !strcmp(function_name, "__builtin_realloc"))
-		return true;
-	for (const std::string &reallocator :
-	     swmmu_native_reallocator_functions) {
-		if (reallocator == function_name)
-			return true;
-	}
-	return false;
+	return !strcmp(function_name, "realloc") ||
+	       !strcmp(function_name, "__builtin_realloc");
 }
 
 static bool
 is_swmmu_allocator_function(tree fndecl)
 {
-	tree name;
-	const char *function_name;
-
 	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
 		return false;
 
 	if (is_swmmu_allocator_result(fndecl) ||
 	    is_swmmu_standard_allocator(fndecl))
 		return true;
-
-	name = DECL_NAME(fndecl);
-	if (!name)
-		return false;
-
-	function_name = IDENTIFIER_POINTER(name);
-	for (const std::string &allocator :
-	     swmmu_native_allocator_functions) {
-		if (allocator == function_name)
-			return true;
-	}
-	for (const std::string &allocator :
-	     swmmu_native_reallocator_functions) {
-		if (allocator == function_name)
-			return true;
-	}
-
-	return false;
-}
-
-static bool
-is_swmmu_native_allocator_function(tree fndecl)
-{
-	tree name;
-	const char *function_name;
-
-	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
-		return false;
-
-	if (swmmu_native_allocator_results &&
-	    (is_swmmu_allocator_result(fndecl) ||
-	     is_swmmu_standard_allocator(fndecl)))
-		return true;
-
-	name = DECL_NAME(fndecl);
-	if (!name)
-		return false;
-
-	function_name = IDENTIFIER_POINTER(name);
-	for (const std::string &allocator :
-	     swmmu_native_allocator_functions) {
-		if (allocator == function_name)
-			return true;
-	}
-	for (const std::string &allocator :
-	     swmmu_native_reallocator_functions) {
-		if (allocator == function_name)
-			return true;
-	}
 
 	return false;
 }
@@ -700,7 +621,6 @@ swmmu_pointer_state_from_type(tree type)
 		return SWMMU_POINTER_SWMMU;
 	if (is_swmmu_native_pointer_type(type))
 		return SWMMU_POINTER_NATIVE;
-
 	return SWMMU_POINTER_ORDINARY;
 }
 
@@ -777,11 +697,8 @@ swmmu_pointer_state_of(
 		return SWMMU_POINTER_SWMMU;
 	if (is_swmmu_native_pointer_type(TREE_TYPE(expr)))
 		return SWMMU_POINTER_NATIVE;
-
 	switch (TREE_CODE(expr)) {
 	case ADDR_EXPR:
-		if (is_swmmu_native_stack_decl(TREE_OPERAND(expr, 0)))
-			return SWMMU_POINTER_NATIVE;
 		return swmmu_pointer_state_of(TREE_OPERAND(expr, 0),
 					      states);
 
@@ -831,9 +748,6 @@ swmmu_lvalue_state(
 {
 	tree address;
 
-	if (is_swmmu_native_stack_decl(expr))
-		return SWMMU_POINTER_NATIVE;
-
 	if (!is_swmmu_lvalue(expr))
 		return SWMMU_POINTER_ORDINARY;
 
@@ -849,8 +763,6 @@ swmmu_lvalue_state(
 					  states);
 
 	case ARRAY_REF:
-		if (is_swmmu_native_stack_decl(TREE_OPERAND(expr, 0)))
-			return SWMMU_POINTER_NATIVE;
 		return swmmu_pointer_state_of(TREE_OPERAND(expr, 0), states);
 
 	default:
@@ -907,18 +819,6 @@ swmmu_record_pointer_call(
 
 	if (is_swmmu_allocator_function(fndecl)) {
 		state = SWMMU_POINTER_DYNAMIC;
-
-		/*
-		 * This opt-in is a caller promise that allocator results in the
-		 * selected build/runtime profile are native mappings. Keep realloc
-		 * conservative unless its input already has native provenance.
-		 */
-		if (is_swmmu_native_allocator_function(fndecl) &&
-		    (!is_swmmu_reallocator(fndecl) ||
-		     (gimple_call_num_args(call) &&
-		      swmmu_pointer_state_of(gimple_call_arg(call, 0), states) ==
-				SWMMU_POINTER_NATIVE)))
-			state = SWMMU_POINTER_NATIVE;
 	}
 	else if (state == SWMMU_POINTER_ORDINARY &&
 		 swmmu_context)
@@ -2308,70 +2208,6 @@ swmmu_store_runtime_for_state(enum swmmu_pointer_state state)
 }
 
 static bool
-swmmu_function_is_excluded(tree fndecl)
-{
-	const char *name;
-
-	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
-		return false;
-
-	if (!DECL_NAME(fndecl))
-		return false;
-
-	name = IDENTIFIER_POINTER(DECL_NAME(fndecl));
-
-	for (const std::string &excluded : swmmu_excluded_functions) {
-		if (excluded == name)
-			return true;
-	}
-
-	return false;
-}
-
-static bool
-swmmu_function_source_is_native(tree fndecl)
-{
-	const char *source;
-
-	if (!fndecl || TREE_CODE(fndecl) != FUNCTION_DECL)
-		return false;
-
-	source = DECL_SOURCE_FILE(fndecl);
-	if (!source)
-		return false;
-
-	for (const std::string &native_source : swmmu_native_source_files) {
-		size_t source_len = strlen(source);
-		size_t native_len = native_source.length();
-
-		if (source_len < native_len)
-			continue;
-		if (strcmp(source + source_len - native_len,
-			   native_source.c_str()))
-			continue;
-		if (source_len == native_len ||
-		    source[source_len - native_len - 1] == '/')
-			return true;
-	}
-
-	for (const std::string &native_dir : swmmu_native_source_directories) {
-		const char *match = source;
-		size_t native_len = native_dir.length();
-
-		while ((match = strstr(match, native_dir.c_str()))) {
-			bool left_boundary = match == source || match[-1] == '/';
-			bool right_boundary = match[native_len] == '/';
-
-			if (left_boundary && right_boundary)
-				return true;
-			match++;
-		}
-	}
-
-	return false;
-}
-
-static bool
 swmmu_asm_reads_fs0(gasm *stmt)
 {
 	const char *text = gimple_asm_string(stmt);
@@ -2392,10 +2228,6 @@ swmmu_transform_function(function *fn)
 	bool svm_function = function_marked || swmmu_all_access;
 	bool swmmu_context;
 	hash_map<tree, enum swmmu_pointer_state> states;
-
-	if (swmmu_function_is_excluded(fn->decl) ||
-	    swmmu_function_source_is_native(fn->decl))
-		return 0;
 
 	if (swmmu_all_access &&
 		is_swmmu_runtime_function(fn->decl))
@@ -2856,7 +2688,7 @@ plugin_init(struct plugin_name_args *plugin_info,
 
 		if (!strcmp(key, "direct-window")) {
 			/* The matching header reads kernel-authorized runtime bounds. */
-			swmmu_native_range_guard = true;
+			swmmu_guarded_lowering = true;
 			swmmu_direct_window = true;
 			continue;
 		}
@@ -2866,91 +2698,22 @@ plugin_init(struct plugin_name_args *plugin_info,
 			continue;
 		}
 
-		if (!strcmp(key, "native-stack")) {
-			swmmu_native_stack = true;
-			continue;
-		}
-
-		if (!strcmp(key, "native-range-guard")) {
-			swmmu_native_range_guard = true;
-			continue;
-		}
-
-		if (!strcmp(key, "native-allocator-results")) {
-			swmmu_native_allocator_results = true;
-			continue;
-		}
-
-		if (!strcmp(key, "native-allocator-function")) {
-			if (!value || !*value) {
-				error_at(UNKNOWN_LOCATION,
-					"swmmu native-allocator-function requires a value");
-				return 1;
-			}
-
-			swmmu_native_allocator_functions.emplace_back(value);
-			continue;
-		}
-
-		if (!strcmp(key, "native-reallocator-function")) {
-			if (!value || !*value) {
-				error_at(UNKNOWN_LOCATION,
-					"swmmu native-reallocator-function requires a value");
-				return 1;
-			}
-
-			swmmu_native_reallocator_functions.emplace_back(value);
-			continue;
-		}
-
-		if (!strcmp(key, "native-source-file")) {
-			if (!value || !*value) {
-				error_at(UNKNOWN_LOCATION,
-					 "swmmu native-source-file requires a value");
-				return 1;
-			}
-
-			swmmu_native_source_files.emplace_back(value);
-			continue;
-		}
-
-		if (!strcmp(key, "native-source-directory")) {
-			if (!value || !*value) {
-				error_at(UNKNOWN_LOCATION,
-					 "swmmu native-source-directory requires a value");
-				return 1;
-			}
-
-			swmmu_native_source_directories.emplace_back(value);
-			continue;
-		}
-
-		if (!strcmp(key, "exclude-function")) {
-			if (!value || !*value) {
-				error_at(UNKNOWN_LOCATION,
-					"swmmu exclude-function requires a value");
-				return 1;
-			}
-
-			swmmu_excluded_functions.emplace_back(value);
-			continue;
-		}
 
 		error_at(UNKNOWN_LOCATION,
 			"unknown swmmu plugin argument '%s'", key);
 		return 1;
 	}
 
-	if (swmmu_native_range_guard && swmmu_return_value_load) {
+	if (swmmu_guarded_lowering && swmmu_return_value_load) {
 		error_at(UNKNOWN_LOCATION,
-			 "swmmu native-range-guard cannot be combined with return-value-load");
+			 "swmmu direct-window cannot be combined with return-value-load");
 		return 1;
 	}
 
 	if (swmmu_post_scalar &&
-	    (!swmmu_all_access || swmmu_native_range_guard)) {
+	    (!swmmu_all_access || swmmu_guarded_lowering)) {
 		error_at(UNKNOWN_LOCATION,
-			 "swmmu post-scalar requires all-access without native-range-guard");
+			 "swmmu post-scalar requires all-access without direct-window");
 		return 1;
 	}
 
@@ -2975,7 +2738,7 @@ plugin_init(struct plugin_name_args *plugin_info,
 				PLUGIN_PASS_MANAGER_SETUP, NULL, &key_pass_info);
 	}
 
-	if (!swmmu_all_access || swmmu_native_range_guard) {
+	if (!swmmu_all_access || swmmu_guarded_lowering) {
 		static register_pass_info pass_info;
 
 		pass_info.pass = new swmmu_pass(g);
@@ -2986,7 +2749,7 @@ plugin_init(struct plugin_name_args *plugin_info,
 		 * otherwise every access becomes control flow before even local
 		 * redundancy elimination and scalar replacement have run.
 		 */
-		pass_info.reference_pass_name = swmmu_native_range_guard ?
+		pass_info.reference_pass_name = swmmu_guarded_lowering ?
 			"early_optimizations" : "ssa";
 		pass_info.ref_pass_instance_number = 1;
 		pass_info.pos_op = PASS_POS_INSERT_AFTER;
@@ -2997,7 +2760,7 @@ plugin_init(struct plugin_name_args *plugin_info,
 				&pass_info);
 	}
 
-	if (swmmu_all_access && !swmmu_native_range_guard) {
+	if (swmmu_all_access && !swmmu_guarded_lowering) {
 		static register_pass_info late_pass_info;
 
 		late_pass_info.pass = new swmmu_late_pass(g);
