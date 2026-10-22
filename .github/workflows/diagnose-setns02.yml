@@ -147,7 +147,7 @@ jobs:
             bt 12
             continue
           end
-          break ../arch/um/nommu/do_syscall_64.c:39
+          break ../arch/x86/um/nommu/do_syscall_64.c:39
           commands
             silent
             if syscall == 308 || syscall == 30
@@ -191,6 +191,16 @@ jobs:
               2>&1 | tee output/ltp/setns02-ltp.log
           ltp_status=${PIPESTATUS[0]}
           wait "$gdb_monitor" || true
+
+          timeout --foreground --signal=TERM --kill-after=5s 240s \
+            docker exec -t ltp-setns-debug \
+              /opt/uml-host-tools/busybox sh -c \
+              'exec /root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 swmmu_direct=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=setns02 LTP_DIRECT_MODE=direct' \
+              2>&1 | tee output/ltp/setns02-direct.log
+          direct_status=${PIPESTATUS[0]}
+          echo "Standalone setns02 UML exit status: $direct_status"
+          grep -nE 'TINFO:|TPASS:|TFAIL:|TBROK:|TCONF:|shmat|setns|LTP_DIRECT_EXIT_CODE' \
+            output/ltp/setns02-direct.log || true
           if [ "$ltp_status" -ne 0 ]; then
             exit "$ltp_status"
           fi
