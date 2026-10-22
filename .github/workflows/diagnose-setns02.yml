@@ -118,11 +118,20 @@ jobs:
           cat > "$RUNNER_TEMP/setns-gdb.cmd" <<'GDB'
           set pagination off
           set confirm off
+          set breakpoint pending on
           handle SIGSYS nostop noprint pass
-          break show_segv_info
+          break ../arch/um/nommu/trap.c:82
           commands
             silent
-            printf "GDB_UNHANDLED_USER_SEGV\n"
+            printf "GDB_NOMMU_UNFIXABLE_USER_FAULT\n"
+            info args
+            bt 30
+            continue
+          end
+          break ../arch/um/nommu/trap.c:142
+          commands
+            silent
+            printf "GDB_NOMMU_UNHANDLED_USER_FAULT\n"
             info args
             bt 30
             continue
@@ -141,8 +150,18 @@ jobs:
             printf "GDB_SETNS_ENTRY fd=%d flags=0x%x\n", $rdi, $rsi
             info registers rip rsp rdi rsi rdx rax
             bt 12
-            finish
-            printf "GDB_SETNS_RETURN value=%lld\n", $rax
+            continue
+          end
+          break ../kernel/nsproxy.c:577
+          commands
+            silent
+            printf "GDB_SETNS_EARLY_RETURN fd=%d flags=0x%x error=-9\n", fd, flags
+            continue
+          end
+          break ../kernel/nsproxy.c:606
+          commands
+            silent
+            printf "GDB_SETNS_RETURN fd=%d flags=0x%x error=%d\n", fd, flags, err
             continue
           end
           continue
