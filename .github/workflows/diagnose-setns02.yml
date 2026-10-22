@@ -222,6 +222,23 @@ jobs:
           chmod 0755 "$RUNNER_TEMP/vmlinux"
           mkdir -p rootfs
           tar -xzf "$RUNNER_TEMP/nginx-rootfs-artifact/rootfs.tar.gz" -C rootfs
+          cat > rootfs/sbin/nginx-capture-maps <<'GUEST'
+          #!/bin/sh
+          sleep 1
+          {
+            printf 'NGINX_GUEST_PROC_MAPS\n'
+            for proc in /proc/[0-9]*; do
+              [ -r "$proc/comm" ] || continue
+              [ "$(cat "$proc/comm")" = nginx ] || continue
+              printf '\nPID %s (%s)\n' "${proc#/proc/}" "$(tr '\n' ' ' < "$proc/cmdline")"
+              cat "$proc/maps"
+            done
+          } >> /run/nginx-runtime-probe.log
+          GUEST
+          chmod 0755 rootfs/sbin/nginx-capture-maps
+          sed -i '/^nginx -c \/etc\/nginx\/nginx-swmmu.conf$/a /sbin/nginx-capture-maps' \
+            rootfs/sbin/swmmu-nginx-init
+          grep -q '^/sbin/nginx-capture-maps$' rootfs/sbin/swmmu-nginx-init
 
       - name: Install host tracing and network tools
         run: |
