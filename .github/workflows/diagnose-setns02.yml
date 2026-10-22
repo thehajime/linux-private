@@ -121,25 +121,31 @@ jobs:
           set pagination off
           set confirm off
           set breakpoint pending on
+          catch signal SIGSYS
+          commands
+            silent
+            printf "GDB_SIGSYS_PASS_THROUGH\\n"
+            p $_siginfo
+            info registers rip rsp rdi rsi rdx rax
+            x/i $rip
+            continue
+          end
           catch signal SIGSEGV
-          commands 1
+          commands
             silent
             printf "GDB_SIGSEGV\n"
             p $_siginfo
             info registers rip rsp rdi rsi rdx rax
             x/i $rip
             bt 30
-            disable 1
             continue
           end
-          disable 1
           break sys_setns if $rsi == 0x4000000
-          commands 2
+          commands
             silent
             printf "GDB_SETNS_ENTRY fd=%d nstype=0x%x\n", $rdi, $rsi
             info registers rip rsp rdi rsi rdx rax
             bt 30
-            enable 1
             finish
             printf "GDB_SETNS_RETURN rax=%lld\n", $rax
             continue
