@@ -515,7 +515,8 @@ jobs:
               done
               if [ "${#perf_args[@]}" -gt 0 ]; then
                 perf_args+=(-e task-clock -e context-switches -e cpu-migrations)
-                sudo perf stat "${perf_args[@]}" -p "$host_pids" \
+                sudo timeout --foreground --signal=INT --kill-after=2s 45s \
+                  perf stat "${perf_args[@]}" -p "$host_pids" \
                   -o output/ltp/nanosleep01-host-syscall-counts.txt \
                   >/dev/null 2>&1 &
                 perf_pid=$!
@@ -535,7 +536,6 @@ jobs:
             wait "$sampler_pid" 2>/dev/null || true
           fi
           if [ -n "$host_pids" ] && [ -n "${perf_pid:-}" ]; then
-            sudo kill -INT "$perf_pid" 2>/dev/null || true
             wait "$perf_pid" || true
             cat output/ltp/nanosleep01-host-syscall-counts.txt || true
           fi
