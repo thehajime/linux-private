@@ -21,6 +21,11 @@ on:
         required: false
         type: string
         default: fix-nommu
+      diagnose_setns02:
+        description: Add direct child/errno diagnostics to the setns02 LTP binary
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read # to fetch code (actions/checkout)
@@ -171,7 +176,9 @@ jobs:
         repository: thehajime/linux-private
         ref: ${{ github.sha }}
         path: linux-private-ci
-        sparse-checkout: .github/workflows/patches/ltp-madvise11-void-ptrs.patch
+        sparse-checkout: |
+          .github/workflows/patches/ltp-madvise11-void-ptrs.patch
+          .github/workflows/instrument-ltp-setns02.py
 
     - name: Fix LTP madvise11 pointer type for GCC on Alpine edge
       run: |
@@ -182,6 +189,10 @@ jobs:
           git apply --reverse --check "$patch_file"
           echo "madvise11 pointer fix is already present in ${{ inputs.ltp_ref || matrix.env.branch }}"
         fi
+
+    - name: Instrument setns02 child and wait status
+      if: inputs.diagnose_setns02
+      run: python3 linux-private-ci/.github/workflows/instrument-ltp-setns02.py
 
     - name: Install additional packages
       run: |

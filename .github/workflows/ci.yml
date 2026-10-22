@@ -43,6 +43,16 @@ on:
         required: false
         type: boolean
         default: false
+      ltp_run_pattern:
+        description: 'Optional Kirk run-pattern regex; empty runs the full syscalls suite'
+        required: false
+        type: string
+        default: ''
+      diagnose_setns02:
+        description: 'Instrument the LTP setns02 child path and wait status'
+        required: false
+        type: boolean
+        default: false
 
 env:
   LMBENCH_REF: ${{ inputs.lmbench_ref || 'codex/lmbench-process-method' }}
@@ -1350,6 +1360,7 @@ jobs:
     name: "LTP: build"
     with:
       ltp_ref: ${{ inputs.ltp_ref || 'fix-nommu' }}
+      diagnose_setns02: ${{ inputs.diagnose_setns02 || false }}
   build_ltp_riscv:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_riscv_ltp }}
     runs-on: ubuntu-latest
@@ -1561,7 +1572,8 @@ jobs:
           LTP_TESTNAME: ${{ matrix.testname }}
           LTP_ARTIFACT_NAME: ${{ matrix.name }}
           UML_OPTIONS: ${{ matrix.vmlinux_opt }}
-          LTP_FULL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+          LTP_FULL_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.ltp_run_pattern == '' }}
+          LTP_RUN_PATTERN_OVERRIDE: ${{ inputs.ltp_run_pattern || '' }}
           LTP_TIMEOUT_MUL: 10
           LTP_INSTALL_PREEXTRACTED: 1
           SAS_CAPTURE_PYTHON_MAPS: ${{ inputs.sas_fault_diagnostics || false }}
@@ -1572,14 +1584,14 @@ jobs:
               mkdir -p output/ltp
               docker exec -t \
                 -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_TIMEOUT_MUL \
+                -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_RUN_PATTERN_OVERRIDE -e LTP_TIMEOUT_MUL \
                 -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS ltp-test \
                 /opt/uml-host-tools/busybox sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
                 | tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
               test -s "output/ltp/ltp-result-${LTP_TESTNAME}.html"
               ;;
             *)
-              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_TIMEOUT_MUL \
+              docker exec -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN -e LTP_RUN_PATTERN_OVERRIDE -e LTP_TIMEOUT_MUL \
                 -e LTP_INSTALL_PREEXTRACTED ltp-test \
                 /bin/sh -c 'if command -v bash >/dev/null 2>&1; then \
                   exec bash -x /github/workspace/.github/workflows/run-ltp-job.sh; \

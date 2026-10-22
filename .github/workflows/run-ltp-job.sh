@@ -107,6 +107,12 @@ else
 	printf 'push smoke subset\n' > output/ltp/run-mode.txt
 fi
 
+if [ -n "${LTP_RUN_PATTERN_OVERRIDE:-}" ]; then
+	LTP_RUN_PATTERN=$LTP_RUN_PATTERN_OVERRIDE
+	printf '%s\n' "$LTP_RUN_PATTERN" > output/ltp/run-pattern.txt
+	printf 'focused run-pattern override\n' > output/ltp/run-mode.txt
+fi
+
 run_faketty()
 {
 	case "$LTP_TESTNAME" in
