@@ -390,5 +390,4 @@ promises with the actual
 userspace, kernel, fork/mapping behavior, and workload before relying on them.
 
 For release-facing behavior and the userspace runtime ABI, see
-``Documentation/mm/swmmu.rst``. For cross-building and running SWMMU selftests,
-see ``Documentation/mm/swmmu-kselftest-build.rst``.
+``Documentation/mm/swmmu.rst``.

@@ -363,10 +363,6 @@ instruction so data values in the errno range are preserved. This option
 changes scalar loads only; stores and bulk memory helpers retain their existing
 interfaces.
 
-The Codex Cloud setup, cross-build, rootfs staging, guest run, KUnit, kselftest,
-LTP, and GDB commands are documented together in
-``Documentation/mm/swmmu-kselftest-build.rst``.
-
 For the full compiler plugin option and attribute reference, including
 ``all-access`` and experimental native-access options, see
 ``Documentation/mm/swmmu-gcc-plugin.rst``.
