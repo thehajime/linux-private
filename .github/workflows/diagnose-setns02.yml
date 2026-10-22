@@ -322,7 +322,7 @@ jobs:
             sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
           docker start ltp-clock-debug
 
-      - name: Run clock_gettime04 directly with and without UML override
+      - name: Compare direct and Kirk runs for timing and setns cases
         env:
           UML_OPTIONS: zpoline=1
         run: |
@@ -333,6 +333,7 @@ jobs:
             local override=${1:-}
             local label=${2:-default}
             local test_name=${3:-clock_gettime04}
+            local mode=${4:-direct}
             local status=0
             local virt_arg=
             if [ -n "$override" ]; then
@@ -341,16 +342,19 @@ jobs:
             timeout --foreground --signal=TERM --kill-after=5s 120s \
               docker exec -t ltp-clock-debug \
                 /opt/uml-host-tools/busybox sh -c \
-                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name $virt_arg" \
-                2>&1 | tee "output/ltp/${test_name}-${label}.log" || status=${PIPESTATUS[0]}
+                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg" \
+                2>&1 | tee "output/ltp/${test_name}-${label}-${mode}.log" || status=${PIPESTATUS[0]}
             return "$status"
           }
 
-          run_guest '' default clock_gettime04 || true
-          run_guest other uml-override clock_gettime04 || true
-          run_guest '' zpoline nanosleep01 || true
-          rg -n 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TPASS:' \
-            output/ltp/clock-gettime04-*.log output/ltp/nanosleep01-*.log
+          run_guest '' default clock_gettime04 direct || true
+          run_guest other uml-override clock_gettime04 direct || true
+          run_guest '' zpoline nanosleep01 direct || true
+          run_guest '' kirk nanosleep01 kirk || true
+          run_guest '' kirk-setns setns02 kirk || true
+          grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:' \
+            output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log \
+            output/ltp/setns02-*.log
 
       - name: Upload clock_gettime04 comparison
         if: always()
