@@ -119,10 +119,10 @@ jobs:
           set pagination off
           set confirm off
           handle SIGSYS nostop noprint pass
-          break segv
+          break show_segv_info
           commands
             silent
-            printf "GDB_GUEST_SEGV_HANDLER\n"
+            printf "GDB_UNHANDLED_USER_SEGV\n"
             info args
             bt 30
             continue
