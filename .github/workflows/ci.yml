@@ -195,6 +195,32 @@ jobs:
                   )
                 or
                   (
+                    # Reviewed private-backing rewrite and its kernel-only
+                    # declarations/tests/docs, plus the preceding fixes.
+                    # No plugin, runtime or UAPI source is changed.
+                    (.files | length == 12) and
+                    all(.files[];
+                      if .filename == "tools/testing/selftests/nommu/nommu_zpoline_test.c"
+                      then .status == "added"
+                      else .status == "modified" and
+                        (
+                          .filename == "Documentation/mm/swmmu.rst" or
+                          .filename == "arch/um/include/asm/processor-generic.h" or
+                          .filename == "arch/um/os-Linux/main.c" or
+                          .filename == "arch/x86/um/nommu/do_syscall_64.c" or
+                          .filename == "arch/x86/um/nommu/syscalls.h" or
+                          .filename == "arch/x86/um/nommu/zpoline.c" or
+                          .filename == "include/linux/nommu_swmmu.h" or
+                          .filename == "mm/gup.c" or
+                          .filename == "mm/nommu_swmmu.c" or
+                          .filename == "mm/tests/nommu_swmmu_kunit.c" or
+                          .filename == "tools/testing/selftests/nommu/Makefile"
+                        )
+                      end
+                    )
+                  )
+                or
+                  (
                     (.files | length == 6) and
                     all(.files[];
                       .status == "modified" and
