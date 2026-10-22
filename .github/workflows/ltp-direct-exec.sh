@@ -31,7 +31,10 @@ test_rc=0
 if [ "$LTP_DIRECT_MODE" = kirk ]; then
 	cd /opt/ltp || exit 2
 	: > /opt/ltp/.codex-empty-skip
-	LTP_SINGLE_FS_TYPE=ext4 ./kirk -f syscalls --suite-timeout 2m \
+	kirk_tmp_dir="/github/workspace/output/ltp/kirk-tmp-${LTP_DIRECT_LABEL}"
+	mkdir -p "$kirk_tmp_dir" || exit 2
+	LTP_SINGLE_FS_TYPE=ext4 ./kirk --tmp-dir "$kirk_tmp_dir" \
+		-f syscalls --suite-timeout 2m \
 		--run-pattern "^${LTP_DIRECT_TEST}$" --skip-file /opt/ltp/.codex-empty-skip \
 		-o "/github/workspace/output/ltp/${LTP_DIRECT_LABEL}-${LTP_DIRECT_TEST}.json" || test_rc=$?
 else
