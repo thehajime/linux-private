@@ -180,6 +180,21 @@ jobs:
                   )
                 or
                   (
+                    # The same kernel-only fixes plus async-signal-safe
+                    # host termination; no plugin or userspace ABI changes.
+                    (.files | length == 4) and
+                    all(.files[];
+                      .status == "modified" and
+                      (
+                        .filename == "arch/x86/um/nommu/zpoline.c" or
+                        .filename == "mm/gup.c" or
+                        .filename == "mm/nommu_swmmu.c" or
+                        .filename == "arch/um/os-Linux/main.c"
+                      )
+                    )
+                  )
+                or
+                  (
                     (.files | length == 6) and
                     all(.files[];
                       .status == "modified" and
