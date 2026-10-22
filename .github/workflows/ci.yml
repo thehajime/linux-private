@@ -451,7 +451,7 @@ jobs:
           cat .github/workflows/ltp-kernel.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }} O=build
           for option in CONFIG_BLK_DEV_LOOP CONFIG_IKCONFIG CONFIG_IKCONFIG_PROC \
-                        CONFIG_EXT3_FS CONFIG_EXT4_FS CONFIG_KEYS CONFIG_FANOTIFY \
+                        CONFIG_EXT4_FS CONFIG_KEYS CONFIG_FANOTIFY \
                         CONFIG_FANOTIFY_ACCESS_PERMISSIONS CONFIG_PID_NS CONFIG_USER_NS; do
             grep -q "^${option}=y$" build/.config || {
               echo "Required LTP kernel option ${option}=y is missing" >&2
@@ -590,7 +590,7 @@ jobs:
           cat .github/workflows/ltp-kernel.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }}
           for option in CONFIG_BLK_DEV_LOOP CONFIG_IKCONFIG CONFIG_IKCONFIG_PROC \
-                        CONFIG_EXT3_FS CONFIG_EXT4_FS CONFIG_KEYS CONFIG_FANOTIFY \
+                        CONFIG_EXT4_FS CONFIG_KEYS CONFIG_FANOTIFY \
                         CONFIG_FANOTIFY_ACCESS_PERMISSIONS CONFIG_PID_NS CONFIG_USER_NS; do
             grep -q "^${option}=y$" .config || {
               echo "Required LTP kernel option ${option}=y is missing" >&2
