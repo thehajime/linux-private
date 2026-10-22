@@ -493,12 +493,23 @@ jobs:
           PY
             sampler_pid=$!
             if command -v perf >/dev/null 2>&1; then
-              sudo perf record -F 19 -g --call-graph fp -p "$host_pids" \
-                -o output/ltp/nanosleep01-host.perf.data \
-                > output/ltp/nanosleep01-host-perf-record.log 2>&1 &
-              perf_pid=$!
+              if sudo perf list 2>/dev/null | grep -Fq 'syscalls:sys_enter_mmap'; then
+                sudo perf stat \
+                  -e syscalls:sys_enter_mmap \
+                  -e syscalls:sys_enter_munmap \
+                  -e syscalls:sys_enter_mremap \
+                  -e syscalls:sys_enter_mprotect \
+                  -e task-clock -e context-switches \
+                  -p "$host_pids" -o output/ltp/nanosleep01-host-syscall-counts.txt \
+                  >/dev/null 2>&1 &
+                perf_pid=$!
+              else
+                echo 'Host mmap syscall tracepoints are unavailable.' \
+                  > output/ltp/nanosleep01-host-syscall-counts.txt
+              fi
             else
-              echo 'Host perf is not installed; scheduler sampling remains available.'
+              echo 'Host perf is not installed; scheduler sampling remains available.' \
+                > output/ltp/nanosleep01-host-syscall-counts.txt
             fi
           fi
           guest_status=0
@@ -510,13 +521,7 @@ jobs:
           if [ -n "$host_pids" ] && [ -n "${perf_pid:-}" ]; then
             sudo kill -INT "$perf_pid" 2>/dev/null || true
             wait "$perf_pid" || true
-            if [ -s output/ltp/nanosleep01-host.perf.data ]; then
-              sudo perf report --stdio --no-children \
-                --sort comm,dso,symbol \
-                -i output/ltp/nanosleep01-host.perf.data \
-                > output/ltp/nanosleep01-host-perf-report.txt 2>&1 || true
-            sed -n '1,140p' output/ltp/nanosleep01-host-perf-report.txt || true
-            fi
+            cat output/ltp/nanosleep01-host-syscall-counts.txt || true
           fi
           echo "Kirk nanosleep01 host UML exit=$guest_status; sampled pids=${host_pids:-none}"
           run_guest '' kirk-setns setns02 kirk || true
