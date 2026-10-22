@@ -12,6 +12,11 @@ int handle_page_fault(unsigned long address, unsigned long ip,
 	/* everything that's valid is already mapped in NOMMU */
 	*code_out = SEGV_MAPERR;
 #if defined(CONFIG_NOMMU_SWMMU) && defined(CONFIG_UML_NOMMU_SAS)
+	/*
+	 * SAS with SWMMU reserves this direct window for userspace aliases.
+	 * A fault in an existing VMA there is a protection fault; ordinary
+	 * NOMMU faults keep the default SEGV_MAPERR classification above.
+	 */
 	if (is_user && address >= um_nommu_swmmu_direct_start &&
 	    address < um_nommu_swmmu_direct_end && current->mm) {
 		struct vm_area_struct *vma;
