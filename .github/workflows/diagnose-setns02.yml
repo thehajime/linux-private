@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: false
+      swmmu_direct:
+        description: Enable the SWMMU direct window for Kirk/Python profiling
+        required: false
+        type: boolean
+        default: true
       nginx_source_run_id:
         description: CI run containing the candidate nginx rootfs and UML image
         required: false
@@ -325,10 +330,15 @@ jobs:
       - name: Compare direct and Kirk runs for timing and setns cases
         env:
           UML_OPTIONS: zpoline=1
+          SWMMU_DIRECT: ${{ inputs.swmmu_direct }}
         run: |
           set -uo pipefail
           mkdir -p output/ltp
           chmod 0755 .github/workflows/ltp-direct-exec.sh
+          direct_arg=
+          if [ "${SWMMU_DIRECT:-true}" = true ]; then
+            direct_arg=swmmu_direct=1
+          fi
           run_guest() {
             local override=${1:-}
             local label=${2:-default}
@@ -348,7 +358,7 @@ jobs:
             timeout --foreground --signal=TERM --kill-after=5s "${timeout_seconds}s" \
               docker exec -t ltp-clock-debug \
                 /opt/uml-host-tools/busybox sh -c \
-                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 swmmu_direct=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg $profile_arg" \
+                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg $profile_arg" \
                 2>&1 | tee "output/ltp/${test_name}-${label}-${mode}.log" || status=${PIPESTATUS[0]}
             return "$status"
           }
