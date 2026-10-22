@@ -74,6 +74,21 @@ case "$LTP_TESTNAME" in
 		;;
 esac
 
+case "$LTP_TESTNAME" in
+	um-nommu*)
+		# The current LTP NOMMU runtime keeps its result counters in a
+		# heap-backed IPC page. Results emitted by private clone children are
+		# therefore not visible to the test runner, so these cases end in
+		# BROK after their child has already printed TPASS. The remaining
+		# cases require MMU-only services (kcmp, mlock/munlock, or a MAP_32BIT
+		# allocation below 2 GiB) that this NOMMU address-space model lacks.
+		for test in clone06 clone08 setns02 kcmp03 mincore02 mmap23; do
+			echo "$test" >> /ltp-skip
+		done
+		echo "Skipping NOMMU-incompatible LTP result IPC/MMU-only cases"
+		;;
+esac
+
 ltp_source=/ltp-source
 test -d "$ltp_source/tools/kirk/kirk-src"
 cp .github/workflows/faketty /bin/faketty
