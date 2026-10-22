@@ -71,17 +71,31 @@ reproducible kselftest build instructions in
   times each with zpoline off/on (12/12), with no residual UML process. Normal
   guest poweroff and preserved SWMMU selftests passed in both modes
   (38 pass / 8 skip / 0 fail each). Broader MMU/SMP CI validation is pending.
-- [ ] Restore safe general zpoline instruction rewriting. The RX-write safety
-  fix `8eec4b37` leaves repeated syscalls on SIGSYS. Same-kernel paired getpid
-  medians are 1465 ns raw versus 203 ns with a diagnostic pretranslated copy.
-  Do not deploy per-program patched copies or re-enable the unsafe RX writer;
-  writable backing/alias access, mapping semantics and kernel-context locking
-  must be handled correctly.
+- [x] Restore safe private-SWMMU zpoline rewriting in `71ede2f7ae15`, with
+  narrow-read test correction `c0bdf6a0c7a1`. The host signal handler queues a
+  return PC per task; kernel-context code updates private executable backing
+  under mmap/space locks, retaining RX guest permissions and serializing x86
+  instruction fetch. Native/shared/guarded backing, cross-page instructions
+  and invalid numbers retain SIGSYS fallback. Same fixed kernel, unmodified CI
+  getpid binary, alternating three boots per mode: median 200 ns/call versus
+  1402 ns SIGSYS across nine million-call averages each. Fresh selftests pass
+  repeatedly: zpoline 8/0, SWMMU 38/0/8. Both zpoline modes pass KUnit with
+  33 pass / 1 skip / 0 fail. Full CI is still pending.
+- [ ] Restore safe native-text rewriting for plain SAS separately. Its physical
+  map is anonymous when SWMMU is disabled; do not assume the SWMMU backing-fd
+  alias approach also covers native mappings, or re-enable direct RX writes.
+- [x] Patch Kirk shell/scheduler elapsed-time sites to monotonic clocks in
+  CI `2d0ce905660a`. Backward-clock simulation reproduces a negative duration
+  before the change and positive elapsed time afterward against both inspected
+  and installed candidate source. Full guest-suite timing remains pending.
+  First CI attempt lacked python3 in its LTP build container; `3236b745dd3f`
+  installs/verifies that dependency. Replacement full run is `39866498606`,
+  kernel `c0bdf6a0c7a1`, LTP `f1fe6fcf68e08eda248186107d77095f550669f5`.
 - [ ] Revalidate the full NOMMU LTP matrix with `uml` classification after the
   selected kernel fixes. `mmap04` cross-backend partial MAP_FIXED support/skip,
-  `setns02` child-side IPC TCONF propagation and Kirk monotonic duration
-  accounting remain separate follow-ups. Nginx TLS passed a matched
-  direct-window one-worker test; standard worker-matrix validation is pending.
+  `setns02` child-side IPC TCONF propagation remain separate follow-ups.
+  Nginx TLS passed a matched direct-window one-worker test; `5968f9355034`
+  enables that window in standard SWMMU nginx rows, whose validation is pending.
 - Full evidence and prioritized queue are in Obsidian Codex-Logs
   `2026-10-23_065100+0900-report-order-getpid` and
   `2026-10-23_065600+0900-fatal-signal-fix`.
