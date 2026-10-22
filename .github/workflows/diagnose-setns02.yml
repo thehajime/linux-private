@@ -121,15 +121,7 @@ jobs:
           set pagination off
           set confirm off
           set breakpoint pending on
-          catch signal SIGSYS
-          commands
-            silent
-            printf "GDB_SIGSYS_PASS_THROUGH\\n"
-            p $_siginfo
-            info registers rip rsp rdi rsi rdx rax
-            x/i $rip
-            continue
-          end
+          handle SIGSYS nostop noprint pass
           catch signal SIGSEGV
           commands
             silent
