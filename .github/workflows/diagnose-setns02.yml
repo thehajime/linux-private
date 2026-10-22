@@ -493,18 +493,34 @@ jobs:
           PY
             sampler_pid=$!
             if command -v perf >/dev/null 2>&1; then
-              if sudo perf list 2>/dev/null | grep -Fq 'syscalls:sys_enter_mmap'; then
-                sudo perf stat \
-                  -e syscalls:sys_enter_mmap \
-                  -e syscalls:sys_enter_munmap \
-                  -e syscalls:sys_enter_mremap \
-                  -e syscalls:sys_enter_mprotect \
-                  -e task-clock -e context-switches \
-                  -p "$host_pids" -o output/ltp/nanosleep01-host-syscall-counts.txt \
+              perf_events=$(sudo perf list 2>/dev/null)
+              perf_args=()
+              for event in \
+                syscalls:sys_enter_mmap syscalls:sys_enter_munmap \
+                syscalls:sys_enter_mremap syscalls:sys_enter_mprotect \
+                syscalls:sys_enter_clock_gettime syscalls:sys_enter_gettimeofday \
+                syscalls:sys_enter_clock_nanosleep syscalls:sys_enter_nanosleep \
+                syscalls:sys_enter_poll syscalls:sys_enter_ppoll \
+                syscalls:sys_enter_select syscalls:sys_enter_pselect6 \
+                syscalls:sys_enter_epoll_wait syscalls:sys_enter_epoll_pwait \
+                syscalls:sys_enter_futex syscalls:sys_enter_read \
+                syscalls:sys_enter_write syscalls:sys_enter_ioctl \
+                syscalls:sys_enter_rt_sigreturn syscalls:sys_enter_rt_sigprocmask \
+                syscalls:sys_enter_clone syscalls:sys_enter_clone3 \
+                syscalls:sys_enter_wait4 syscalls:sys_enter_kill \
+                syscalls:sys_enter_tgkill syscalls:sys_enter_restart_syscall; do
+                if [[ "$perf_events" == *"$event"* ]]; then
+                  perf_args+=(-e "$event")
+                fi
+              done
+              if [ "${#perf_args[@]}" -gt 0 ]; then
+                perf_args+=(-e task-clock -e context-switches -e cpu-migrations)
+                sudo perf stat "${perf_args[@]}" -p "$host_pids" \
+                  -o output/ltp/nanosleep01-host-syscall-counts.txt \
                   >/dev/null 2>&1 &
                 perf_pid=$!
               else
-                echo 'Host mmap syscall tracepoints are unavailable.' \
+                echo 'Host syscall tracepoints are unavailable.' \
                   > output/ltp/nanosleep01-host-syscall-counts.txt
               fi
             else
