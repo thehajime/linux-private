@@ -103,46 +103,27 @@ jobs:
             sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
           docker start ltp-setns-debug
 
-      - name: Run setns02 under host GDB
+      - name: Run setns02 directly under host GDB
         env:
-          LTP_TESTNAME: um-nommu-sas-zpoline
-          LTP_ARTIFACT_NAME: um-nommu
           UML_OPTIONS: zpoline=1
-          LTP_FULL_RUN: 'false'
-          LTP_RUN_PATTERN_OVERRIDE: '^setns02$'
-          LTP_SUITE_TIMEOUT: 10m
-          LTP_TIMEOUT_MUL: 10
-          LTP_INSTALL_PREEXTRACTED: 1
-          SAS_CAPTURE_PYTHON_MAPS: 'false'
         run: |
           set -uo pipefail
           mkdir -p output/ltp
+          chmod 0755 .github/workflows/ltp-direct-exec.sh
           cat > "$RUNNER_TEMP/setns-gdb.cmd" <<'GDB'
           set pagination off
           set confirm off
-          set breakpoint pending on
           handle SIGSYS nostop noprint pass
-          catch signal SIGSEGV
-          commands
-            silent
-            printf "GDB_SIGSEGV\n"
-            p $_siginfo
-            info registers rip rsp rdi rsi rdx rax
-            x/i $rip
-            bt 30
-            continue
-          end
-          break sys_setns if $rsi == 0x4000000
-          commands
-            silent
-            printf "GDB_SETNS_ENTRY fd=%d nstype=0x%x\n", $rdi, $rsi
-            info registers rip rsp rdi rsi rdx rax
-            bt 30
-            finish
-            printf "GDB_SETNS_RETURN rax=%lld\n", $rax
-            continue
-          end
+          handle SIGSTOP stop noprint nopass
           continue
+          printf "GDB_FIXED_SAMPLE\n"
+          info registers rip rsp rdi rsi rdx rax
+          x/i $rip
+          x/24gx $rsp
+          info threads
+          thread apply all bt 24
+          detach
+          quit
           GDB
 
           (
@@ -150,7 +131,8 @@ jobs:
               pid=$(docker top ltp-setns-debug -eo pid,args 2>/dev/null |
                 awk '$0 ~ /vmlinux/ && $0 !~ /awk/ {print $1; exit}')
               if [ -n "$pid" ]; then
-                sudo timeout --foreground --signal=TERM --kill-after=3s 120s \
+                (sleep 20; sudo kill -STOP "$pid" 2>/dev/null || true) &
+                sudo timeout --foreground --signal=TERM --kill-after=3s 75s \
                   gdb -q -batch -x "$RUNNER_TEMP/setns-gdb.cmd" \
                   "$RUNNER_TEMP/vmlinux" -p "$pid"
                 exit $?
@@ -162,14 +144,11 @@ jobs:
           ) > output/ltp/setns02-gdb.log 2>&1 &
           gdb_monitor=$!
 
-          docker exec -t \
-            -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-            -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN \
-            -e LTP_RUN_PATTERN_OVERRIDE -e LTP_TIMEOUT_MUL -e LTP_SUITE_TIMEOUT \
-            -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS \
-            ltp-setns-debug \
-            /opt/uml-host-tools/busybox sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
-            | tee output/ltp/setns02-ltp.log
+          timeout --foreground --signal=TERM --kill-after=5s 180s \
+            docker exec -t ltp-setns-debug \
+              /opt/uml-host-tools/busybox sh -c \
+              'exec /root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=setns02' \
+              2>&1 | tee output/ltp/setns02-ltp.log
           ltp_status=${PIPESTATUS[0]}
           wait "$gdb_monitor" || true
           exit "$ltp_status"
@@ -343,51 +322,35 @@ jobs:
             sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
           docker start ltp-clock-debug
 
-      - name: Compare clock_gettime04 with and without UML override
+      - name: Run clock_gettime04 directly with and without UML override
         env:
-          LTP_TESTNAME: um-nommu-sas-zpoline
-          LTP_ARTIFACT_NAME: um-nommu
           UML_OPTIONS: zpoline=1
-          LTP_FULL_RUN: 'false'
-          LTP_RUN_PATTERN_OVERRIDE: '^clock_gettime04$'
-          LTP_SUITE_TIMEOUT: 10m
-          LTP_TIMEOUT_MUL: 10
-          LTP_INSTALL_PREEXTRACTED: 1
-          SAS_CAPTURE_PYTHON_MAPS: 'false'
         run: |
           set -uo pipefail
           mkdir -p output/ltp
+          chmod 0755 .github/workflows/ltp-direct-exec.sh
           run_guest() {
             local override=${1:-}
             local label=${2:-default}
+            local test_name=${3:-clock_gettime04}
             local status=0
-            local -a extra_env=()
+            local virt_arg=
             if [ -n "$override" ]; then
-              extra_env=(-e "LTP_VIRT_OVERRIDE=$override")
+              virt_arg="LTP_VIRT_OVERRIDE=$override"
             fi
-            docker exec -t \
-              -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-              -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN \
-              -e LTP_RUN_PATTERN_OVERRIDE -e LTP_TIMEOUT_MUL -e LTP_SUITE_TIMEOUT \
-              -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS \
-              "${extra_env[@]}" ltp-clock-debug \
-              /opt/uml-host-tools/busybox sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
-              2>&1 | tee "output/ltp/clock-gettime04-${label}.log" || status=${PIPESTATUS[0]}
-            cp "output/ltp/result-${LTP_TESTNAME}.json" \
-              "output/ltp/result-clock-gettime04-${label}.json"
-            cp "output/ltp/ltp-result-${LTP_TESTNAME}.html" \
-              "output/ltp/clock-gettime04-${label}.html"
+            timeout --foreground --signal=TERM --kill-after=5s 120s \
+              docker exec -t ltp-clock-debug \
+                /opt/uml-host-tools/busybox sh -c \
+                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name $virt_arg" \
+                2>&1 | tee "output/ltp/${test_name}-${label}.log" || status=${PIPESTATUS[0]}
             return "$status"
           }
 
-          run_guest '' default || true
-          run_guest other uml-override || true
-          for result in output/ltp/result-clock-gettime04-*.json; do
-            jq -r '.results[] | select(.test_fqn == "clock_gettime04") |
-              [.status,.test.failed,.test.passed,
-               (.test.log|split("\n")|map(select(test("Running in a virtual machine|TFAIL|TPASS")))|join(" | "))] | @tsv' \
-              "$result"
-          done
+          run_guest '' default clock_gettime04 || true
+          run_guest other uml-override clock_gettime04 || true
+          run_guest '' zpoline nanosleep01 || true
+          rg -n 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TPASS:' \
+            output/ltp/clock-gettime04-*.log output/ltp/nanosleep01-*.log
 
       - name: Upload clock_gettime04 comparison
         if: always()
