@@ -135,12 +135,14 @@ jobs:
             bt 20
             continue
           end
-          break sys_setns if $rsi == 0x4000000
+          break sys_setns
           commands
             silent
-            printf "GDB_UTS_SETNS\n"
+            printf "GDB_SETNS_ENTRY fd=%d flags=0x%x\n", $rdi, $rsi
             info registers rip rsp rdi rsi rdx rax
-            bt 20
+            bt 12
+            finish
+            printf "GDB_SETNS_RETURN value=%lld\n", $rax
             continue
           end
           continue
