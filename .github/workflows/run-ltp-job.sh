@@ -29,6 +29,9 @@ else
 	tar xfz "$ltp_archive" -C /
 fi
 
+ltp_source=/ltp-source
+test -d "$ltp_source/tools/kirk/kirk-src"
+
 cp .github/workflows/ltp-skip /ltp-skip
 if [ "$LTP_TESTNAME" = um-nommu-sas-zpoline ] ||
 	[ "$LTP_TESTNAME" = um-nommu-plain-sas-zpoline ]; then
@@ -77,23 +80,29 @@ esac
 
 case "$LTP_TESTNAME" in
 	um-nommu*)
-		# The current LTP NOMMU runtime keeps its result counters in a
-		# heap-backed IPC page. Results emitted by private clone children are
-		# therefore not visible to the test runner, so these cases end in
-		# BROK after their child has already printed TPASS. The remaining
-		# cases require MMU-only services (kcmp, mlock/munlock, or a MAP_32BIT
+		# These cases require MMU-only services (kcmp, mlock/munlock, or a MAP_32BIT
 		# allocation below 2 GiB) that this NOMMU address-space model lacks.
-		# Keep setns02 enabled: its standalone failure is not explained by the
-		# shared-result issue and needs kernel-side investigation.
-		for test in clone06 clone08 kcmp03 mincore02 mmap23; do
+		for test in kcmp03 mincore02 mmap23; do
 			echo "$test" >> /ltp-skip
 		done
-		echo "Skipping NOMMU-incompatible LTP result IPC/MMU-only cases"
+		case "$LTP_TESTNAME" in
+			um-nommu-sas-seccomp|um-nommu-sas-zpoline)
+				if grep -q 'static int ipc_nommu_heap' "$ltp_source/lib/tst_test.c"; then
+					grep -a -q 'mmap() for shared test IPC' /opt/ltp/testcases/bin/clone06 || {
+						echo "Selected runtime NOMMU artifact lacks the shared-counter fix" >&2
+						exit 1
+					}
+					echo "Enabling private clone result tests with shared NOMMU IPC"
+				else
+					printf '%s\n' clone06 clone08 >> /ltp-skip
+				fi
+				;;
+			*) printf '%s\n' clone06 clone08 >> /ltp-skip ;;
+		esac
+		echo "Skipping NOMMU-incompatible MMU-only cases"
 		;;
 esac
 
-ltp_source=/ltp-source
-test -d "$ltp_source/tools/kirk/kirk-src"
 cp .github/workflows/faketty /bin/faketty
 chmod +x /bin/faketty
 

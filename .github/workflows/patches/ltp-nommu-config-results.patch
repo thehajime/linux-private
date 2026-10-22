@@ -1,0 +1,89 @@
+--- a/lib/tst_test.c
++++ b/lib/tst_test.c
+@@ -144,6 +144,7 @@
+ 
+ static int ipc_fd;
+ static int ipc_nommu_heap;
++static int ipc_nommu_mapping;
+ static char ipc_path[1064];
+ 
+ static char shm_path[1024];
+@@ -163,11 +164,21 @@
+ 		if (tst_test->needs_checkpoints || tst_test->child_needs_reinit)
+ 			tst_brk(TCONF, "NOMMU does not support shared test IPC");
+ 
+-		ipc = calloc(1, size);
+-		if (!ipc)
+-			tst_brk(TBROK | TERRNO, "calloc() for test IPC");
+-
+-		ipc_nommu_heap = 1;
++		/* Private clone children need counters outside their copied heap. */
++		ipc = mmap(NULL, size, PROT_READ | PROT_WRITE,
++			   MAP_SHARED | MAP_ANONYMOUS, -1, 0);
++		if (ipc == MAP_FAILED) {
++			if (errno != EINVAL && errno != EOPNOTSUPP && errno != ENOSYS) {
++				ipc = NULL;
++				tst_brk(TBROK | TERRNO, "mmap() for shared test IPC");
++			}
++			ipc = calloc(1, size);
++			if (!ipc)
++				tst_brk(TBROK | TERRNO, "calloc() for test IPC");
++			ipc_nommu_heap = 1;
++		} else {
++			ipc_nommu_mapping = 1;
++		}
+ 	} else {
+ 		if (access("/dev/shm", F_OK) == 0) {
+ 			snprintf(shm_path, sizeof(shm_path), "/dev/shm/ltp_%s_%d",
+@@ -221,12 +232,15 @@
+ {
+ 	size_t size = getpagesize();
+ 
+-	if (ipc_nommu_heap) {
+-		/* The NOMMU test child shares this heap region with its parent. */
++	if (ipc_nommu_heap || ipc_nommu_mapping) {
++		/* A CLONE_VM test child must not release its parent's IPC. */
+ 		if (context && getpid() != context->lib_pid)
+ 			return;
+ 
+-		free(ipc);
++		if (ipc_nommu_mapping)
++			SAFE_MUNMAP(ipc, size);
++		else
++			free(ipc);
+ 		ipc = NULL;
+ 		context = NULL;
+ 		results = NULL;
+--- a/testcases/kernel/syscalls/setns/setns02.c
++++ b/testcases/kernel/syscalls/setns/setns02.c
+@@ -138,7 +138,10 @@
+ 	} else
+ 		tst_res(TCONF, "CLONE_NEWUTS is not supported");
+ 
+-	if (ns_ipc_fd != -1) {
++	if (tst_is_nommu()) {
++		tst_res(TCONF, "IPC namespace reassociation requires shmat, "
++			"unsupported on NOMMU");
++	} else if (ns_ipc_fd != -1) {
+ 		tst_res(TINFO, "test_newipc");
+ 		test_flag(CLONE_NEWIPC, CLONE_NEWIPC, do_child_newipc);
+ 		test_flag(CLONE_NEWIPC, 0, do_child_newipc);
+--- a/testcases/kernel/syscalls/mmap/mmap04.c
++++ b/testcases/kernel/syscalls/mmap/mmap04.c
+@@ -56,7 +56,15 @@
+ 	flag = (tc->flags & MAP_PRIVATE) ? MAP_SHARED : MAP_PRIVATE;
+ 	addr1 = SAFE_MMAP(NULL, pagesize * 2, PROT_NONE, MAP_ANONYMOUS | flag, -1, 0);
+ 
+-	addr2 = SAFE_MMAP(addr1 + pagesize, pagesize, tc->prot, tc->flags | MAP_FIXED, -1, 0);
++	addr2 = mmap(addr1 + pagesize, pagesize, tc->prot, tc->flags | MAP_FIXED, -1, 0);
++	if (addr2 == MAP_FAILED) {
++		if (tst_is_nommu() && errno == EOPNOTSUPP) {
++			SAFE_MUNMAP(addr1, pagesize * 2);
++			tst_brk(TCONF, "NOMMU backend does not support partial "
++				"MAP_FIXED across private/shared mappings");
++		}
++		tst_brk(TBROK | TERRNO, "mmap MAP_FIXED");
++	}
+ 
+ 	/* A /proc/self/maps address is at least 8 hex (left zero padded) */
+ 	sprintf(fmt, "%08" PRIxPTR "-%%*x %%s", (uintptr_t)addr2);

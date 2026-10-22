@@ -185,6 +185,7 @@ jobs:
         path: linux-private-ci
         sparse-checkout: |
           .github/workflows/patches/ltp-madvise11-void-ptrs.patch
+          .github/workflows/patches/ltp-nommu-config-results.patch
           .github/workflows/instrument-ltp-setns02.py
           .github/workflows/patch-kirk-monotonic.py
 
@@ -196,6 +197,20 @@ jobs:
         else
           git apply --reverse --check "$patch_file"
           echo "madvise11 pointer fix is already present in ${{ inputs.ltp_ref || matrix.env.branch }}"
+        fi
+
+    - name: Preserve runtime NOMMU clone results and classify unsupported mappings
+      run: |
+        if grep -q 'static int ipc_nommu_heap' lib/tst_test.c; then
+          patch_file=linux-private-ci/.github/workflows/patches/ltp-nommu-config-results.patch
+          if git apply --check "$patch_file"; then
+            git apply "$patch_file"
+          else
+            git apply --reverse --check "$patch_file"
+            echo "Runtime NOMMU result/configuration fixes are already present"
+          fi
+        else
+          echo "Selected LTP ref uses the legacy NOMMU framework; runtime IPC patch is not applicable"
         fi
 
     - name: Instrument setns02 child and wait status
@@ -276,7 +291,7 @@ jobs:
             ;;
         esac
 
-    - name: Keep Kirk elapsed time independent of LTP clock changes
+    - name: Fix Kirk elapsed timing and drain complete test output
       run: |
         python3 linux-private-ci/.github/workflows/patch-kirk-monotonic.py tools/kirk/kirk-src
 
