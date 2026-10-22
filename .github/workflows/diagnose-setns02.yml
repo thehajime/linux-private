@@ -411,11 +411,13 @@ jobs:
 
           run_guest '' default clock_gettime04 direct || true
           run_guest other uml-override clock_gettime04 direct || true
+          run_guest '' kirk clock_gettime04 kirk || true
           run_guest '' zpoline nanosleep01 direct || true
           run_guest '' kirk nanosleep01 kirk || true
           run_guest '' kirk-setns setns02 kirk || true
           missing=0
-          for result in direct-clock_gettime04.status direct-nanosleep01.status \
+          for result in direct-clock_gettime04.status kirk-clock_gettime04.status \
+            direct-nanosleep01.status \
             kirk-nanosleep01.status kirk-setns02.status; do
             if [ ! -s "output/ltp/$result" ]; then
               echo "Missing diagnostic test status: $result" >&2
@@ -425,7 +427,7 @@ jobs:
               missing=1
             fi
           done
-          for test_name in nanosleep01 setns02; do
+          for test_name in clock_gettime04 nanosleep01 setns02; do
             result="output/ltp/kirk-${test_name}.json"
             if ! jq -e --arg test "$test_name" \
               '[.results[] | select(.test_fqn == $test and .status == "pass")] | length == 1' \
