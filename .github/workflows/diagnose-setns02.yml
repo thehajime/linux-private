@@ -336,13 +336,19 @@ jobs:
             local mode=${4:-direct}
             local status=0
             local virt_arg=
+            local profile_arg=
+            local timeout_seconds=120
             if [ -n "$override" ]; then
               virt_arg="LTP_VIRT_OVERRIDE=$override"
             fi
-            timeout --foreground --signal=TERM --kill-after=5s 120s \
+            if [ "$mode" = kirk ]; then
+              profile_arg=PYTHONPROFILEIMPORTTIME=1
+              timeout_seconds=360
+            fi
+            timeout --foreground --signal=TERM --kill-after=5s "${timeout_seconds}s" \
               docker exec -t ltp-clock-debug \
                 /opt/uml-host-tools/busybox sh -c \
-                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg" \
+                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg $profile_arg" \
                 2>&1 | tee "output/ltp/${test_name}-${label}-${mode}.log" || status=${PIPESTATUS[0]}
             return "$status"
           }
@@ -352,9 +358,17 @@ jobs:
           run_guest '' zpoline nanosleep01 direct || true
           run_guest '' kirk nanosleep01 kirk || true
           run_guest '' kirk-setns setns02 kirk || true
+          missing=0
+          for result in kirk-nanosleep01.status kirk-setns02.status; do
+            if [ ! -s "output/ltp/$result" ]; then
+              echo "Missing Kirk test status: $result" >&2
+              missing=1
+            fi
+          done
           grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:' \
             output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log \
             output/ltp/setns02-*.log
+          exit "$missing"
 
       - name: Upload clock_gettime04 comparison
         if: always()
