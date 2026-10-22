@@ -56,7 +56,16 @@
  		results = NULL;
 --- a/testcases/kernel/syscalls/setns/setns02.c
 +++ b/testcases/kernel/syscalls/setns/setns02.c
-@@ -138,7 +138,10 @@
+@@ -127,6 +127,8 @@
+ 
+ 	SAFE_WAITPID(ret, &status, 0);
+ 	free(child_stack);
++	if (!WIFEXITED(status) || WEXITSTATUS(status))
++		tst_res(TFAIL, "namespace child %s", tst_strstatus(status));
+ }
+ 
+ void test_all(void)
+@@ -138,7 +140,10 @@
  	} else
  		tst_res(TCONF, "CLONE_NEWUTS is not supported");
  
@@ -77,7 +86,7 @@
 -	addr2 = SAFE_MMAP(addr1 + pagesize, pagesize, tc->prot, tc->flags | MAP_FIXED, -1, 0);
 +	addr2 = mmap(addr1 + pagesize, pagesize, tc->prot, tc->flags | MAP_FIXED, -1, 0);
 +	if (addr2 == MAP_FAILED) {
-+		if (tst_is_nommu() && errno == EOPNOTSUPP) {
++		if (tst_is_nommu() && (errno == EOPNOTSUPP || errno == EINVAL)) {
 +			SAFE_MUNMAP(addr1, pagesize * 2);
 +			tst_brk(TCONF, "NOMMU backend does not support partial "
 +				"MAP_FIXED across private/shared mappings");
