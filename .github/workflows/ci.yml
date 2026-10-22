@@ -448,9 +448,16 @@ jobs:
           echo "CONFIG_UML_NOMMU_SAS=y" >> arch/um/configs/x86_64_defconfig
       - name: build-0 (static)
         run: |
-          curl -L -O https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || 'fix-nommu' }}/tools/buildroot/ltp-add.config
-          cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
+          cat .github/workflows/ltp-kernel.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }} O=build
+          for option in CONFIG_BLK_DEV_LOOP CONFIG_IKCONFIG CONFIG_IKCONFIG_PROC \
+                        CONFIG_EXT3_FS CONFIG_EXT4_FS CONFIG_KEYS CONFIG_FANOTIFY \
+                        CONFIG_FANOTIFY_ACCESS_PERMISSIONS CONFIG_PID_NS CONFIG_USER_NS; do
+            grep -q "^${option}=y$" build/.config || {
+              echo "Required LTP kernel option ${option}=y is missing" >&2
+              exit 1
+            }
+          done
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
                 "${{ matrix.testname }}" == "um-nommu-smp" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \
@@ -580,9 +587,16 @@ jobs:
           if-no-files-found: warn
       - name: build-1
         run: |
-          curl -L -O https://raw.githubusercontent.com/thehajime/ltp/${{ inputs.ltp_ref || 'fix-nommu' }}/tools/buildroot/ltp-add.config
-          cat ltp-add.config >> arch/um/configs/${{ matrix.defconfig }}
+          cat .github/workflows/ltp-kernel.config >> arch/um/configs/${{ matrix.defconfig }}
           make ARCH=um ${{ matrix.defconfig }}
+          for option in CONFIG_BLK_DEV_LOOP CONFIG_IKCONFIG CONFIG_IKCONFIG_PROC \
+                        CONFIG_EXT3_FS CONFIG_EXT4_FS CONFIG_KEYS CONFIG_FANOTIFY \
+                        CONFIG_FANOTIFY_ACCESS_PERMISSIONS CONFIG_PID_NS CONFIG_USER_NS; do
+            grep -q "^${option}=y$" .config || {
+              echo "Required LTP kernel option ${option}=y is missing" >&2
+              exit 1
+            }
+          done
           if [[ "${{ matrix.testname }}" == "um-nommu" || \
                 "${{ matrix.testname }}" == "um-nommu-smp" || \
                 "${{ matrix.testname }}" == "um-nommu-tt" || \

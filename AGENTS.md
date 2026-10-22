@@ -244,6 +244,20 @@ GitHub Actions. The report gate needs a new run to publish and verify the site.
   report retains a partial pipe measurement but labels the timeout until the
   new run verifies normal cleanup.
 
+### LTP candidate CI configuration follow-up (2026-10-22)
+
+- [ ] Re-run the candidate LTP integration matrix after pinning the UML kernel
+  test configuration in `.github/workflows/ltp-kernel.config`. The
+  `hajime/nommu-runtime-upstream` LTP source ref no longer carries the
+  downstream `tools/buildroot/ltp-add.config` file that the Linux CI workflow
+  previously downloaded without checking HTTP status. That silently omitted
+  `CONFIG_PID_NS`, `CONFIG_USER_NS`, and `CONFIG_FANOTIFY` in run
+  `39699280247`: the plain SAS report then showed new `TBROK` results for
+  `ioctl_ns01/04` (`/proc/self/ns/{pid,user}` returned `ENOENT`) and cleanup
+  warnings in `fanotify10`. CI now owns the stable config and asserts key
+  options after `olddefconfig`; verify the plain SAS results and classify any
+  remaining differences against run `39561868757`.
+
 - [x] Complete plain NOMMU CI validation. Runs `37711748667` and
   `37713808402` showed that test-0's `NOMMU_USERSPACE_READY` marker could print
   after `/bin/mkdir` failed to load shared libraries and `/dev/shm` and
