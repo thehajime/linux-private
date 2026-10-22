@@ -440,13 +440,27 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
-	if ! docker run --detach --name "$CLIENT" --network host ubuntu:22.04 \
+	client_mounts=(
+		--volume /usr/bin/curl:/usr/bin/curl:ro
+		--volume /usr/bin/wrk:/usr/bin/wrk:ro
+	)
+	for binary in /usr/bin/curl /usr/bin/wrk; do
+		while IFS= read -r library; do
+			[[ -f "$library" ]] && client_mounts+=(--volume "$library:$library:ro")
+		done < <(ldd "$binary" 2>/dev/null | awk '
+			$1 ~ /^\// { print $1 }
+			$2 == "=>" && $3 ~ /^\// { print $3 }
+		' | sort -u)
+	done
+	if ! docker run --detach --name "$CLIENT" --network host \
+		"${client_mounts[@]}" ubuntu:22.04 \
 		bash -c 'sleep infinity' >"$OUTPUT/client-setup.log" 2>&1; then
-		fail "could not start separate wrk client container"
-	elif ! timeout 180s docker exec "$CLIENT" bash -ec \
-		'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl wrk' \
+		fail "could not start separate curl/wrk client container"
+	elif ! docker exec "$CLIENT" /usr/bin/curl --version \
+		>>"$OUTPUT/client-setup.log" 2>&1 || \
+		! docker exec "$CLIENT" /usr/bin/wrk --version \
 		>>"$OUTPUT/client-setup.log" 2>&1; then
-		fail "could not install curl and wrk in the separate client container"
+		fail "host curl/wrk binaries are not runnable in the separate client container"
 	fi
 fi
 

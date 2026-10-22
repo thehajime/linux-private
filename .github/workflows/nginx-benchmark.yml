@@ -92,7 +92,7 @@ jobs:
           CONNECTIONS: ${{ matrix.connections }}
         run: |
           sudo apt-get update
-          host_tools=(iproute2 libcap2-bin)
+          host_tools=(iproute2 libcap2-bin curl wrk)
           if [[ "$PROFILE" == um-nommu-sas-seccomp || \
                 ("$PROFILE" == um-nommu-sas-zpoline && "$WORKERS" == 1 && "$CONNECTIONS" == 4) ]]; then
             host_tools+=(tcpdump)

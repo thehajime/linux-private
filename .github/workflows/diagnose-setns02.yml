@@ -8,6 +8,16 @@ on:
         required: true
         type: string
         default: '39761233295'
+      run_nginx:
+        description: Run the SWMMU zpoline nginx TLS packet/GDB diagnostic
+        required: false
+        type: boolean
+        default: false
+      nginx_source_run_id:
+        description: CI run containing the candidate nginx rootfs and UML image
+        required: false
+        type: string
+        default: '39753406782'
 
 permissions:
   actions: read
@@ -15,6 +25,7 @@ permissions:
 
 jobs:
   setns02-gdb:
+    if: ${{ !inputs.run_nginx }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -167,3 +178,79 @@ jobs:
       - name: Stop UML test container
         if: always()
         run: docker rm -f ltp-setns-debug || true
+
+  nginx-tls-gdb-pcap:
+    if: ${{ inputs.run_nginx }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download candidate UML image
+        uses: actions/download-artifact@v7
+        with:
+          name: uml-docker-image-um-nommu-sas
+          run-id: ${{ inputs.nginx_source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/uml-image
+
+      - name: Download candidate nginx rootfs
+        uses: actions/download-artifact@v7
+        with:
+          name: nginx-rootfs-sas
+          run-id: ${{ inputs.nginx_source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/nginx-rootfs-artifact
+
+      - name: Extract exact candidate kernel and rootfs
+        run: |
+          set -euo pipefail
+          docker load -i "$(find "$RUNNER_TEMP/uml-image" -maxdepth 1 -name '*.tar' -print -quit)"
+          cid=$(docker create uml-ci/alpine:edge-um-nommu-sas)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 "$RUNNER_TEMP/vmlinux"
+          mkdir -p rootfs
+          tar -xzf "$RUNNER_TEMP/nginx-rootfs-artifact/rootfs.tar.gz" -C rootfs
+
+      - name: Install host tracing and network tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl gdb iproute2 libcap2-bin tcpdump wrk
+
+      - name: Run one SWMMU SAS zpoline TLS diagnostic
+        env:
+          PROFILE: um-nommu-sas-zpoline
+          WORKERS: '1'
+          NCPUS: '1'
+          CONNECTIONS: '4'
+          THREADS: '2'
+          NEEDS_RAWIO: 'true'
+          KERNEL_ARGS: zpoline=1
+          NGINX_WRK_TIMEOUT_SECONDS: '60'
+          NGINX_WRK_WARMUP_TIMEOUT_SECONDS: '90'
+        run: |
+          set -euo pipefail
+          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs-artifact/manifest.txt")
+          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs-artifact/manifest.txt")
+          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs-artifact/manifest.txt")
+          bash .github/workflows/run-nginx-benchmark.sh \
+            --kernel "$RUNNER_TEMP/vmlinux" --rootfs rootfs \
+            --workers "$WORKERS" --ncpus "$NCPUS" --threads "$THREADS" \
+            --connections "$CONNECTIONS" --duration 30 \
+            --profile "$PROFILE" --kernel-args "$KERNEL_ARGS" \
+            --needs-rawio "$NEEDS_RAWIO" --kernel-sha "$kernel_sha" \
+            --aports-sha "$aports_sha" --gcc-version "$gcc_version" \
+            --output output/nginx-tls-diagnostic
+
+      - name: Upload TLS packet and GDB diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nginx-swmmu-zpoline-tls-diagnostics
+          path: output/nginx-tls-diagnostic/
+          if-no-files-found: warn
+          retention-days: 14
