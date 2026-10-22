@@ -18,6 +18,7 @@ case "$LTP_DIRECT_MODE" in
 	direct|kirk) ;;
 	*) echo "unsupported direct mode: ${LTP_DIRECT_MODE:-unset}"; exit 2 ;;
 esac
+LTP_DIRECT_LABEL=${LTP_DIRECT_LABEL:-$LTP_DIRECT_MODE}
 
 test_bin="/opt/ltp/testcases/bin/$LTP_DIRECT_TEST"
 if [ ! -x "$test_bin" ]; then
@@ -32,11 +33,11 @@ if [ "$LTP_DIRECT_MODE" = kirk ]; then
 	: > /opt/ltp/.codex-empty-skip
 	LTP_SINGLE_FS_TYPE=ext4 ./kirk -f syscalls --suite-timeout 2m \
 		--run-pattern "^${LTP_DIRECT_TEST}$" --skip-file /opt/ltp/.codex-empty-skip \
-		-o "/github/workspace/output/ltp/kirk-${LTP_DIRECT_TEST}.json" || test_rc=$?
+		-o "/github/workspace/output/ltp/${LTP_DIRECT_LABEL}-${LTP_DIRECT_TEST}.json" || test_rc=$?
 else
 	"$test_bin" || test_rc=$?
 fi
 echo "LTP_DIRECT_EXIT_CODE=$test_rc"
-printf '%s\n' "$test_rc" > "/github/workspace/output/ltp/${LTP_DIRECT_MODE}-${LTP_DIRECT_TEST}.status"
+printf '%s\n' "$test_rc" > "/github/workspace/output/ltp/${LTP_DIRECT_LABEL}-${LTP_DIRECT_TEST}.status"
 /bin/busybox poweroff -f
 exit "$test_rc"
