@@ -179,6 +179,7 @@ jobs:
         sparse-checkout: |
           .github/workflows/patches/ltp-madvise11-void-ptrs.patch
           .github/workflows/instrument-ltp-setns02.py
+          .github/workflows/patch-kirk-monotonic.py
 
     - name: Fix LTP madvise11 pointer type for GCC on Alpine edge
       run: |
@@ -267,6 +268,10 @@ jobs:
             exit 1
             ;;
         esac
+
+    - name: Keep Kirk elapsed time independent of LTP clock changes
+      run: |
+        python3 linux-private-ci/.github/workflows/patch-kirk-monotonic.py tools/kirk/kirk-src
 
     - name: Compile
       run: ./build.sh -r build -o ${TREE:-in}
