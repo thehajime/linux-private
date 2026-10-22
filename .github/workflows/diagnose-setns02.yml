@@ -45,6 +45,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
 
       - name: Download candidate UML image
         uses: actions/download-artifact@v7
@@ -235,6 +237,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
 
       - name: Download candidate UML image
         uses: actions/download-artifact@v7
@@ -329,6 +333,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/workflows
 
       - name: Download candidate UML image
         uses: actions/download-artifact@v7
