@@ -149,10 +149,11 @@ else
 	mv /tmp/ltp-entrypoint.sh .github/workflows/ltp-entrypoint.sh
 	case "$LTP_TESTNAME" in
 		um-nommu*)
-			set -- LTP_SINGLE_FS_TYPE=ext4
-			if [ -n "${LTP_VIRT_OVERRIDE:-}" ]; then
-				set -- "$@" "LTP_VIRT_OVERRIDE=$LTP_VIRT_OVERRIDE"
-			fi
+			# Match the NOMMU validation kit's UML virtualization setting.
+			# An explicit empty override retains raw timing assertions for
+			# focused diagnostics.
+			set -- LTP_SINGLE_FS_TYPE=ext4 \
+				"LTP_VIRT_OVERRIDE=${LTP_VIRT_OVERRIDE-uml}"
 			set -- "$@" LTP_TESTNAME="$LTP_TESTNAME" \
 				LTP_SUITE_TIMEOUT="$LTP_SUITE_TIMEOUT"
 			run_faketty sh -x .github/workflows/ltp-entrypoint.sh "$@"
