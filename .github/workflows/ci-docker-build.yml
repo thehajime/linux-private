@@ -291,6 +291,17 @@ jobs:
         if [ "$MAKE_INSTALL" = 1 ]; then INSTALL_OPT="-i"; fi
         ./build.sh -r install -o ${TREE:-in} $INSTALL_OPT
 
+    - name: Verify setns02 diagnostics reached installed binary
+      if: inputs.diagnose_setns02
+      run: |
+        binary=/github/home/ltp-install/opt/ltp/testcases/bin/setns02
+        test -x "$binary"
+        if ! grep -a -q 'SETNS02_DEBUG:' "$binary"; then
+          echo "setns02 diagnostic marker is missing from $binary" >&2
+          exit 1
+        fi
+        echo "Verified SETNS02_DEBUG marker in $binary"
+
     - name: Send results to Patchwork
       if: always() && inputs.SERIES_ID != '' && inputs.SERIES_MBOX != ''
       env:
