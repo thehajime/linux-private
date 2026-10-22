@@ -12,6 +12,7 @@
 #include <linux/uaccess.h>
 #include <linux/sched/debug.h>
 #include <asm/current.h>
+#include <asm/unistd.h>
 #include <asm/tlbflush.h>
 #include <arch.h>
 #include <as-layout.h>
@@ -71,6 +72,52 @@ static bool nommu_user_ip(unsigned long ip)
 #endif
 	return false;
 }
+
+#ifdef CONFIG_64BIT
+/*
+ * zpoline rewrites syscall to call *%rax through the low-address trampoline.
+ * An invalid number such as -1 faults at that target before reaching the
+ * syscall dispatcher. Recognize only that rewritten call and emulate the
+ * kernel's -ENOSYS return; unrelated faults keep the normal signal path.
+ */
+static bool nommu_zpoline_invalid_syscall(struct uml_pt_regs *regs,
+						 struct siginfo *si, void *mc)
+{
+	struct faultinfo *fi = UPT_FAULTINFO(regs);
+	unsigned long nr = UPT_AX(regs);
+	unsigned long sp = UPT_SP(regs);
+	unsigned long return_ip;
+	u16 instruction;
+
+	if (!um_zpoline_enabled || !si || !mc)
+		return false;
+	if ((long)nr >= 0 && nr < NR_syscalls)
+		return false;
+	if (UPT_IP(regs) != nr || si->si_addr != (void *)nr)
+		return false;
+	/* The target fault must be a user-mode instruction fetch. */
+	if (fi->trap_no != 14 || (fi->error_code & 0x14) != 0x14)
+		return false;
+	if (sp > ULONG_MAX - sizeof(return_ip) ||
+	    !nommu_user_ip(sp) || !nommu_user_ip(sp + sizeof(return_ip) - 1))
+		return false;
+	if (copy_from_user_nofault(&return_ip, (void __user *)sp,
+				   sizeof(return_ip)))
+		return false;
+	if (return_ip < 2 || !nommu_user_ip(return_ip) ||
+	    !nommu_user_ip(return_ip - 2))
+		return false;
+	if (copy_from_user_nofault(&instruction,
+				   (void __user *)(return_ip - 2),
+				   sizeof(instruction)))
+		return false;
+	if (instruction != 0xd0ff)
+		return false;
+
+	zpoline_set_invalid_syscall_return(mc, return_ip, sp);
+	return true;
+}
+#endif
 #endif
 
 /**
@@ -90,6 +137,11 @@ void segv_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs,
 	struct faultinfo * fi = UPT_FAULTINFO(regs);
 
 #ifdef CONFIG_UML_NOMMU_SAS
+#ifdef CONFIG_64BIT
+	if (nommu_zpoline_invalid_syscall(regs, unused_si, mc))
+		return;
+#endif
+
 	/* SWMMU user instructions may live above the normal NOMMU range. */
 	if (nommu_user_ip(UPT_IP(regs)))
 		regs->is_user = 1;

@@ -382,6 +382,9 @@ extern int os_setup_seccomp(void);
 /* zpoline.c */
 extern int um_zpoline_enabled;
 extern void zpoline_patch_sigsys(struct siginfo *si);
+extern void zpoline_set_invalid_syscall_return(void *mc,
+					       unsigned long return_ip,
+					       unsigned long stack_pointer);
 #endif
 
 #endif
