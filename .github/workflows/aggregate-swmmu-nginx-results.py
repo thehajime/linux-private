@@ -37,6 +37,13 @@ def finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
+def unsupported(profile, workers):
+    # Plain NOMMU SAS has no fork implementation, so a multiprocess nginx
+    # configuration cannot produce an artifact. The zpoline worker=4 leg is
+    # excluded in the matrix; represent its absence as a deliberate skip.
+    return profile == "um-nommu-plain-sas-zpoline" and workers > 1
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: aggregate-swmmu-nginx-results.py ARTIFACTS_DIR OUTPUT_DIR", file=sys.stderr)
@@ -63,11 +70,13 @@ def main() -> int:
                 for connections in CONNECTIONS:
                     item = by_key.get((profile, ncpus, workers, connections))
                     if item is None:
+                        skipped = unsupported(profile, workers)
                         item = {
                             "profile": profile,
                             "ncpus": ncpus,
-                            "status": "FAIL",
-                            "failures": ["matrix artifact or measurement.json is missing"],
+                            "status": "SKIP" if skipped else "FAIL",
+                            "failures": [] if skipped else ["matrix artifact or measurement.json is missing"],
+                            "warnings": ["fork is unavailable in plain NOMMU SAS"] if skipped else [],
                             "workers": workers,
                             "connections": connections,
                             "requests_per_second": None,
