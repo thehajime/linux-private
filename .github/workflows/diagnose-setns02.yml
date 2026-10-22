@@ -594,6 +594,13 @@ jobs:
                   -o output/ltp/nanosleep01-host-syscall-counts.txt \
                   >/dev/null 2>&1 &
                 perf_pid=$!
+                if [[ "$perf_events" == *"raw_syscalls:sys_enter"* ]]; then
+                  sudo timeout --foreground --signal=INT --kill-after=2s 45s \
+                    perf record -e raw_syscalls:sys_enter -c 1000 -p "$host_pids" \
+                    -o output/ltp/nanosleep01-host-raw-syscalls.data \
+                    >/dev/null 2>&1 &
+                  raw_perf_pid=$!
+                fi
               else
                 echo 'Host syscall tracepoints are unavailable.' \
                   > output/ltp/nanosleep01-host-syscall-counts.txt
@@ -612,6 +619,35 @@ jobs:
           if [ -n "$host_pids" ] && [ -n "${perf_pid:-}" ]; then
             wait "$perf_pid" || true
             cat output/ltp/nanosleep01-host-syscall-counts.txt || true
+          fi
+          if [ -n "$host_pids" ] && [ -n "${raw_perf_pid:-}" ]; then
+            wait "$raw_perf_pid" || true
+            if [ -s output/ltp/nanosleep01-host-raw-syscalls.data ]; then
+              sudo perf script -i output/ltp/nanosleep01-host-raw-syscalls.data \
+                -F trace > output/ltp/nanosleep01-host-raw-syscalls.txt 2>&1 || true
+              python3 - <<'PY'
+          import collections
+          import re
+
+          path = "output/ltp/nanosleep01-host-raw-syscalls.txt"
+          counts = collections.Counter()
+          samples = []
+          for line in open(path, errors="replace"):
+              match = re.search(r"\b(?:NR|id)\s*[=: ]\s*(\d+)", line)
+              if match:
+                  counts[int(match.group(1))] += 1
+              elif len(samples) < 12:
+                  samples.append(line.rstrip())
+          with open("output/ltp/nanosleep01-host-syscall-id-sample.txt", "w") as out:
+              out.write(f"parsed samples: {sum(counts.values())}\n")
+              for nr, count in counts.most_common(40):
+                  out.write(f"syscall {nr}: {count}\n")
+              if not counts:
+                  out.write("No NR/id field matched. Sample perf script output:\n")
+                  out.write("\n".join(samples) + "\n")
+          PY
+              cat output/ltp/nanosleep01-host-syscall-id-sample.txt
+            fi
           fi
           echo "Kirk nanosleep01 host UML exit=$guest_status; sampled pids=${host_pids:-none}"
           run_guest '' kirk-setns setns02 kirk || true
