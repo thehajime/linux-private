@@ -191,6 +191,16 @@ jobs:
               2>&1 | tee output/ltp/setns02-ltp.log
           ltp_status=${PIPESTATUS[0]}
           wait "$gdb_monitor" || true
+          if [ "$ltp_status" -ne 0 ]; then
+            exit "$ltp_status"
+          fi
+          if ! jq -e '[.results[] | select(.test_fqn == "setns02" and .status == "pass")] | length == 1' \
+            output/ltp/kirk-setns02.json >/dev/null; then
+            echo 'Kirk did not report setns02 as passing' >&2
+            jq -r '.results[] | select(.test_fqn == "setns02") | [.status, (.test.retval | join(",")), .test.log] | @tsv' \
+              output/ltp/kirk-setns02.json 2>/dev/null || true
+            exit 1
+          fi
           exit "$ltp_status"
 
       - name: Upload setns02 result and GDB trace
