@@ -216,6 +216,9 @@ void nommu_swmmu_put_region(struct vm_region *region);
 void nommu_swmmu_get_region(struct vm_region *region);
 bool nommu_swmmu_region_exclusive(struct vm_region *region);
 int nommu_swmmu_activate_mm(struct mm_struct *mm);
+/* Kernel-only text replacement through private SWMMU backing, never user VA. */
+int nommu_swmmu_patch_text(struct mm_struct *mm, unsigned long address,
+			 const void *expected, const void *replacement, size_t size);
 int nommu_swmmu_recover_alias_fault(struct mm_struct *mm,
 				   unsigned long address,
 				   unsigned int access);

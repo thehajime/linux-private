@@ -6,6 +6,8 @@
 TEST_GEN_PROGS += nommu_swmmu_test
 TEST_GEN_PROGS += nommu_swmmu_expand_test
 TEST_GEN_PROGS += nommu_swmmu_direct_test
+# Exercise raw instruction bytes and RX faults without helper interception.
+TEST_GEN_PROGS += nommu_zpoline_test
 
 $(OUTPUT)/nommu_swmmu_direct_test: CFLAGS += \
 	-I$(top_srcdir)/include/uapi $(KHDR_INCLUDES) $(TOOLS_INCLUDES)

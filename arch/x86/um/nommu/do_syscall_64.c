@@ -25,6 +25,8 @@ __visible void do_syscall_64(struct pt_regs *regs)
 	/* save fp registers */
 	asm volatile("fxsaveq %0" : "=m"(*(struct _xstate *)regs->regs.fp));
 
+	zpoline_finish_sigsys(regs);
+
 	if (!seccomp_permit_syscall())
 		return;
 	if (likely(syscall >= 0 && syscall < NR_syscalls)) {

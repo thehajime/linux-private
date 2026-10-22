@@ -1068,6 +1068,56 @@ static void nommu_swmmu_mm_alias_repair_test(struct kunit *test)
 	nommu_swmmu_kunit_set_host_ops(ctx->space, alias_test_real_ops);
 }
 
+static void nommu_swmmu_mm_patch_text_test(struct kunit *test)
+{
+	struct nommu_swmmu_mm_test_ctx *parent = test->priv;
+	struct nommu_swmmu_mm_test_ctx *child;
+	const u16 old = 0, replacement = 0xd0ff;
+	unsigned long address, data;
+	u64 value;
+
+	child = kunit_kzalloc(test, sizeof(*child), GFP_KERNEL);
+	KUNIT_ASSERT_NOT_NULL(test, child);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_mm_ctx_create(child, test), 0);
+	KUNIT_ASSERT_EQ(test, kunit_add_action_or_reset(test,
+			nommu_swmmu_mm_ctx_destroy_action, child), 0);
+	address = nommu_swmmu_kunit_mmap_mm(parent->mm, 0,
+			2 * SWMMU_PAGE_SIZE, PROT_READ | PROT_EXEC,
+			MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_FALSE(test, IS_ERR_VALUE(address));
+	KUNIT_ASSERT_EQ(test, test_dup_mmap(child->mm, parent->mm), 0);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_patch_text(child->mm, address,
+			&old, &replacement, sizeof(old)), 0);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_load_mm(child->mm, address,
+			sizeof(old), &value), 0);
+	KUNIT_EXPECT_EQ(test, value, (u64)replacement);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_load_mm(parent->mm, address,
+			sizeof(old), &value), 0);
+	KUNIT_EXPECT_EQ(test, value, 0ULL);
+	/* Comparison failure is a no-op and regular writes remain forbidden. */
+	KUNIT_EXPECT_EQ(test, nommu_swmmu_patch_text(child->mm, address,
+			&old, &old, sizeof(old)), -EAGAIN);
+	KUNIT_EXPECT_EQ(test, nommu_swmmu_kunit_store_mm(child->mm, address,
+			sizeof(old), 0), -EACCES);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_load_mm(child->mm, address,
+			sizeof(old), &value), 0);
+	KUNIT_EXPECT_EQ(test, value, (u64)replacement);
+	/* Cross-page replacements are rejected before either page is touched. */
+	KUNIT_EXPECT_EQ(test, nommu_swmmu_patch_text(parent->mm,
+			address + SWMMU_PAGE_SIZE - 1,
+			&old, &replacement, sizeof(old)), -EINVAL);
+	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_load_mm(parent->mm,
+			address + SWMMU_PAGE_SIZE, 1, &value), 0);
+	KUNIT_EXPECT_EQ(test, value, 0ULL);
+	data = nommu_swmmu_kunit_mmap_mm(parent->mm, 0, SWMMU_PAGE_SIZE,
+			PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS);
+	KUNIT_ASSERT_FALSE(test, IS_ERR_VALUE(data));
+	KUNIT_EXPECT_EQ(test, nommu_swmmu_patch_text(parent->mm, data,
+			&old, &replacement, sizeof(old)), -EOPNOTSUPP);
+	KUNIT_EXPECT_EQ(test, nommu_swmmu_patch_text(parent->mm,
+			ULONG_MAX, &old, &replacement, sizeof(old)), -EINVAL);
+}
+
 static void nommu_swmmu_mm_fork_clone_test(struct kunit *test)
 {
 	struct nommu_swmmu_mm_test_ctx *parent;
@@ -2637,6 +2687,7 @@ static struct kunit_case nommu_swmmu_mm_test_cases[] = {
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_expand_rollback_test),
 	KUNIT_CASE(nommu_swmmu_mm_fork_clone_test),
+	KUNIT_CASE(nommu_swmmu_mm_patch_text_test),
 	KUNIT_CASE(nommu_swmmu_mm_fork_rollback_test),
 	KUNIT_CASE(nommu_swmmu_mm_fork_page_copy_rollback_test),
 	KUNIT_CASE(nommu_swmmu_mm_fork_zalloc_rollback_test),

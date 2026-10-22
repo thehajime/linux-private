@@ -14,6 +14,7 @@
 #include <asm/insn.h>
 #include <asm/syscall.h>
 #include <os.h>
+#include "syscalls.h"
 
 int um_zpoline_enabled;
 /* start of trampoline code area */
@@ -88,16 +89,41 @@ static int __zpoline_translate_syscalls(struct elf_fdpic_params *params)
 void zpoline_patch_sigsys(struct siginfo *si)
 {
 	/*
-	 * Lazy text rewriting is unsafe on NOMMU: executable user mappings are
-	 * commonly read/execute, and a kernel write fault on such a host mapping
-	 * cannot be recovered by the NOMMU UML fault path. In particular,
-	 * copy_to_user_nofault() still reaches the direct NOMMU usercopy path and
-	 * does not make that host fault recoverable. Keep the original syscall
-	 * instruction; sigsys_handler() will route it through __kernel_vsyscall.
-	 * This is slower for repeated syscalls, but preserves correctness until
-	 * zpoline has a writable alias for executable text.
+	 * Host signal context must neither write RX text nor take sleeping VMA
+	 * locks. Only remember the return IP; finish on the current kernel stack.
 	 */
-	(void)si;
+	WRITE_ONCE(current->thread.zpoline_pending_ip,
+		   si ? (unsigned long)si->si_call_addr : 0);
+}
+
+void zpoline_finish_sigsys(struct pt_regs *regs)
+{
+	unsigned long ip = READ_ONCE(current->thread.zpoline_pending_ip);
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
+	static const u8 syscall[] = { 0x0f, 0x05 };
+	static const u8 call_rax[] = { 0xff, 0xd0 };
+	unsigned int eax, ebx, ecx, edx;
+
+	if (!ip)
+		return;
+	WRITE_ONCE(current->thread.zpoline_pending_ip, 0);
+	if (ip != PT_REGS_IP(regs) || ip < sizeof(syscall) ||
+	    PT_SYSCALL_NR(regs->regs.gp) < 0 ||
+	    PT_SYSCALL_NR(regs->regs.gp) >= NR_syscalls)
+		return;
+	if (nommu_swmmu_patch_text(current->mm, ip - sizeof(syscall),
+				   syscall, call_rax, sizeof(syscall)))
+		return;
+
+	/* Serialize instruction fetch after writing through a different alias. */
+	eax = 0;
+	ecx = 0;
+	asm volatile("cpuid" : "+a" (eax), "=b" (ebx), "+c" (ecx), "=d" (edx)
+		     : : "memory");
+#else
+	if (ip)
+		WRITE_ONCE(current->thread.zpoline_pending_ip, 0);
+#endif
 }
 
 /**

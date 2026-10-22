@@ -384,3 +384,22 @@ kselftests. The configuration above enables the SWMMU KUnit test as well;
 KUnit results are reported during kernel boot. Tests that rely on unsupported
 occupied-target ``MREMAP_FIXED`` behavior are currently skipped as described
 above.
+
+Zpoline text rewriting
+---------------------
+
+With ``zpoline=1``, the SAS SIGSYS handler records the syscall return PC in
+the current task. Rewriting is deferred until execution reaches that task's
+kernel stack. For private executable SWMMU mappings, the kernel compares the
+original ``syscall`` instruction and writes ``call *%rax`` through the writable
+backing page, while keeping the guest's RX protection unchanged. The current
+uniprocessor backend excludes guest execution during replacement and serializes
+x86 instruction fetch before returning to userspace. Fork copies the private
+backing, so a child's later rewrite does not modify its parent's text.
+
+Native and shared mappings, native-fork guard backing, instructions crossing a
+page boundary, and invalid syscall numbers retain the SIGSYS fallback. The
+optimization never writes directly to an RX user address or enables a RWX user
+mapping. ``nommu_zpoline_test 1`` checks the rewritten path in the default-on
+SWMMU profile; pass ``0`` to check the same cases with ``zpoline=0``. The test
+includes an intentional child SIGSEGV to verify that RX user writes still fail.

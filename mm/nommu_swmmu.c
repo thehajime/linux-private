@@ -1788,6 +1788,66 @@ static void *__swmmu_translate_mm(struct mm_struct *mm,
 	return page_address(pt->ptes[page_index].page) + page_offset;
 }
 
+int nommu_swmmu_patch_text(struct mm_struct *mm, unsigned long address,
+			 const void *expected, const void *replacement, size_t size)
+{
+	struct swmmu_pagetable_range *range;
+	struct nommu_swmmu_space *space;
+	struct vm_area_struct *vma;
+	unsigned long index, offset;
+	void *destination;
+	int ret = -EOPNOTSUPP;
+
+	/* Concurrent instruction fetch would require an architecture text poke. */
+	if (IS_ENABLED(CONFIG_SMP))
+		return -EOPNOTSUPP;
+
+	/* No partially updated instruction, including across a page boundary. */
+	if (!mm || !size || size > SWMMU_PAGE_SIZE ||
+	    offset_in_page(address) > SWMMU_PAGE_SIZE - size)
+		return -EINVAL;
+
+	mmap_write_lock(mm);
+	space = mm->swmmu_space;
+	if (!space)
+		goto unlock_mm;
+	down_write(&space->lock);
+	vma = find_vma(mm, address);
+	if (!vma || address < vma->vm_start || size > vma->vm_end - address ||
+	    (vma->vm_flags & VM_SHARED) || !vma->vm_swmmu_pt_range)
+		goto unlock_space;
+	range = vma->vm_swmmu_pt_range;
+	/* Native-fork guards may cover the direct map itself. Leave them alone. */
+	if (!(range->prot & PROT_EXEC) || range->pagetable->guard_region)
+		goto unlock_space;
+	offset = address - vma->vm_start;
+	index = range->first + offset / SWMMU_PAGE_SIZE;
+	if (index >= range->pagetable->nr_ptes)
+		goto unlock_space;
+	destination = page_address(range->pagetable->ptes[index].page) +
+		      offset % SWMMU_PAGE_SIZE;
+
+	/*
+	 * The current SAS backend is uniprocessor. Do not allow guest execution
+	 * between the comparison and replacement. mmap_lock also excludes fork,
+	 * unmap and protection changes. Private fork copies these backing pages;
+	 * no file cache, shared mapping or RX host alias is written here.
+	 */
+	preempt_disable();
+	if (memcmp(destination, expected, size)) {
+		ret = -EAGAIN;
+	} else {
+		memcpy(destination, replacement, size);
+		ret = 0;
+	}
+	preempt_enable();
+unlock_space:
+	up_write(&space->lock);
+unlock_mm:
+	mmap_write_unlock(mm);
+	return ret;
+}
+
 static int swmmu_copy_from_mm(struct mm_struct *mm,
 			      unsigned long address,
 			      void *destination,
