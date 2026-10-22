@@ -138,13 +138,17 @@ capture_host_vmlinux_backtrace() {
 			return 0
 		fi
 		printf 'pid=%s exe=%s\n' "$pid" "$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo unavailable)"
+		printf '\nHost process mappings (includes guest SWMMU aliases when present):\n'
+		cat "/proc/$pid/maps" 2>&1 || true
 		if ! command -v gdb >/dev/null 2>&1; then
 			printf 'gdb is unavailable on the runner.\n'
 			return 0
 		fi
 		sudo timeout --foreground --signal=TERM --kill-after=3s 20s \
 			gdb -q -batch -ex 'set pagination off' -ex 'set debuginfod enabled off' \
-			-ex 'info threads' -ex 'thread apply all bt 30' -ex detach -ex quit -p "$pid"
+			-ex 'info registers rip rsp rdi rsi rdx rax' -ex 'x/16i $rip' \
+			-ex 'info proc mappings' -ex 'info threads' \
+			-ex 'thread apply all bt 30' -ex detach -ex quit -p "$pid"
 	} >"$log" 2>&1 || printf 'GDB attach/backtrace failed (exit=%s).\n' "$?" >>"$log"
 }
 
