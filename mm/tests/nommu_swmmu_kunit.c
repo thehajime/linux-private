@@ -1106,6 +1106,7 @@ static void nommu_swmmu_mm_patch_text_test(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, nommu_swmmu_patch_text(parent->mm,
 			address + SWMMU_PAGE_SIZE - 1,
 			&old, &replacement, sizeof(old)), -EINVAL);
+	value = 0;
 	KUNIT_ASSERT_EQ(test, nommu_swmmu_kunit_load_mm(parent->mm,
 			address + SWMMU_PAGE_SIZE, 1, &value), 0);
 	KUNIT_EXPECT_EQ(test, value, 0ULL);
