@@ -8,19 +8,7 @@ import subprocess
 from pathlib import Path
 
 
-PROFILES = (
-    ("native", "(native)", "#c0392b"),
-    ("um-mmu", "um-mmu(p)", "#27ae60"),
-    ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-mmu-tt-seccomp", "um-mmu-tt(s)", "#196f3d"),
-    ("um-nommu", "um-nommu(p)", "#d68910"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-tt-seccomp", "um-nommu-tt(s)", "#873600"),
-    ("um-nommu-plain-sas", "um-nommu-sas(s)", "#566573"),
-    ("um-nommu-plain-sas-zpoline", "um-nommu-sas(z)", "#85929e"),
-    ("um-nommu-sas-seccomp", "um-nommu-sas-swmmu(s)", "#0000ff"),
-    ("um-nommu-sas-zpoline", "um-nommu-sas-swmmu(z)", "#4169e1"),
-)
+from report_profiles import PROFILES
 LATENCY_ROWS = (
     ("select-10", "select-10"),
     ("select-100", "select-100"),
@@ -164,7 +152,7 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, pai
             limit = symmetric_plot_limit(files, paired=True, minimum=minimum)
             commands.append(f"set yrange [-{limit:g}:{limit:g}]")
             if filename == "tcp-stream.png":
-                native_available = has_finite_measurement(files[:1], paired=True)
+                native_available = has_finite_measurement([item for item in files if item[1] == "(native)"], paired=True)
                 basis = "native plus other profiles" if native_available else "available non-native profiles (native was unavailable)"
                 range_note = f" Symmetric y-range: +/- {limit:g} Gbps (50 Gbps minimum; expanded to contain the largest finite value in {basis})."
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))

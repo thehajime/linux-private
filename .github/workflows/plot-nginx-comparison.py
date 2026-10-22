@@ -8,17 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PROFILES = (
-    ("native", "(native)", "#c0392b"),
-    ("um-mmu", "um-mmu(p)", "#27ae60"),
-    ("um-mmu-seccomp", "um-mmu(s)", "#145a32"),
-    ("um-nommu", "um-nommu(p)", "#d68910"),
-    ("um-nommu-seccomp", "um-nommu(s)", "#a04000"),
-    ("um-nommu-plain-sas", "um-nommu-sas(s)", "#566573"),
-    ("um-nommu-plain-sas-zpoline", "um-nommu-sas(z)", "#85929e"),
-    ("um-nommu-sas-seccomp", "um-nommu-sas-swmmu(s)", "#0000ff"),
-    ("um-nommu-sas-zpoline", "um-nommu-sas-swmmu(z)", "#4169e1"),
-)
+from report_profiles import PROFILES, profile_sort_key
 WORKERS = (1, 4)
 CONNECTIONS = (4, 16, 64)
 
@@ -68,7 +58,7 @@ def write_csv(out_dir, values, statuses):
     with path.open("w", newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(("profile", "ncpus", "workers", "connections", "status", "requests_per_second"))
-        for key in sorted(statuses):
+        for key in sorted(statuses, key=lambda item: (profile_sort_key(item[0]), item[1:])):
             value = values.get(key)
             writer.writerow((*key[:1], key[1], key[2], key[3],
                              "PASS" if finite(value) else statuses[key],

@@ -1,32 +1,17 @@
 #!/bin/bash
 
 OUTPUT="$1"
-python3 - "$OUTPUT" <<'PY'
+python3 - "$OUTPUT" "$(dirname "$0")" <<'PY'
 import csv
 import glob
 import os
 import sys
 
 root = sys.argv[1]
-profiles = (
-    "native", "um-mmu", "um-mmu-seccomp", "um-mmu-tt-seccomp",
-    "um-nommu", "um-nommu-seccomp", "um-nommu-tt-seccomp",
-    "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline",
-    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
-)
-display_names = {
-    "native": "(native)",
-    "um-mmu": "um-mmu(p)",
-    "um-mmu-seccomp": "um-mmu(s)",
-    "um-mmu-tt-seccomp": "um-mmu-tt(s)",
-    "um-nommu": "um-nommu(p)",
-    "um-nommu-seccomp": "um-nommu(s)",
-    "um-nommu-tt-seccomp": "um-nommu-tt(s)",
-    "um-nommu-plain-sas": "um-nommu-sas(s)",
-    "um-nommu-plain-sas-zpoline": "um-nommu-sas(z)",
-    "um-nommu-sas-seccomp": "um-nommu-sas-swmmu(s)",
-    "um-nommu-sas-zpoline": "um-nommu-sas-swmmu(z)",
-}
+sys.path.insert(0, os.path.abspath(sys.argv[2]))
+from report_profiles import PROFILES, PROFILE_LABELS
+profiles = tuple(target for target, _label, _color in PROFILES)
+display_names = PROFILE_LABELS
 payloads = (64, 128, 256, 512, 1024, 1500, 65507)
 results = {}
 out_dir = os.path.join(root, "out")

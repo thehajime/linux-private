@@ -4,9 +4,9 @@ OUTPUT="$1"
 mkdir -p "$OUTPUT/out"
 
 declare -A getpid forward reverse
-profiles=(native um-mmu um-mmu-seccomp um-mmu-tt-seccomp um-nommu \
+profiles=(um-mmu um-mmu-seccomp um-mmu-tt-seccomp um-nommu \
           um-nommu-seccomp um-nommu-tt-seccomp um-nommu-plain-sas \
-          um-nommu-plain-sas-zpoline um-nommu-sas-seccomp um-nommu-sas-zpoline)
+          um-nommu-plain-sas-zpoline um-nommu-sas-seccomp um-nommu-sas-zpoline native)
 display_profile() {
     case "$1" in
         native) echo '(native)' ;;

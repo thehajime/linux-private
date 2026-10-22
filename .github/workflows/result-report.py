@@ -10,6 +10,8 @@ import math
 import re
 from pathlib import Path
 
+from report_profiles import PROFILES, PROFILE_LABELS, display_profile, profile_sort_key
+
 
 LM_BENCHMARKS = [
     "select-10", "select-100", "select-1000", "syscall", "read", "write",
@@ -22,26 +24,8 @@ KUNIT_TARGETS = (
     "um-mmu", "um-mmu-tt", "um-nommu", "um-nommu-tt",
     "um-nommu-plain-sas", "um-nommu-sas",
 )
-LTP_TARGETS = (
-    "native", "um-mmu", "um-mmu-seccomp", "um-mmu-tt-seccomp",
-    "um-nommu", "um-nommu-seccomp", "um-nommu-tt-seccomp",
-    "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline",
-    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline", "riscv-nommu",
-)
-LTP_TARGET_LABELS = {
-    "native": "(native)",
-    "um-mmu": "um-mmu(p)",
-    "um-mmu-seccomp": "um-mmu(s)",
-    "um-mmu-tt-seccomp": "um-mmu-tt(s)",
-    "um-nommu": "um-nommu(p)",
-    "um-nommu-seccomp": "um-nommu(s)",
-    "um-nommu-tt-seccomp": "um-nommu-tt(s)",
-    "um-nommu-plain-sas": "um-nommu-sas(s)",
-    "um-nommu-plain-sas-zpoline": "um-nommu-sas(z)",
-    "um-nommu-sas-seccomp": "um-nommu-sas-swmmu(s)",
-    "um-nommu-sas-zpoline": "um-nommu-sas-swmmu(z)",
-    "riscv-nommu": "qemu-riscv-nommu",
-}
+LTP_TARGETS = tuple(target for target, _label, _color in PROFILES) + ("riscv-nommu",)
+LTP_TARGET_LABELS = {**PROFILE_LABELS, "riscv-nommu": "qemu-riscv-nommu"}
 LTP_CRASH_SIGNATURES = (
     (
         "kernel panic",
@@ -54,19 +38,7 @@ LTP_CRASH_SIGNATURES = (
     ("SIGSEGV", re.compile(r"\bsegfault at\b|^\s*Segmentation fault\b", re.IGNORECASE | re.MULTILINE)),
     ("SIGABRT", re.compile(r"\bAborted \(core dumped\)|\bSIGABRT\b", re.IGNORECASE)),
 )
-LMBENCH_COLUMNS = (
-    ("native", "(native)"),
-    ("um-mmu", "um-mmu(p)"),
-    ("um-mmu-seccomp", "um-mmu(s)"),
-    ("um-mmu-tt-seccomp", "um-mmu-tt(s)"),
-    ("um-nommu", "um-nommu(p)"),
-    ("um-nommu-seccomp", "um-nommu(s)"),
-    ("um-nommu-tt-seccomp", "um-nommu-tt(s)"),
-    ("um-nommu-plain-sas", "um-nommu-sas(s)"),
-    ("um-nommu-plain-sas-zpoline", "um-nommu-sas(z)"),
-    ("um-nommu-sas-seccomp", "um-nommu-sas-swmmu(s)"),
-    ("um-nommu-sas-zpoline", "um-nommu-sas-swmmu(z)"),
-)
+LMBENCH_COLUMNS = tuple((target, label) for target, label, _color in PROFILES)
 LMBENCH_TABLE_ROWS = (
     ("select-10", "select-10"),
     ("select-100", "select-100"),
@@ -575,7 +547,7 @@ def render_section(title, old, new, cases_key, counts_keys):
     lines = [f"#### {title}"]
     old_suites = old or {}
     new_suites = new or {}
-    names = sorted(set(old_suites) | set(new_suites))
+    names = sorted(set(old_suites) | set(new_suites), key=profile_sort_key)
     if not names:
         return lines + ["No results were collected in both reports.", ""]
     changes_found = False
@@ -684,7 +656,7 @@ def render(snapshot, previous):
     if nginx.get("matrix"):
         ordered_matrix = sorted(
             nginx["matrix"],
-            key=lambda item: (item.get("profile", ""), int(item.get("ncpus", 1)),
+            key=lambda item: (profile_sort_key(item.get("profile", "")), int(item.get("ncpus", 1)),
                               int(item.get("workers", 0)), int(item.get("connections", 0))),
         )
         by_key = {(item.get("profile"), int(item.get("ncpus", 1)),
@@ -748,9 +720,9 @@ def render(snapshot, previous):
     if kselftest.get("suites"):
         lines.extend(["| Suite | State | Passed | Failed | Skipped |",
                       "|---|---|---:|---:|---:|"])
-        for suite, result in sorted(kselftest["suites"].items()):
+        for suite, result in sorted(kselftest["suites"].items(), key=lambda item: profile_sort_key(item[0])):
             counts = result["counts"]
-            lines.append(f"| {suite} | {result['state']} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |")
+            lines.append(f"| {display_profile(suite, build=True)} | {result['state']} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |")
     else:
         lines.append("No kselftest TAP artifacts were collected.")
     lines.append("")
@@ -758,19 +730,23 @@ def render(snapshot, previous):
     lines.extend([
         "### LTP results",
         "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
-        "Profile labels follow the CI matrix: `(native)`, `um-mmu(p/s)`, `um-mmu-tt(s)`, `um-nommu(p/s)`, `um-nommu-tt(s)`, `um-nommu-sas(s/z)`, and `um-nommu-sas-swmmu(s/z)`.",
+        "Profiles follow the requested CI matrix order, with `(native)` last. KUnit groups modes that share one kernel build.",
         "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
         "|---|---|---:|---:|---:|---:|---:|",
     ])
-    for target, result in sorted(snapshot["ltp"]["targets"].items()):
+    disabled_ltp = []
+    displayed_ltp = False
+    for target, result in sorted(snapshot["ltp"]["targets"].items(), key=lambda item: profile_sort_key(item[0])):
         counts = result["counts"]
         display_target = LTP_TARGET_LABELS.get(target, target)
+        if result["state"].startswith("disabled"):
+            disabled_ltp.append(display_target)
+            continue
+        displayed_ltp = True
         target_name = f"[{display_target}]({result['url']})" if result.get("url") else display_target
         alerts = result.get("alerts", [])
         if alerts:
             state = "🔴 " + ", ".join(alerts)
-        elif result["state"].startswith("disabled"):
-            state = f"⚪ {result['state']}"
         elif result["state"] != "complete":
             state = f"🟠 {result['state']}"
         elif counts["failed"]:
@@ -780,20 +756,22 @@ def render(snapshot, previous):
         else:
             state = "🟢 complete"
         lines.append(f"| {target_name} | {state} | {counts['passed']} | {counts['failed']} | {counts['broken']} | {counts['skipped']} | {counts['warnings']} |")
-    if not snapshot["ltp"]["targets"]:
+    if not displayed_ltp:
         lines.append("| — | No LTP artifacts found | — | — | — | — | — |")
+    if disabled_ltp:
+        lines.extend(["", "Disabled targets outside this matrix: " + ", ".join(disabled_ltp) + "."])
     lines.append("")
 
     lines.extend(["### KUnit results", "",
                   "| Build target | Artifact coverage |", "|---|---|"])
-    for target, state in sorted(snapshot["kunit"].get("targets", {}).items()):
-        lines.append(f"| {target} | {state} |")
+    for target, state in sorted(snapshot["kunit"].get("targets", {}).items(), key=lambda item: profile_sort_key(item[0])):
+        lines.append(f"| {display_profile(target, build=True)} | {state} |")
     lines.append("")
     if snapshot["kunit"]["suites"]:
         lines.extend(["| Target / suite | Passed | Failed | Crashed | Skipped | Errors |", "|---|---:|---:|---:|---:|---:|"])
-        for suite, result in sorted(snapshot["kunit"]["suites"].items()):
+        for suite, result in sorted(snapshot["kunit"]["suites"].items(), key=lambda item: profile_sort_key(item[0])):
             counts = result["counts"]
-            lines.append(f"| {suite} | {counts['passed']} | {counts['failed']} | {counts['crashed']} | {counts['skipped']} | {counts['errors']} |")
+            lines.append(f"| {display_profile(suite, build=True)} | {counts['passed']} | {counts['failed']} | {counts['crashed']} | {counts['skipped']} | {counts['errors']} |")
     else:
         lines.append("No KUnit JSON artifacts were collected.")
     lines.append("")
