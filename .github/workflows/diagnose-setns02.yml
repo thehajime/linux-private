@@ -380,6 +380,15 @@ jobs:
               missing=1
             fi
           done
+          for test_name in nanosleep01 setns02; do
+            result="output/ltp/kirk-${test_name}.json"
+            if ! jq -e --arg test "$test_name" \
+              '[.results[] | select(.test_fqn == $test and .status == "pass")] | length == 1' \
+              "$result" >/dev/null; then
+              echo "Kirk test did not pass: $test_name" >&2
+              missing=1
+            fi
+          done
           grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:' \
             output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log \
             output/ltp/setns02-*.log
