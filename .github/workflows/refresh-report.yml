@@ -1,0 +1,122 @@
+name: Refresh saved UML report
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed CI run containing uml-ci-comparison-report
+        type: string
+        required: true
+      comment_id:
+        description: Issue 4 report comment belonging to the source run
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: refresh-uml-report
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download original report measurements
+        uses: actions/download-artifact@v7
+        with:
+          name: uml-ci-comparison-report
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source-report
+      - name: Save current issue report
+        uses: actions/github-script@v9
+        env:
+          COMMENT_ID: ${{ inputs.comment_id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const id = Number(process.env.COMMENT_ID);
+            if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid comment ID');
+            const {data} = await github.rest.issues.getComment({...context.repo, comment_id: id});
+            if (!data.issue_url.endsWith('/issues/4')) throw new Error('Comment is not on issue 4');
+            fs.writeFileSync(`${process.env.RUNNER_TEMP}/source-live-body.md`, data.body);
+      - name: Re-render tables and charts from saved results
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnuplot-nox
+          python3 .github/workflows/refresh-result-report.py
+          python3 .github/workflows/plot-benchmark-results.py \
+            --snapshot "$RUNNER_TEMP/result-snapshot.json" --output output/out
+          python3 .github/workflows/plot-nginx-comparison.py \
+            "$RUNNER_TEMP/nginx-matrix.json" output/out
+          python3 .github/workflows/result-page.py \
+            --snapshot "$RUNNER_TEMP/result-snapshot.json" \
+            --report "$RUNNER_TEMP/comparison-report.md" \
+            --charts output/out --output "$RUNNER_TEMP/site"
+      - name: Publish corrected immutable charts
+        id: charts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHART_DIR: output/out
+        run: bash .github/workflows/publish-chart-assets.sh
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+      - name: Deploy corrected report
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Prepare updated issue report
+        env:
+          ASSET_BASE_URL: ${{ steps.charts.outputs.asset_base_url }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python3 - <<'PY'
+          import os, re, runpy
+          from pathlib import Path
+          work = Path(os.environ['RUNNER_TEMP'])
+          report = (work / 'comparison-report.md').read_text()
+          base = os.environ['ASSET_BASE_URL'].rstrip('/')
+          page_module = runpy.run_path('.github/workflows/result-page.py')
+          descriptions = {name: value[1] for name, value in page_module['CHARTS'].items()}
+          descriptions.update(page_module['NGINX_CHARTS'])
+          def chart(match):
+              name = match[1]
+              if not (work / 'site' / name).is_file():
+                  return ''
+              return descriptions[name] + f'\n\n![{name}]({base}/{name})'
+          report = re.sub(r'<!-- report-chart:([^ ]+) -->', chart, report)
+          page = os.environ['PAGE_URL']
+          report = f"[Open the corrected report on GitHub Pages]({page})\n\n" + report
+          report += '\n\n' + (work / 'snapshot-marker.txt').read_text() + '\n'
+          (work / 'updated-comment.md').write_text(report)
+          PY
+      - name: Update existing report comment
+        uses: actions/github-script@v9
+        env:
+          COMMENT_ID: ${{ inputs.comment_id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const id = Number(process.env.COMMENT_ID);
+            const {data} = await github.rest.issues.getComment({...context.repo, comment_id: id});
+            const original = fs.readFileSync(`${process.env.RUNNER_TEMP}/source-live-body.md`, 'utf8');
+            if (data.body !== original) throw new Error('Report changed during refresh; preserving the newer edit');
+            await github.rest.issues.updateComment({...context.repo, comment_id: id,
+              body: fs.readFileSync(`${process.env.RUNNER_TEMP}/updated-comment.md`, 'utf8')});
+      - uses: actions/upload-artifact@v7
+        with:
+          name: refreshed-uml-report
+          path: |
+            ${{ runner.temp }}/site
+            ${{ runner.temp }}/updated-comment.md
