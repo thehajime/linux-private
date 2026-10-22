@@ -348,7 +348,7 @@ jobs:
             timeout --foreground --signal=TERM --kill-after=5s "${timeout_seconds}s" \
               docker exec -t ltp-clock-debug \
                 /opt/uml-host-tools/busybox sh -c \
-                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg $profile_arg" \
+                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 swmmu_direct=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode $virt_arg $profile_arg" \
                 2>&1 | tee "output/ltp/${test_name}-${label}-${mode}.log" || status=${PIPESTATUS[0]}
             return "$status"
           }
