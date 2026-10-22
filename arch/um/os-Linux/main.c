@@ -40,22 +40,26 @@ static void __init set_stklim(void)
 
 static void last_ditch_exit(int sig)
 {
-	uml_cleanup();
-	exit(1);
+	/*
+	 * This can interrupt an idle task or kernel code holding locks.
+	 * uml_cleanup() may sleep, and exit() may invoke locked libc state.
+	 * SA_RESETHAND and SA_NODEFER let the original signal terminate us
+	 * without running either kind of cleanup from signal context.
+	 */
+	kill(getpid(), sig);
+	_exit(128 + sig);
 }
 
 static void __init install_fatal_handler(int sig)
 {
 	struct sigaction action;
 
-	/* All signals are enabled in this handler ... */
+	/* Do not block delivery of the fatal signal raised by the handler. */
 	sigemptyset(&action.sa_mask);
 
 	/*
-	 * ... including the signal being handled, plus we want the
-	 * handler reset to the default behavior, so that if an exit
-	 * handler is hanging for some reason, the UML will just die
-	 * after this signal is sent a second time.
+	 * Restore the default action before entering last_ditch_exit(), and
+	 * allow the same signal to be delivered again immediately.
 	 */
 	action.sa_flags = SA_RESETHAND | SA_NODEFER;
 	action.sa_restorer = NULL;
