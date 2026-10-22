@@ -150,12 +150,19 @@ jobs:
     - name: Show OS
       run: cat /etc/os-release
 
-    - name: install git (patch)
+    - name: Install checkout and CI patch tools
       run: |
-        apk update || true
-        apk add git patch curl || true
-        apt update || true
-        apt install -y git patch curl || true
+        if command -v apk >/dev/null 2>&1; then
+          apk update
+          apk add git patch curl python3
+        elif command -v apt-get >/dev/null 2>&1; then
+          apt-get update
+          apt-get install -y git patch curl python3
+        else
+          echo "Unsupported package manager for CI patch tools" >&2
+          exit 1
+        fi
+        python3 --version
 
     - name: Set env
       run: |
