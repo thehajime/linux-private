@@ -595,10 +595,10 @@ jobs:
                   >/dev/null 2>&1 &
                 perf_pid=$!
                 if [[ "$perf_events" == *"raw_syscalls:sys_enter"* ]]; then
-                  sudo timeout --foreground --signal=INT --kill-after=2s 45s \
-                    perf record -e raw_syscalls:sys_enter -c 1000 -p "$host_pids" \
+                  sudo timeout --foreground --signal=INT --kill-after=5s 25s \
+                    perf record -F 50 -e raw_syscalls:sys_enter -p "$host_pids" \
                     -o output/ltp/nanosleep01-host-raw-syscalls.data \
-                    >/dev/null 2>&1 &
+                    >output/ltp/nanosleep01-host-perf-record.log 2>&1 &
                   raw_perf_pid=$!
                 fi
               else
@@ -624,7 +624,7 @@ jobs:
             wait "$raw_perf_pid" || true
             if [ -s output/ltp/nanosleep01-host-raw-syscalls.data ]; then
               sudo perf script -i output/ltp/nanosleep01-host-raw-syscalls.data \
-                -F trace > output/ltp/nanosleep01-host-raw-syscalls.txt 2>&1 || true
+                > output/ltp/nanosleep01-host-raw-syscalls.txt 2>&1 || true
               python3 - <<'PY'
           import collections
           import re
@@ -647,6 +647,7 @@ jobs:
                   out.write("\n".join(samples) + "\n")
           PY
               cat output/ltp/nanosleep01-host-syscall-id-sample.txt
+              rm -f output/ltp/nanosleep01-host-raw-syscalls.data
             fi
           fi
           echo "Kirk nanosleep01 host UML exit=$guest_status; sampled pids=${host_pids:-none}"
