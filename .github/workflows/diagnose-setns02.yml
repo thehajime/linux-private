@@ -500,6 +500,7 @@ jobs:
                 --sort comm,dso,symbol \
                 -i output/ltp/nanosleep01-host.perf.data \
                 > output/ltp/nanosleep01-host-perf-report.txt 2>&1 || true
+            sed -n '1,140p' output/ltp/nanosleep01-host-perf-report.txt || true
             fi
           fi
           echo "Kirk nanosleep01 host UML exit=$guest_status; sampled pids=${host_pids:-none}"
@@ -548,6 +549,10 @@ jobs:
             tail -n 50 output/ltp/nanosleep01-host-sched.csv
           fi
           exit "$missing"
+
+      - name: Make diagnostic logs readable for upload
+        if: always()
+        run: sudo chmod -R a+rX output/ltp || true
 
       - name: Upload clock_gettime04 comparison
         if: always()
