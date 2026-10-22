@@ -120,9 +120,11 @@ capture_host_vmlinux_backtrace() {
 	local timeout_pid=${UML_PID:-}
 	local pid=
 	local log="$OUTPUT/host-vmlinux-backtrace.log"
-	if [[ "$PROFILE" != um-nommu-sas-seccomp || "$WORKERS" != 4 ]]; then
-		return 0
-	fi
+	case "$PROFILE:$WORKERS:$CONNECTIONS" in
+		um-nommu-sas-seccomp:4:*) ;;
+		um-nommu-sas-zpoline:1:4) ;;
+		*) return 0 ;;
+	esac
 	{
 		printf 'Host UML backtrace captured after failed wrk warmup.\n'
 		if [[ -z "$timeout_pid" ]] || ! kill -0 "$timeout_pid" 2>/dev/null; then
@@ -147,9 +149,11 @@ capture_host_vmlinux_backtrace() {
 }
 
 start_tap_capture() {
-	if [[ "$PROFILE" != um-nommu-sas-seccomp || "$WORKERS" != 4 ]]; then
-		return 0
-	fi
+	case "$PROFILE:$WORKERS:$CONNECTIONS" in
+		um-nommu-sas-seccomp:4:*) ;;
+		um-nommu-sas-zpoline:1:4) ;;
+		*) return 0 ;;
+	esac
 	if ! command -v tcpdump >/dev/null 2>&1; then
 		printf 'FAIL: tcpdump is unavailable\n' >"$OUTPUT/tap100-pcap.status"
 		return 0
@@ -476,6 +480,10 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	else
 		printf 'FAIL\n' >"$OUTPUT/smoke-tls.status"
 		fail "TLS smoke test returned an error or unexpected body"
+		if [[ "$PROFILE" == um-nommu-sas-zpoline && \
+		      "$WORKERS" == 1 && "$CONNECTIONS" == 4 ]]; then
+			capture_host_vmlinux_backtrace
+		fi
 	fi
 else
 	printf 'FAIL\n' >"$OUTPUT/smoke-http.status"

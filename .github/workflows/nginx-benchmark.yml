@@ -93,9 +93,11 @@ jobs:
         run: |
           sudo apt-get update
           host_tools=(iproute2 libcap2-bin)
-          if [[ "$PROFILE" == um-nommu-sas-seccomp ]]; then
+          if [[ "$PROFILE" == um-nommu-sas-seccomp || \
+                ("$PROFILE" == um-nommu-sas-zpoline && "$WORKERS" == 1 && "$CONNECTIONS" == 4) ]]; then
             host_tools+=(tcpdump)
-            if [[ "$WORKERS" == 4 ]]; then
+            if [[ "$PROFILE" == um-nommu-sas-seccomp && "$WORKERS" == 4 ]] || \
+               [[ "$PROFILE" == um-nommu-sas-zpoline ]]; then
               host_tools+=(gdb)
             fi
           fi
