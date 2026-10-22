@@ -5,6 +5,7 @@
 #include <linux/spinlock.h>
 
 #include <linux/mm.h>
+#include <linux/nommu_swmmu.h>
 #include <linux/memfd.h>
 #include <linux/memremap.h>
 #include <linux/pagemap.h>
@@ -3277,6 +3278,8 @@ EXPORT_SYMBOL_GPL(get_user_pages_fast_only);
 int get_user_pages_fast(unsigned long start, int nr_pages,
 			unsigned int gup_flags, struct page **pages)
 {
+	int ret;
+
 	/*
 	 * The caller may or may not have explicitly set FOLL_GET; either way is
 	 * OK. However, internally (within mm/gup.c), gup fast variants must set
@@ -3285,6 +3288,12 @@ int get_user_pages_fast(unsigned long start, int nr_pages,
 	 */
 	if (!is_valid_gup_args(pages, NULL, &gup_flags, FOLL_GET))
 		return -EINVAL;
+	if (nr_pages > 0) {
+		ret = nommu_swmmu_get_user_pages(start, nr_pages, gup_flags,
+						 false, pages);
+		if (ret != -EOPNOTSUPP)
+			return ret;
+	}
 	return gup_fast_fallback(start, nr_pages, gup_flags, pages);
 }
 EXPORT_SYMBOL_GPL(get_user_pages_fast);
@@ -3311,8 +3320,16 @@ EXPORT_SYMBOL_GPL(get_user_pages_fast);
 int pin_user_pages_fast(unsigned long start, int nr_pages,
 			unsigned int gup_flags, struct page **pages)
 {
+	int ret;
+
 	if (!is_valid_gup_args(pages, NULL, &gup_flags, FOLL_PIN))
 		return -EINVAL;
+	if (nr_pages > 0) {
+		ret = nommu_swmmu_get_user_pages(start, nr_pages, gup_flags,
+						 true, pages);
+		if (ret != -EOPNOTSUPP)
+			return ret;
+	}
 	return gup_fast_fallback(start, nr_pages, gup_flags, pages);
 }
 EXPORT_SYMBOL_GPL(pin_user_pages_fast);

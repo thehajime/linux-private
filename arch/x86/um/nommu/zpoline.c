@@ -87,31 +87,17 @@ static int __zpoline_translate_syscalls(struct elf_fdpic_params *params)
 
 void zpoline_patch_sigsys(struct siginfo *si)
 {
-	unsigned long address;
-	u8 *bytes;
-	u8 op0, op1;
-
-	if (!si) {
-		pr_warn("no caller address is available");
-		return;
-	}
-
-	address = (unsigned long)si->si_call_addr;
-
-	WARN_ON_ONCE(address < 2);
-	bytes = (u8 *)address - 2;
-	op0 = READ_ONCE(bytes[0]);
-	op1 = READ_ONCE(bytes[1]);
-
-	/* Already rewritten, or not an instruction this prototype handles. */
-	if (op0 == 0xff && op1 == 0xd0)
-		return;
-	if (op0 != 0x0f || (op1 != 0x05 && op1 != 0x34))
-		return;
-
-	/* Same rewrite as the eager zpoline translator. */
-	WRITE_ONCE(bytes[0], 0xff);
-	WRITE_ONCE(bytes[1], 0xd0);
+	/*
+	 * Lazy text rewriting is unsafe on NOMMU: executable user mappings are
+	 * commonly read/execute, and a kernel write fault on such a host mapping
+	 * cannot be recovered by the NOMMU UML fault path. In particular,
+	 * copy_to_user_nofault() still reaches the direct NOMMU usercopy path and
+	 * does not make that host fault recoverable. Keep the original syscall
+	 * instruction; sigsys_handler() will route it through __kernel_vsyscall.
+	 * This is slower for repeated syscalls, but preserves correctness until
+	 * zpoline has a writable alias for executable text.
+	 */
+	(void)si;
 }
 
 /**

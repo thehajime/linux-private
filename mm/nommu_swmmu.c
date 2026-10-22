@@ -2383,6 +2383,11 @@ int nommu_swmmu_get_user_pages(unsigned long start, int nr_pages,
 		}
 
 		page = pt->ptes[index].page;
+		if (pin && (gup_flags & FOLL_LONGTERM) &&
+		    !folio_is_longterm_pinnable(page_folio(page))) {
+			ret = -EFAULT;
+			break;
+		}
 		ret = try_grab_folio(page_folio(page), 1,
 				     (pin ? FOLL_PIN : FOLL_GET) |
 				     (gup_flags & FOLL_PCI_P2PDMA));
