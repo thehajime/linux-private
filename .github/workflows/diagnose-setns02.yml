@@ -83,6 +83,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gdb
 
+      - name: Check for host strace
+        run: command -v strace
+
       - name: Check out matching LTP reporting helpers
         uses: actions/checkout@v6
         with:
@@ -358,6 +361,9 @@ jobs:
             -C "$RUNNER_TEMP/ltp-root"
           test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
 
+      - name: Check for host strace
+        run: command -v strace
+
       - name: Check out matching LTP reporting helpers
         uses: actions/checkout@v6
         with:
@@ -425,7 +431,41 @@ jobs:
           run_guest '' kirk clock_gettime04 kirk || true
           run_guest other kirk-uml-override clock_gettime04 kirk kirk-uml-override || true
           run_guest '' zpoline nanosleep01 direct || true
-          run_guest '' kirk nanosleep01 kirk || true
+
+          # Attach to the UML host process during Kirk's timer test so we can
+          # see whether the idle poll/signal wake path itself is delayed.
+          timeout --foreground --signal=TERM --kill-after=5s 360s \
+            docker exec -t ltp-clock-debug \
+              /opt/uml-host-tools/busybox sh -c \
+              "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=nanosleep01 LTP_DIRECT_MODE=kirk LTP_DIRECT_LABEL=kirk PYTHONPROFILEIMPORTTIME=1" \
+              > output/ltp/nanosleep01-kirk-strace-console.log 2>&1 &
+          guest_exec_pid=$!
+          host_pids=
+          for _ in $(seq 1 200); do
+            host_pids=$(docker top ltp-clock-debug -eo pid,args 2>/dev/null | \
+              awk '$0 ~ /vmlinux/ && $0 !~ /awk/ {print $1}' | paste -sd, -)
+            [ -n "$host_pids" ] && break
+            sleep 0.1
+          done
+          if [ -z "$host_pids" ]; then
+            echo 'Could not find UML host PID for strace' >&2
+          else
+            strace_pids=()
+            IFS=, read -r -a host_pid_array <<< "$host_pids"
+            for host_pid in "${host_pid_array[@]}"; do
+              strace_pids+=(-p "$host_pid")
+            done
+            sudo timeout --foreground --signal=INT --kill-after=5s 180s \
+              strace -f -ttt -T -e trace=poll,ppoll,select,pselect6,nanosleep,clock_nanosleep,rt_sigtimedwait,rt_sigreturn,signalfd4 \
+              -o output/ltp/nanosleep01-host.strace "${strace_pids[@]}" &
+            strace_pid=$!
+          fi
+          guest_status=0
+          wait "$guest_exec_pid" || guest_status=$?
+          if [ -n "$host_pids" ]; then
+            wait "$strace_pid" || true
+          fi
+          echo "Kirk nanosleep01 host UML exit=$guest_status; traced pids=${host_pids:-none}"
           run_guest '' kirk-setns setns02 kirk || true
           run_guest '' setns-direct setns02 direct || true
           missing=0
@@ -467,6 +507,9 @@ jobs:
           grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:|shmat|setns' \
             output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log \
             output/ltp/setns02-*.log
+          if [ -f output/ltp/nanosleep01-host.strace ]; then
+            tail -n 50 output/ltp/nanosleep01-host.strace
+          fi
           exit "$missing"
 
       - name: Upload clock_gettime04 comparison
