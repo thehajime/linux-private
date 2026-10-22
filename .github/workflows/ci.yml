@@ -937,6 +937,7 @@ jobs:
     needs: [build_uml, build_nginx_rootfs]
     permissions:
       contents: read
+      actions: read
     uses: ./.github/workflows/nginx-benchmark.yml
 
   native_nginx_benchmark:

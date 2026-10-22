@@ -2,6 +2,50 @@ name: nginx benchmark matrix
 
 on:
   workflow_call:
+    inputs:
+      source_run_id:
+        type: string
+        default: ''
+      profile:
+        type: string
+        default: ''
+      workers:
+        type: number
+        default: 4
+      ncpus:
+        type: number
+        default: 1
+      connections:
+        type: number
+        default: 16
+      capture_diagnostics:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed kernel/rootfs artifacts to reuse without rebuilding'
+        type: string
+        required: true
+      profile:
+        type: choice
+        default: um-nommu-sas-zpoline
+        options: [um-mmu, um-mmu-seccomp, um-nommu, um-nommu-seccomp, um-nommu-plain-sas, um-nommu-plain-sas-zpoline, um-nommu-sas-seccomp, um-nommu-sas-zpoline]
+      workers:
+        type: choice
+        default: '4'
+        options: ['1', '4']
+      ncpus:
+        type: choice
+        default: '1'
+        options: ['1', '4']
+      connections:
+        type: choice
+        default: '16'
+        options: ['4', '16', '64']
+      capture_diagnostics:
+        type: boolean
+        default: true
 
 jobs:
   nginx_benchmark:
@@ -10,21 +54,14 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
-        profile:
-          - um-mmu
-          - um-mmu-seccomp
-          - um-nommu
-          - um-nommu-seccomp
-          - um-nommu-plain-sas
-          - um-nommu-plain-sas-zpoline
-          - um-nommu-sas-seccomp
-          - um-nommu-sas-zpoline
-        ncpus: [1, 4]
-        workers: [1, 4]
-        connections: [4, 16, 64]
+        profile: ${{ inputs.profile && fromJSON(format('["{0}"]', inputs.profile)) || fromJSON('["um-mmu", "um-mmu-seccomp", "um-nommu", "um-nommu-seccomp", "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline", "um-nommu-sas-seccomp", "um-nommu-sas-zpoline"]') }}
+        ncpus: ${{ inputs.profile && fromJSON(format('[{0}]', inputs.ncpus)) || fromJSON('[1,4]') }}
+        workers: ${{ inputs.profile && fromJSON(format('[{0}]', inputs.workers)) || fromJSON('[1,4]') }}
+        connections: ${{ inputs.profile && fromJSON(format('[{0}]', inputs.connections)) || fromJSON('[4,16,64]') }}
         wrk_threads: [2]
         exclude:
           # PTRACE userspace rejects CONFIG_SMP with more than one CPU.
@@ -47,6 +84,7 @@ jobs:
           - profile: um-nommu-sas-zpoline
             ncpus: 4
     env:
+      NGINX_DIAGNOSTICS: ${{ inputs.capture_diagnostics && '1' || '0' }}
       NGINX_PROFILE: ${{ matrix.profile }}
       NGINX_NCPUS: ${{ matrix.ncpus }}
       NGINX_WORKERS: ${{ matrix.workers }}
@@ -63,16 +101,26 @@ jobs:
           sparse-checkout: .github/workflows
       - name: Create per-leg output directory
         run: mkdir -p "output/${{ matrix.profile }}/w${{ matrix.workers }}-n${{ matrix.ncpus }}-c${{ matrix.connections }}"
+      - name: Record artifact and helper provenance
+        run: |
+          printf 'source_run_id=%s\nhelper_commit=%s\ndiagnostics=%s\n' \
+            '${{ inputs.source_run_id || github.run_id }}' '${{ github.sha }}' \
+            "$NGINX_DIAGNOSTICS" > \
+            "output/${{ matrix.profile }}/w${{ matrix.workers }}-n${{ matrix.ncpus }}-c${{ matrix.connections }}/replay-source.txt"
       - name: Download the shared profile rootfs
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.NGINX_ROOTFS_ARTIFACT }}
           path: ${{ runner.temp }}/nginx-rootfs
+          run-id: ${{ inputs.source_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Download the tested UML image
         uses: actions/download-artifact@v4
         with:
           name: uml-docker-image-${{ env.NGINX_IMAGE_NAME }}
           path: ${{ runner.temp }}/uml-image
+          run-id: ${{ inputs.source_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Extract rootfs and kernel
         run: |
           set -euo pipefail
@@ -93,10 +141,11 @@ jobs:
         run: |
           sudo apt-get update
           host_tools=(iproute2 libcap2-bin curl wrk)
-          if [[ "$PROFILE" == um-nommu-sas-seccomp || \
+          if [[ "$NGINX_DIAGNOSTICS" == 1 || "$PROFILE" == um-nommu-sas-seccomp || \
                 ("$PROFILE" == um-nommu-sas-zpoline && "$WORKERS" == 1 && "$CONNECTIONS" == 4) ]]; then
             host_tools+=(tcpdump)
-            if [[ "$PROFILE" == um-nommu-sas-seccomp && "$WORKERS" == 4 ]] || \
+            if [[ "$NGINX_DIAGNOSTICS" == 1 ]] || \
+               [[ "$PROFILE" == um-nommu-sas-seccomp && "$WORKERS" == 4 ]] || \
                [[ "$PROFILE" == um-nommu-sas-zpoline ]]; then
               host_tools+=(gdb)
             fi

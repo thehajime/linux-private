@@ -48,6 +48,7 @@ ROOTFS=$(cd -- "$ROOTFS" && pwd -P) || {
 : "${PROFILE:=um-nommu-sas-zpoline}"
 : "${KERNEL_ARGS_TEXT:=}"
 : "${NEEDS_RAWIO:=false}"
+: "${NGINX_DIAGNOSTICS:=0}"
 : "${NGINX_WRK_WARMUP_SECONDS:=15}"
 : "${NGINX_WRK_TIMEOUT_SECONDS:=30}"
 for variable in NGINX_WRK_WARMUP_SECONDS NGINX_WRK_TIMEOUT_SECONDS; do
@@ -120,13 +121,15 @@ capture_host_vmlinux_backtrace() {
 	local timeout_pid=${UML_PID:-}
 	local pid=
 	local log="$OUTPUT/host-vmlinux-backtrace.log"
+	if [[ "$NGINX_DIAGNOSTICS" != 1 ]]; then
 	case "$PROFILE:$WORKERS:$CONNECTIONS" in
 		um-nommu-sas-seccomp:4:*) ;;
 		um-nommu-sas-zpoline:1:4) ;;
 		*) return 0 ;;
 	esac
+	fi
 	{
-		printf 'Host UML backtrace captured after failed wrk warmup.\n'
+		printf 'Host UML backtrace captured after a benchmark check failed.\n'
 		if [[ -z "$timeout_pid" ]] || ! kill -0 "$timeout_pid" 2>/dev/null; then
 			printf 'UML timeout wrapper is no longer running (pid=%s).\n' "${timeout_pid:-unknown}"
 			return 0
@@ -153,11 +156,13 @@ capture_host_vmlinux_backtrace() {
 }
 
 start_tap_capture() {
+	if [[ "$NGINX_DIAGNOSTICS" != 1 ]]; then
 	case "$PROFILE:$WORKERS:$CONNECTIONS" in
 		um-nommu-sas-seccomp:4:*) ;;
 		um-nommu-sas-zpoline:1:4) ;;
 		*) return 0 ;;
 	esac
+	fi
 	if ! command -v tcpdump >/dev/null 2>&1; then
 		printf 'FAIL: tcpdump is unavailable\n' >"$OUTPUT/tap100-pcap.status"
 		return 0
@@ -481,6 +486,9 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	else
 		printf 'FAIL\n' >"$OUTPUT/smoke-http.status"
 		fail "HTTP smoke test returned an error or unexpected body"
+		if [[ "$NGINX_DIAGNOSTICS" == 1 ]]; then
+			capture_host_vmlinux_backtrace
+		fi
 	fi
 	if [[ -n "${NGINX_TLS_CURL_TIMEOUT:-}" ]]; then
 		tls_curl_timeout=$NGINX_TLS_CURL_TIMEOUT
