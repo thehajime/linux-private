@@ -1,0 +1,169 @@
+name: Diagnose NOMMU SWMMU setns02
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: CI run containing the kernel image and instrumented LTP build
+        required: true
+        type: string
+        default: '39761233295'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  setns02-gdb:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download candidate UML image
+        uses: actions/download-artifact@v7
+        with:
+          name: uml-docker-image-um-nommu-sas
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/uml-image
+
+      - name: Download instrumented LTP install tree
+        uses: actions/download-artifact@v7
+        with:
+          name: ltp-alpine-um-nommu.tar.gz
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/ltp-install
+
+      - name: Extract UML kernel and LTP runtime
+        run: |
+          set -euo pipefail
+          docker load -i "$(find "$RUNNER_TEMP/uml-image" -maxdepth 1 -name '*.tar' -print -quit)"
+          image=uml-ci/alpine:edge-um-nommu-sas
+          cid=$(docker create "$image")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/root/vmlinux" "$RUNNER_TEMP/vmlinux"
+          docker rm "$cid" >/dev/null
+          trap - EXIT
+          chmod 0755 "$RUNNER_TEMP/vmlinux"
+          mkdir -p "$RUNNER_TEMP/ltp-root" "$RUNNER_TEMP/ltp-home"
+          tar -xzf "$RUNNER_TEMP/ltp-install/ltp-alpine-um-nommu.tar.gz" \
+            -C "$RUNNER_TEMP/ltp-root"
+          test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
+
+      - name: Install GDB
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdb
+
+      - name: Check out matching LTP reporting helpers
+        uses: actions/checkout@v6
+        with:
+          repository: thehajime/ltp
+          ref: hajime/nommu-runtime-upstream
+          path: ltp-source
+          submodules: recursive
+
+      - name: Create privileged UML test container
+        run: |
+          set -euo pipefail
+          docker_args=(
+            --name ltp-setns-debug --privileged -t
+            -v /boot:/boot -v /home:/home -v /dev:/dev
+            -v "$GITHUB_WORKSPACE:/github/workspace"
+            -v "$RUNNER_TEMP/ltp-root/opt/ltp:/opt/ltp"
+            -v "$RUNNER_TEMP/ltp-home:/github/home"
+            -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro"
+          )
+          docker create "${docker_args[@]}" \
+            --entrypoint /opt/uml-host-tools/busybox \
+            uml-ci/alpine:edge-um-nommu-sas \
+            sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
+          docker start ltp-setns-debug
+
+      - name: Run setns02 under host GDB
+        env:
+          LTP_TESTNAME: um-nommu-sas-zpoline
+          LTP_ARTIFACT_NAME: um-nommu
+          UML_OPTIONS: zpoline=1
+          LTP_FULL_RUN: 'false'
+          LTP_RUN_PATTERN_OVERRIDE: '^setns02$'
+          LTP_SUITE_TIMEOUT: 10m
+          LTP_TIMEOUT_MUL: 10
+          LTP_INSTALL_PREEXTRACTED: 1
+          SAS_CAPTURE_PYTHON_MAPS: 'false'
+        run: |
+          set -uo pipefail
+          mkdir -p output/ltp
+          cat > "$RUNNER_TEMP/setns-gdb.cmd" <<'GDB'
+          set pagination off
+          set confirm off
+          set breakpoint pending on
+          catch signal SIGSEGV
+          commands 1
+            silent
+            printf "GDB_SIGSEGV\n"
+            p $_siginfo
+            info registers rip rsp rdi rsi rdx rax
+            x/i $rip
+            bt 30
+            disable 1
+            continue
+          end
+          disable 1
+          break sys_setns if $rsi == 0x4000000
+          commands 2
+            silent
+            printf "GDB_SETNS_ENTRY fd=%d nstype=0x%x\n", $rdi, $rsi
+            info registers rip rsp rdi rsi rdx rax
+            bt 30
+            enable 1
+            finish
+            printf "GDB_SETNS_RETURN rax=%lld\n", $rax
+            continue
+          end
+          continue
+          GDB
+
+          (
+            while docker inspect ltp-setns-debug >/dev/null 2>&1; do
+              pid=$(docker top ltp-setns-debug -eo pid,args 2>/dev/null |
+                awk '$0 ~ /vmlinux/ && $0 !~ /awk/ {print $1; exit}')
+              if [ -n "$pid" ]; then
+                sudo timeout --foreground --signal=TERM --kill-after=3s 120s \
+                  gdb -q -batch -x "$RUNNER_TEMP/setns-gdb.cmd" \
+                  "$RUNNER_TEMP/vmlinux" -p "$pid"
+                exit $?
+              fi
+              sleep 0.1
+            done
+            echo 'GDB monitor did not find UML vmlinux' >&2
+            exit 1
+          ) > output/ltp/setns02-gdb.log 2>&1 &
+          gdb_monitor=$!
+
+          docker exec -t \
+            -e PATH=/opt/uml-host-tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            -e LTP_TESTNAME -e LTP_ARTIFACT_NAME -e UML_OPTIONS -e LTP_FULL_RUN \
+            -e LTP_RUN_PATTERN_OVERRIDE -e LTP_TIMEOUT_MUL -e LTP_SUITE_TIMEOUT \
+            -e LTP_INSTALL_PREEXTRACTED -e SAS_CAPTURE_PYTHON_MAPS \
+            ltp-setns-debug \
+            /opt/uml-host-tools/busybox sh -x /github/workspace/.github/workflows/run-ltp-job.sh \
+            | tee output/ltp/setns02-ltp.log
+          ltp_status=${PIPESTATUS[0]}
+          wait "$gdb_monitor" || true
+          exit "$ltp_status"
+
+      - name: Upload setns02 result and GDB trace
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: setns02-gdb-diagnostics
+          path: output/ltp/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop UML test container
+        if: always()
+        run: docker rm -f ltp-setns-debug || true
