@@ -452,8 +452,8 @@ jobs:
           timeout --foreground --signal=TERM --kill-after=5s 360s \
             docker exec -t ltp-clock-debug \
               /opt/uml-host-tools/busybox sh -c \
-              "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty ${UML_OPTIONS:-zpoline=1} $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=nanosleep01 LTP_DIRECT_MODE=kirk LTP_DIRECT_LABEL=kirk PYTHONPROFILEIMPORTTIME=1" \
-              > output/ltp/nanosleep01-kirk-sched-console.log 2>&1 &
+              "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=0 $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=nanosleep01 LTP_DIRECT_MODE=kirk LTP_DIRECT_LABEL=kirk-no-zpoline PYTHONPROFILEIMPORTTIME=1" \
+              > output/ltp/nanosleep01-no-zpoline-sched-console.log 2>&1 &
           guest_exec_pid=$!
           host_pids=
           for _ in $(seq 1 200); do
