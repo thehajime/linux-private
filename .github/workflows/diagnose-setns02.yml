@@ -508,9 +508,20 @@ jobs:
                 syscalls:sys_enter_rt_sigreturn syscalls:sys_enter_rt_sigprocmask \
                 syscalls:sys_enter_clone syscalls:sys_enter_clone3 \
                 syscalls:sys_enter_wait4 syscalls:sys_enter_kill \
-                syscalls:sys_enter_tgkill syscalls:sys_enter_restart_syscall; do
+                syscalls:sys_enter_tgkill syscalls:sys_enter_restart_syscall \
+                signal:signal_generate signal:signal_deliver; do
                 if [[ "$perf_events" == *"$event"* ]]; then
                   perf_args+=(-e "$event")
+                fi
+              done
+              # rt_sigreturn is only the host-side syscall trampoline count;
+              # count actual delivery/generation by signal to distinguish
+              # SIGSYS mediation from UML timer/async I/O signals.
+              for event in signal:signal_generate signal:signal_deliver; do
+                if [[ "$perf_events" == *"$event"* ]]; then
+                  for sig in 10 12 14 26 29 31; do
+                    perf_args+=(-e "$event" --filter "sig == $sig")
+                  done
                 fi
               done
               if [ "${#perf_args[@]}" -gt 0 ]; then
