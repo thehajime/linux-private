@@ -55,6 +55,37 @@ reproducible kselftest build instructions in
 
 ## Active TODOs
 
+### CI failure follow-up (2026-10-23)
+
+- [x] Match the upstream NOMMU kit by defaulting all `um-nommu*` LTP rows to
+  `LTP_VIRT_OVERRIDE=uml` (`7c5dd4c8385a`). The setting identifies virtualization;
+  LTP skips oversleep assertions, so raw latency remains a separate metric.
+- [x] Use the requested matrix order consistently in report tables and plot
+  legends, with native last. Shared definitions and a saved-report refresh
+  workflow are pushed through `bed5ce382da5`. Refresh run `39860161385` updated
+  Issue 4 and Pages successfully; published measurements remain unchanged.
+- [x] Fix host fatal-signal cleanup in `swmmu-nommu-exp` commit `35016cac12d5`.
+  The handler re-sends the signal using the existing reset/default setup and
+  uses `_exit` as fallback, avoiding sleeping kernel exitcalls and libc exit
+  handlers in signal context. Local SAS tests passed SIGTERM/SIGINT three
+  times each with zpoline off/on (12/12), with no residual UML process. Normal
+  guest poweroff and preserved SWMMU selftests passed in both modes
+  (38 pass / 8 skip / 0 fail each). Broader MMU/SMP CI validation is pending.
+- [ ] Restore safe general zpoline instruction rewriting. The RX-write safety
+  fix `8eec4b37` leaves repeated syscalls on SIGSYS. Same-kernel paired getpid
+  medians are 1465 ns raw versus 203 ns with a diagnostic pretranslated copy.
+  Do not deploy per-program patched copies or re-enable the unsafe RX writer;
+  writable backing/alias access, mapping semantics and kernel-context locking
+  must be handled correctly.
+- [ ] Revalidate the full NOMMU LTP matrix with `uml` classification after the
+  selected kernel fixes. `mmap04` cross-backend partial MAP_FIXED support/skip,
+  `setns02` child-side IPC TCONF propagation and Kirk monotonic duration
+  accounting remain separate follow-ups. Nginx TLS passed a matched
+  direct-window one-worker test; standard worker-matrix validation is pending.
+- Full evidence and prioritized queue are in Obsidian Codex-Logs
+  `2026-10-23_065100+0900-report-order-getpid` and
+  `2026-10-23_065600+0900-fatal-signal-fix`.
+
 ### SAS/SWMMU validation update (2026-10-18)
 
 - [x] Reproduce `add_key03` in isolation with `CONFIG_KEYS=y`, loop support,
