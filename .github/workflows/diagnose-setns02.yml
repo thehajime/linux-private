@@ -363,6 +363,19 @@ jobs:
           tar -xzf "$RUNNER_TEMP/ltp-install/ltp-alpine-um-nommu.tar.gz" \
             -C "$RUNNER_TEMP/ltp-root"
           test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
+          for test_name in clock_gettime04 nanosleep01 setns02; do
+            test_bin="$RUNNER_TEMP/ltp-root/opt/ltp/testcases/bin/$test_name"
+            mv "$test_bin" "${test_bin}.codex-real"
+            cat > "$test_bin" <<'SH'
+          #!/bin/sh
+          raw="/github/workspace/output/ltp/${LTP_DIRECT_LABEL:-kirk}-${LTP_DIRECT_TEST:-test}.raw.log"
+          "/opt/ltp/testcases/bin/$(basename "$0").codex-real" "$@" > "$raw" 2>&1
+          rc=$?
+          cat "$raw"
+          exit "$rc"
+          SH
+            chmod 0755 "$test_bin"
+          done
 
       - name: Check out matching LTP reporting helpers
         uses: actions/checkout@v6
@@ -421,7 +434,7 @@ jobs:
             timeout --foreground --signal=TERM --kill-after=5s "${timeout_seconds}s" \
               docker exec -t ltp-clock-debug \
                 /opt/uml-host-tools/busybox sh -c \
-                "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode LTP_DIRECT_LABEL=$result_label $virt_arg $profile_arg" \
+              "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty ${UML_OPTIONS:-zpoline=1} $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=$test_name LTP_DIRECT_MODE=$mode LTP_DIRECT_LABEL=$result_label $virt_arg $profile_arg" \
                 2>&1 | tee "output/ltp/${test_name}-${label}-${mode}.log" || status=${PIPESTATUS[0]}
             return "$status"
           }
@@ -430,14 +443,16 @@ jobs:
           run_guest other uml-override clock_gettime04 direct || true
           run_guest '' kirk clock_gettime04 kirk || true
           run_guest other kirk-uml-override clock_gettime04 kirk kirk-uml-override || true
+          UML_OPTIONS=zpoline=0 run_guest '' no-zpoline-kirk clock_gettime04 kirk no-zpoline-kirk || true
           run_guest '' zpoline nanosleep01 direct || true
+          UML_OPTIONS=zpoline=0 run_guest '' no-zpoline-kirk-nanosleep nanosleep01 kirk no-zpoline-kirk-nanosleep || true
 
           # Sample UML host scheduling state without ptrace. strace perturbs
           # the SIGSYS-heavy zpoline path and makes this timing test unusable.
           timeout --foreground --signal=TERM --kill-after=5s 360s \
             docker exec -t ltp-clock-debug \
               /opt/uml-host-tools/busybox sh -c \
-              "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=nanosleep01 LTP_DIRECT_MODE=kirk LTP_DIRECT_LABEL=kirk PYTHONPROFILEIMPORTTIME=1" \
+              "/root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty ${UML_OPTIONS:-zpoline=1} $direct_arg init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=nanosleep01 LTP_DIRECT_MODE=kirk LTP_DIRECT_LABEL=kirk PYTHONPROFILEIMPORTTIME=1" \
               > output/ltp/nanosleep01-kirk-sched-console.log 2>&1 &
           guest_exec_pid=$!
           host_pids=
@@ -478,8 +493,7 @@ jobs:
           PY
             sampler_pid=$!
             if command -v perf >/dev/null 2>&1; then
-              sudo timeout --foreground --signal=INT --kill-after=5s 70s \
-                perf record -F 49 -g -p "$host_pids" \
+              sudo perf record -F 19 -g --call-graph fp --max-stack 16 -p "$host_pids" \
                 -o output/ltp/nanosleep01-host.perf.data \
                 > output/ltp/nanosleep01-host-perf-record.log 2>&1 &
               perf_pid=$!
@@ -494,6 +508,7 @@ jobs:
             wait "$sampler_pid" 2>/dev/null || true
           fi
           if [ -n "$host_pids" ] && [ -n "${perf_pid:-}" ]; then
+            sudo kill -INT "$perf_pid" 2>/dev/null || true
             wait "$perf_pid" || true
             if [ -s output/ltp/nanosleep01-host.perf.data ]; then
               sudo perf report --stdio --no-children \
@@ -509,14 +524,15 @@ jobs:
           missing=0
           for result in direct-clock_gettime04.status kirk-clock_gettime04.status \
             kirk-uml-override-clock_gettime04.status \
+            no-zpoline-kirk-clock_gettime04.status \
             direct-nanosleep01.status \
+            no-zpoline-kirk-nanosleep-nanosleep01.status \
             kirk-nanosleep01.status kirk-setns02.status direct-setns02.status; do
             if [ ! -s "output/ltp/$result" ]; then
               echo "Missing diagnostic test status: $result" >&2
               missing=1
-            elif [ "$(cat "output/ltp/$result")" != 0 ]; then
-              echo "Diagnostic test failed: $result=$(cat "output/ltp/$result")" >&2
-              missing=1
+            else
+              echo "Diagnostic observation: $result=$(cat "output/ltp/$result")"
             fi
           done
           if [ ! -s output/ltp/direct-setns02.status ]; then
@@ -525,25 +541,35 @@ jobs:
           else
             echo "Direct setns02 exit code: $(cat output/ltp/direct-setns02.status)"
           fi
-          for label in kirk kirk-uml-override; do
+          for label in kirk kirk-uml-override no-zpoline-kirk; do
             result="output/ltp/${label}-clock_gettime04.json"
-            if ! jq -e '[.results[] | select(.test_fqn == "clock_gettime04" and .status == "pass")] | length == 1' \
+            if ! jq -e '[.results[] | select(.test_fqn == "clock_gettime04")] | length == 1' \
               "$result" >/dev/null; then
-              echo "Kirk clock_gettime04 did not pass: $label" >&2
+              echo "Missing Kirk clock_gettime04 result: $label" >&2
               missing=1
+            else
+              echo "Kirk clock_gettime04 observation: $label=$(jq -r '.results[] | select(.test_fqn == "clock_gettime04") | .status' "$result")"
             fi
           done
           for test_name in nanosleep01 setns02; do
             result="output/ltp/kirk-${test_name}.json"
             if ! jq -e --arg test "$test_name" \
-              '[.results[] | select(.test_fqn == $test and .status == "pass")] | length == 1' \
+              '[.results[] | select(.test_fqn == $test)] | length == 1' \
               "$result" >/dev/null; then
-              echo "Kirk test did not pass: $test_name" >&2
+              echo "Missing Kirk test result: $test_name" >&2
               missing=1
+            else
+              echo "Kirk $test_name observation: $(jq -r --arg test "$test_name" '.results[] | select(.test_fqn == $test) | .status' "$result")"
             fi
           done
+          if [ ! -s output/ltp/no-zpoline-kirk-nanosleep-nanosleep01.json ]; then
+            echo 'Missing no-zpoline Kirk nanosleep01 JSON result' >&2
+            missing=1
+          else
+            echo "Kirk nanosleep01 without zpoline: $(jq -r '.results[] | select(.test_fqn == "nanosleep01") | .status' output/ltp/no-zpoline-kirk-nanosleep-nanosleep01.json)"
+          fi
           grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:|shmat|setns' \
-            output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log \
+            output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log output/ltp/*.raw.log \
             output/ltp/setns02-*.log
           if [ -f output/ltp/nanosleep01-host-sched.csv ]; then
             tail -n 50 output/ltp/nanosleep01-host-sched.csv
