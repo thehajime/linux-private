@@ -147,10 +147,21 @@ jobs:
             bt 12
             continue
           end
-          break ../kernel/nsproxy.c:606
+          break ../arch/um/nommu/do_syscall_64.c:39
           commands
             silent
-            printf "GDB_SETNS_RETURN fd=%d flags=0x%x result=%lld\n", $last_setns_fd, $last_setns_flags, $rax
+            if syscall == 308 || syscall == 30
+              printf "GDB_SYSCALL_RETURN nr=%d ret=%ld\n", syscall, ret
+              info locals
+            end
+            continue
+          end
+          break sys_shmat
+          commands
+            silent
+            printf "GDB_SHMAT_ENTRY\n"
+            info args
+            bt 12
             continue
           end
           continue
@@ -406,11 +417,12 @@ jobs:
           run_guest '' zpoline nanosleep01 direct || true
           run_guest '' kirk nanosleep01 kirk || true
           run_guest '' kirk-setns setns02 kirk || true
+          run_guest '' setns-direct setns02 direct || true
           missing=0
           for result in direct-clock_gettime04.status kirk-clock_gettime04.status \
             kirk-uml-override-clock_gettime04.status \
             direct-nanosleep01.status \
-            kirk-nanosleep01.status kirk-setns02.status; do
+            kirk-nanosleep01.status kirk-setns02.status direct-setns02.status; do
             if [ ! -s "output/ltp/$result" ]; then
               echo "Missing diagnostic test status: $result" >&2
               missing=1
@@ -419,6 +431,12 @@ jobs:
               missing=1
             fi
           done
+          if [ ! -s output/ltp/direct-setns02.status ]; then
+            echo "Missing direct setns02 status" >&2
+            missing=1
+          else
+            echo "Direct setns02 exit code: $(cat output/ltp/direct-setns02.status)"
+          fi
           for label in kirk kirk-uml-override; do
             result="output/ltp/${label}-clock_gettime04.json"
             if ! jq -e '[.results[] | select(.test_fqn == "clock_gettime04" and .status == "pass")] | length == 1' \
@@ -436,7 +454,7 @@ jobs:
               missing=1
             fi
           done
-          grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:' \
+          grep -nE 'LTP_DIRECT_|Running in a virtual machine|TFAIL:|TBROK:|TPASS:|Summary:|shmat|setns' \
             output/ltp/clock_gettime04-*.log output/ltp/nanosleep01-*.log \
             output/ltp/setns02-*.log
           exit "$missing"
