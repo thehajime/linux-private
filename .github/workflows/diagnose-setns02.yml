@@ -436,9 +436,10 @@ jobs:
             if [ "$profile_signals" = yes ]; then
               local guest_pid host_pids perf_pid
               local counters="output/ltp/${test_name}-${label}-host-signals.txt"
+              local guest_log="output/ltp/${test_name}-${label}-${mode}.log"
               timeout --foreground --signal=TERM --kill-after=5s "${timeout_seconds}s" \
                 docker exec -t ltp-clock-debug /opt/uml-host-tools/busybox sh -c "$guest_cmd" \
-                2>&1 | tee "output/ltp/${test_name}-${label}-${mode}.log" &
+                > "$guest_log" 2>&1 &
               guest_pid=$!
               host_pids=
               for _ in $(seq 1 200); do
@@ -454,6 +455,11 @@ jobs:
                     -e signal:signal_deliver --filter 'sig == 31' \
                     -e signal:signal_generate --filter 'sig == 14' \
                     -e signal:signal_deliver --filter 'sig == 14' \
+                    -e raw_syscalls:sys_enter --filter 'id == 473' \
+                    -e raw_syscalls:sys_enter --filter 'id == 474' \
+                    -e raw_syscalls:sys_enter --filter 'id == 475' \
+                    -e raw_syscalls:sys_enter --filter 'id == 476' \
+                    -e raw_syscalls:sys_enter --filter 'id == 477' \
                     -e seccomp:seccomp_filter \
                     -e seccomp:seccomp_filter --filter 'syscall == 473' \
                     -e seccomp:seccomp_filter --filter 'syscall == 474' \
@@ -471,6 +477,7 @@ jobs:
                 wait "$perf_pid" || true
                 cat "$counters" || true
               fi
+              cat "$guest_log"
             else
               timeout --foreground --signal=TERM --kill-after=5s "${timeout_seconds}s" \
                 docker exec -t ltp-clock-debug \
@@ -552,6 +559,7 @@ jobs:
                 syscalls:sys_enter_wait4 syscalls:sys_enter_kill \
                 syscalls:sys_enter_tgkill syscalls:sys_enter_restart_syscall \
                 signal:signal_generate signal:signal_deliver \
+                raw_syscalls:sys_enter \
                 seccomp:seccomp_filter; do
                 if [[ "$perf_events" == *"$event"* ]]; then
                   perf_args+=(-e "$event")
@@ -569,6 +577,11 @@ jobs:
               done
               # The guest's SWMMU helper syscall numbers are 473-477. Count
               # those seccomp trap events separately from ordinary syscalls.
+              if [[ "$perf_events" == *"raw_syscalls:sys_enter"* ]]; then
+                for syscall_nr in 473 474 475 476 477; do
+                  perf_args+=(-e raw_syscalls:sys_enter --filter "id == $syscall_nr")
+                done
+              fi
               if [[ "$perf_events" == *"seccomp:seccomp_filter"* ]]; then
                 for syscall_nr in 473 474 475 476 477; do
                   perf_args+=(-e seccomp:seccomp_filter --filter "syscall == $syscall_nr")
