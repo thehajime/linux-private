@@ -359,9 +359,13 @@ jobs:
           run_guest '' kirk nanosleep01 kirk || true
           run_guest '' kirk-setns setns02 kirk || true
           missing=0
-          for result in kirk-nanosleep01.status kirk-setns02.status; do
+          for result in direct-clock_gettime04.status direct-nanosleep01.status \
+            kirk-nanosleep01.status kirk-setns02.status; do
             if [ ! -s "output/ltp/$result" ]; then
-              echo "Missing Kirk test status: $result" >&2
+              echo "Missing diagnostic test status: $result" >&2
+              missing=1
+            elif [ "$(cat "output/ltp/$result")" != 0 ]; then
+              echo "Diagnostic test failed: $result=$(cat "output/ltp/$result")" >&2
               missing=1
             fi
           done
