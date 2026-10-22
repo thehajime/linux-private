@@ -26,7 +26,7 @@ LTP_TARGETS = (
     "native", "um-mmu", "um-mmu-seccomp", "um-mmu-tt-seccomp",
     "um-nommu", "um-nommu-seccomp", "um-nommu-tt-seccomp",
     "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline",
-    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline",
+    "um-nommu-sas-seccomp", "um-nommu-sas-zpoline", "riscv-nommu",
 )
 LTP_TARGET_LABELS = {
     "native": "(native)",
@@ -40,6 +40,7 @@ LTP_TARGET_LABELS = {
     "um-nommu-plain-sas-zpoline": "um-nommu-sas(z)",
     "um-nommu-sas-seccomp": "um-nommu-sas-swmmu(s)",
     "um-nommu-sas-zpoline": "um-nommu-sas-swmmu(z)",
+    "riscv-nommu": "qemu-riscv-nommu",
 }
 LTP_CRASH_SIGNATURES = (
     (
