@@ -108,9 +108,9 @@ jobs:
             sh -c 'exec /opt/uml-host-tools/busybox sleep infinity'
           docker start ltp-setns-debug
 
-      - name: Run setns02 directly under host GDB
+      - name: Run Kirk setns02 under host GDB
         env:
-          UML_OPTIONS: zpoline=1
+          UML_OPTIONS: zpoline=1 swmmu_direct=1
         run: |
           set -uo pipefail
           mkdir -p output/ltp
@@ -119,16 +119,31 @@ jobs:
           set pagination off
           set confirm off
           handle SIGSYS nostop noprint pass
-          handle SIGSTOP stop noprint nopass
+          break segv
+          commands
+            silent
+            printf "GDB_GUEST_SEGV_HANDLER\n"
+            info args
+            bt 30
+            continue
+          end
+          break sys_sethostname
+          commands
+            silent
+            printf "GDB_SETHOSTNAME\n"
+            info args
+            bt 20
+            continue
+          end
+          break sys_setns if $rsi == 0x4000000
+          commands
+            silent
+            printf "GDB_UTS_SETNS\n"
+            info registers rip rsp rdi rsi rdx rax
+            bt 20
+            continue
+          end
           continue
-          printf "GDB_FIXED_SAMPLE\n"
-          info registers rip rsp rdi rsi rdx rax
-          x/i $rip
-          x/24gx $rsp
-          info threads
-          thread apply all bt 24
-          detach
-          quit
           GDB
 
           (
@@ -136,8 +151,7 @@ jobs:
               pid=$(docker top ltp-setns-debug -eo pid,args 2>/dev/null |
                 awk '$0 ~ /vmlinux/ && $0 !~ /awk/ {print $1; exit}')
               if [ -n "$pid" ]; then
-                (sleep 20; sudo kill -STOP "$pid" 2>/dev/null || true) &
-                sudo timeout --foreground --signal=TERM --kill-after=3s 75s \
+                sudo timeout --foreground --signal=TERM --kill-after=3s 180s \
                   gdb -q -batch -x "$RUNNER_TEMP/setns-gdb.cmd" \
                   "$RUNNER_TEMP/vmlinux" -p "$pid"
                 exit $?
@@ -149,10 +163,10 @@ jobs:
           ) > output/ltp/setns02-gdb.log 2>&1 &
           gdb_monitor=$!
 
-          timeout --foreground --signal=TERM --kill-after=5s 180s \
+          timeout --foreground --signal=TERM --kill-after=5s 240s \
             docker exec -t ltp-setns-debug \
               /opt/uml-host-tools/busybox sh -c \
-              'exec /root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=setns02' \
+              'exec /root/vmlinux root=/dev/root rootflags=/ rootfstype=hostfs rw mem=2048m loglevel=8 console=tty zpoline=1 swmmu_direct=1 init=/github/workspace/.github/workflows/ltp-direct-exec.sh LTP_DIRECT_TEST=setns02 LTP_DIRECT_MODE=kirk PYTHONPROFILEIMPORTTIME=1' \
               2>&1 | tee output/ltp/setns02-ltp.log
           ltp_status=${PIPESTATUS[0]}
           wait "$gdb_monitor" || true
