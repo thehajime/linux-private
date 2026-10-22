@@ -548,7 +548,8 @@ jobs:
             no-zpoline-kirk-clock_gettime04.status \
             direct-nanosleep01.status \
             no-zpoline-kirk-nanosleep-nanosleep01.status \
-            kirk-nanosleep01.status kirk-setns02.status direct-setns02.status; do
+            kirk-no-zpoline-nanosleep01.status \
+            kirk-setns02.status direct-setns02.status; do
             if [ ! -s "output/ltp/$result" ]; then
               echo "Missing diagnostic test status: $result" >&2
               missing=1
@@ -572,15 +573,18 @@ jobs:
               echo "Kirk clock_gettime04 observation: $label=$(jq -r '.results[] | select(.test_fqn == "clock_gettime04") | .status' "$result")"
             fi
           done
-          for test_name in nanosleep01 setns02; do
-            result="output/ltp/kirk-${test_name}.json"
+          for result_spec in 'kirk-no-zpoline nanosleep01' 'kirk setns02'; do
+            set -- $result_spec
+            label=$1
+            test_name=$2
+            result="output/ltp/${label}-${test_name}.json"
             if ! jq -e --arg test "$test_name" \
               '[.results[] | select(.test_fqn == $test)] | length == 1' \
               "$result" >/dev/null; then
-              echo "Missing Kirk test result: $test_name" >&2
+              echo "Missing Kirk test result: $label $test_name" >&2
               missing=1
             else
-              echo "Kirk $test_name observation: $(jq -r --arg test "$test_name" '.results[] | select(.test_fqn == $test) | .status' "$result")"
+              echo "Kirk $label $test_name observation: $(jq -r --arg test "$test_name" '.results[] | select(.test_fqn == $test) | .status' "$result")"
             fi
           done
           if [ ! -s output/ltp/no-zpoline-kirk-nanosleep-nanosleep01.json ]; then
