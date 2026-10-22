@@ -158,6 +158,18 @@ jobs:
                   )
                 or
                   (
+                    (.files | length == 3) and
+                    all(.files[];
+                      .status == "modified" and
+                      (
+                        .filename == "arch/x86/um/nommu/zpoline.c" or
+                        .filename == "mm/gup.c" or
+                        .filename == "mm/nommu_swmmu.c"
+                      )
+                    )
+                  )
+                or
+                  (
                     (.files | length == 6) and
                     all(.files[];
                       .status == "modified" and
