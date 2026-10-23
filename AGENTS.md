@@ -61,7 +61,7 @@ reproducible kselftest build instructions in
 ### CI failure follow-up (2026-10-23)
 
 Current local remediation checkpoint (supersedes the original failure inventory
-below; local acceptance is complete, full CI is next):
+below; local acceptance is complete, CI 39951978045 is active):
 
 - [x] Native full syscalls on freshly built LTP `1bb350a1cd55501173e33f1836a674494f2cb48b`:
   1,481 records, 9,895 pass / 405 skip / 0 FAIL/BROK/WARN, normal exit 0,
@@ -94,6 +94,14 @@ below; local acceptance is complete, full CI is next):
   explicitly allowed, in addition to the older reviewed pair. Added changes
   are kernel uaccess/ptrace/MAP_32BIT/timer fixes and docs; no plugin/runtime/
   exported UAPI change. Source and signed manifest checks remain mandatory.
+
+CI 39949026306 was cancelled before LTP execution after its build log exposed
+3 GiB of host swap while the newly added native container limit prohibited
+swap. ee7e73b9abb5 retains the resident-memory budget and allows host swap;
+replacement run 39951978045 uses kernel 6c0c5d71b58a and LTP 1bb350a1cd55.
+Actual native and MMU CI entrypoint/report smoke paths both pass 102 assertions
+with one architecture skip and normal completion. This executor has no swap,
+so actual swap I/O remains a CI validation item. Do not merge while CI is active.
 
 Full JSON, HTML, configs, GDB evidence and exact commands are in Obsidian
 `nommu-swmmu/Codex-Logs/2026-10-23_175737+0900-ltp-local-abi-and-runtime-fixes`.
