@@ -84,6 +84,17 @@ printf '%s\n' "$APORTS_SHA" >"$OUTPUT/aports-sha.txt"
 printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
 : >"$OUTPUT/host-runtime-probe.log"
 : >"$OUTPUT/host-vmlinux-backtrace.log"
+{
+	for resource in /proc/self/cgroup /proc/pressure/cpu \
+		/sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpu.stat \
+		/sys/fs/cgroup/cpu/cpu.cfs_quota_us \
+		/sys/fs/cgroup/cpu/cpu.cfs_period_us; do
+		if [[ -r "$resource" ]]; then
+			printf '\n%s\n' "$resource"
+			cat "$resource"
+		fi
+	done
+} >"$OUTPUT/host-cpu-limits.log"
 : >"$OUTPUT/guest-runtime-probe.log"
 : >"$OUTPUT/tap100-tcpdump.log"
 printf 'SKIP\n' >"$OUTPUT/tap100-pcap.status"
@@ -174,6 +185,7 @@ capture_host_vmlinux_backtrace() {
 	local timeout_pid=${UML_PID:-}
 	local pid=
 	local log="$OUTPUT/host-vmlinux-backtrace.log"
+	local trace_status
 	if [[ "$NGINX_DIAGNOSTICS" != 1 ]]; then
 	case "$PROFILE:$WORKERS:$CONNECTIONS" in
 		um-nommu-sas-seccomp:4:*) ;;
@@ -196,6 +208,15 @@ capture_host_vmlinux_backtrace() {
 		printf 'pid=%s exe=%s\n' "$pid" "$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo unavailable)"
 		printf '\nHost process mappings (includes guest SWMMU aliases when present):\n'
 		cat "/proc/$pid/maps" 2>&1 || true
+		if [[ "$NGINX_DIAGNOSTICS" == 1 ]] && command -v strace >/dev/null 2>&1; then
+			# Run only after failure, before GDB stops can alter the stalled state.
+			trace_status=0
+			sudo timeout --signal=INT --kill-after=2s 3s \
+				strace -f -w -c -e trace=mmap,munmap,mprotect,poll,epoll_wait,futex \
+				-p "$pid" >"$OUTPUT/host-syscall-profile.log" 2>&1 || trace_status=$?
+			printf '\nstrace timeout status=%s (124 is the intended sampling bound)\n' \
+				"$trace_status" >>"$OUTPUT/host-syscall-profile.log"
+		fi
 		if ! command -v gdb >/dev/null 2>&1; then
 			printf 'gdb is unavailable on the runner.\n'
 			return 0

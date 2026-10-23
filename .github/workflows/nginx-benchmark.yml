@@ -155,7 +155,7 @@ jobs:
             if [[ "$NGINX_DIAGNOSTICS" == 1 ]] || \
                [[ "$PROFILE" == um-nommu-sas-seccomp && "$WORKERS" == 4 ]] || \
                [[ "$PROFILE" == um-nommu-sas-zpoline ]]; then
-              host_tools+=(gdb)
+              host_tools+=(gdb strace)
             fi
           fi
           sudo apt-get install -y --no-install-recommends "${host_tools[@]}"
@@ -204,7 +204,7 @@ jobs:
           out="output/${PROFILE}/w${WORKERS}-n${NCPUS}-c${CONNECTIONS}"
           if [[ ! -s "$out/measurement.json" ]]; then
             mkdir -p "$out"
-            for file in capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk-warmup.error warmup-duration.txt warmup-timeout.txt wrk-timeout.txt wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log host-vmlinux-backtrace.log; do
+            for file in host-cpu-limits.log host-syscall-profile.log capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk-warmup.error warmup-duration.txt warmup-timeout.txt wrk-timeout.txt wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log host-vmlinux-backtrace.log; do
               [[ -e "$out/$file" ]] || : >"$out/$file"
             done
             printf 'FAIL\n' >"$out/harness.status"
