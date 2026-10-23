@@ -21,6 +21,9 @@ on:
       capture_diagnostics:
         type: boolean
         default: false
+      control_channel:
+        type: string
+        default: auto
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -46,6 +49,10 @@ on:
       capture_diagnostics:
         type: boolean
         default: true
+      control_channel:
+        type: choice
+        default: auto
+        options: [auto, legacy, serial]
 
 jobs:
   nginx_benchmark:
@@ -85,6 +92,7 @@ jobs:
             ncpus: 4
     env:
       NGINX_DIAGNOSTICS: ${{ inputs.capture_diagnostics && '1' || '0' }}
+      NGINX_CONTROL_CHANNEL: ${{ inputs.control_channel || 'auto' }}
       NGINX_PROFILE: ${{ matrix.profile }}
       NGINX_NCPUS: ${{ matrix.ncpus }}
       NGINX_WORKERS: ${{ matrix.workers }}

@@ -7,7 +7,10 @@ busybox mount -t sysfs sysfs /sys || true
 busybox mkdir -p /run
 busybox rm -f /run/nginx-benchmark-stop
 busybox rm -f /run/nginx-runtime-probe.log
-busybox mkfifo /run/nginx-benchmark-stop
+control_channel=${NGINX_CONTROL_CHANNEL:-legacy}
+if [ "$control_channel" = legacy ]; then
+	busybox mkfifo /run/nginx-benchmark-stop
+fi
 busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp /var/lib/nginx/logs
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /var/lib/nginx/tmp
@@ -18,9 +21,15 @@ busybox route add default gw 172.18.0.1 dev vec0
 
 nginx -t -c /etc/nginx/nginx-swmmu.conf
 nginx -c /etc/nginx/nginx-swmmu.conf
+if [ "$control_channel" = serial ]; then
+	exec 3<>/dev/ttyS0
+fi
 echo SWMMU_NGINX_READY
+if [ "$control_channel" = legacy ]; then
+	exec 3</run/nginx-benchmark-stop
+fi
 
-while IFS= read -r command < /run/nginx-benchmark-stop; do
+while IFS= read -r command <&3; do
 	case "$command" in
 	probe*)
 		printf 'SWMMU_NGINX_GUEST_PROBE %s\n' "$command" >/dev/console 2>/dev/null || true

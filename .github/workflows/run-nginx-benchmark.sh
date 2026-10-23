@@ -49,6 +49,7 @@ ROOTFS=$(cd -- "$ROOTFS" && pwd -P) || {
 : "${KERNEL_ARGS_TEXT:=}"
 : "${NEEDS_RAWIO:=false}"
 : "${NGINX_DIAGNOSTICS:=0}"
+: "${NGINX_CONTROL_CHANNEL:=auto}"
 : "${NGINX_WRK_WARMUP_SECONDS:=15}"
 : "${NGINX_WRK_TIMEOUT_SECONDS:=30}"
 for variable in NGINX_WRK_WARMUP_SECONDS NGINX_WRK_TIMEOUT_SECONDS; do
@@ -96,6 +97,22 @@ TAP_CAPTURE_PID=
 TAP_CAPTURE_LAUNCHER_PID=
 CONSOLE_TAIL_PID=
 HARNESS_STATUS=PASS
+CONTROL_PID=
+CONTROL_DIR=
+CONTROL_FIFO=
+CONTROL_PTY=
+CONTROL_CHANNEL=$NGINX_CONTROL_CHANNEL
+if [[ "$CONTROL_CHANNEL" == auto ]]; then
+	case "$PROFILE" in
+		um-nommu-sas-seccomp|um-nommu-sas-zpoline) CONTROL_CHANNEL=serial ;;
+		*) CONTROL_CHANNEL=legacy ;;
+	esac
+fi
+case "$CONTROL_CHANNEL" in
+	serial|legacy) ;;
+	*) echo 'invalid NGINX_CONTROL_CHANNEL' >&2; exit 2 ;;
+esac
+printf '%s\n' "$CONTROL_CHANNEL" >"$OUTPUT/control-channel.txt"
 GUEST_IP=172.18.0.2
 EXPECTED_BODY=nginx-matrix-ok
 if [[ "$PROFILE" == um-nommu-sas-seccomp || "$PROFILE" == um-nommu-sas-zpoline ]]; then
@@ -115,6 +132,42 @@ fail() {
 	HARNESS_ERROR+="$*"
 	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
 	printf 'nginx harness failure: %s\n' "$*" >&2
+}
+
+send_guest_command() {
+	local message=$1
+	local fifo="$ROOTFS/run/nginx-benchmark-stop"
+	if [[ "$CONTROL_CHANNEL" == serial ]]; then
+		fifo=$CONTROL_FIFO
+	fi
+	[[ -p "$fifo" ]] || return 1
+	timeout --foreground 5s bash -c 'printf "%s\n" "$2" >"$1"' _ \
+		"$fifo" "$message"
+}
+
+start_serial_control() {
+	[[ "$CONTROL_CHANNEL" == serial ]] || return 0
+	case "$PROFILE" in
+		um-nommu-sas-seccomp|um-nommu-sas-zpoline) ;;
+		*) fail 'serial control currently requires the SWMMU nginx init'; return 1 ;;
+	esac
+	CONTROL_DIR=$(mktemp -d)
+	CONTROL_FIFO="$CONTROL_DIR/commands"
+	python3 .github/workflows/uml-tty-relay.py --fifo "$CONTROL_FIFO" \
+		--endpoint "$CONTROL_DIR/pty" --log "$OUTPUT/serial-control.log" \
+		>"$OUTPUT/serial-control-helper.log" 2>&1 &
+	CONTROL_PID=$!
+	for _ in {1..100}; do
+		[[ -s "$CONTROL_DIR/pty" ]] && break
+		kill -0 "$CONTROL_PID" 2>/dev/null || break
+		sleep 0.05
+	done
+	if [[ ! -s "$CONTROL_DIR/pty" ]]; then
+		fail 'could not start host serial control relay'
+		return 1
+	fi
+	CONTROL_PTY=$(cat "$CONTROL_DIR/pty")
+	KERNEL_ARGS+=("ssl0=tty:$CONTROL_PTY")
 }
 
 capture_host_vmlinux_backtrace() {
@@ -246,6 +299,7 @@ stop_console_log() {
 }
 
 capture_logs() {
+	local uml_status=0
 	stop_tap_capture
 	if [[ -n "$HOST_PROBE_PID" ]]; then
 		kill "$HOST_PROBE_PID" 2>/dev/null || true
@@ -259,9 +313,8 @@ capture_logs() {
 	fi
 	if [[ -n "$UML_PID" ]]; then
 		if [[ -d "$ROOTFS/run" ]]; then
-			if [[ -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
-				timeout --foreground 5s bash -c 'printf "stop\\n" > "$1"' _ \
-					"$ROOTFS/run/nginx-benchmark-stop" 2>/dev/null || true
+			if [[ "$CONTROL_CHANNEL" == serial || -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
+				send_guest_command stop 2>/dev/null || true
 				for _ in {1..15}; do
 					kill -0 "$UML_PID" 2>/dev/null || break
 					sleep 1
@@ -276,8 +329,22 @@ capture_logs() {
 			done
 		fi
 		kill -KILL "$UML_PID" 2>/dev/null || true
-		wait "$UML_PID" 2>/dev/null || true
+		wait "$UML_PID" 2>/dev/null || uml_status=$?
+		printf '%s\n' "$uml_status" >"$OUTPUT/uml-exit.txt"
+		if [[ "$CONTROL_CHANNEL" == serial ]] && \
+		   { [[ "$uml_status" != 0 ]] || ! grep -q 'reboot: Power down' "$OUTPUT/kernel.log"; }; then
+			fail 'guest serial shutdown did not complete normally'
+		fi
 		UML_PID=
+	fi
+	if [[ -n "$CONTROL_PID" ]]; then
+		kill -TERM "$CONTROL_PID" 2>/dev/null || true
+		wait "$CONTROL_PID" 2>/dev/null || true
+		CONTROL_PID=
+	fi
+	if [[ -n "$CONTROL_DIR" ]]; then
+		rm -rf "$CONTROL_DIR"
+		CONTROL_DIR=
 	fi
 	stop_console_log
 	if [[ -f "$ROOTFS/run/nginx-error.log" ]]; then
@@ -308,10 +375,10 @@ start_runtime_probes() {
 				done
 				ip -s link show dev tap100 2>&1 || true
 			} >>"$OUTPUT/host-runtime-probe.log"
-			if [[ -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
-				if ! timeout --foreground 5s bash -c \
-					'printf "probe %s\\n" "$(date -Ins)" >"$1"' _ \
-					"$ROOTFS/run/nginx-benchmark-stop"; then
+			# Keep normal serial-controlled measurements free of guest probes.
+			# Legacy replay retains its original diagnostic behavior.
+			if [[ "$CONTROL_CHANNEL" == legacy && -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
+				if ! send_guest_command "probe $(date -Ins)"; then
 					printf '%s guest probe FIFO request timed out\n' \
 						"$(date -Ins)" >>"$OUTPUT/host-runtime-probe.log"
 					break
@@ -396,6 +463,15 @@ cp "$NGINX_CONF" "$OUTPUT/nginx.conf" 2>/dev/null || \
 if ! grep -q "^worker_processes ${WORKERS};$" "$OUTPUT/nginx.conf" 2>/dev/null || \
 	! grep -q '^error_log /run/nginx-error.log notice;$' "$OUTPUT/nginx.conf" 2>/dev/null; then
 	fail "matrix worker count or nginx diagnostic log configuration was not applied"
+fi
+
+if [[ "$HARNESS_STATUS" == PASS ]]; then
+	start_serial_control || true
+	KERNEL_ARGS+=("NGINX_CONTROL_CHANNEL=$CONTROL_CHANNEL")
+	if [[ "$CONTROL_CHANNEL" == serial ]]; then
+		install -m 0755 .github/workflows/swmmu-nginx-init.sh \
+			"$ROOTFS/sbin/swmmu-nginx-init"
+	fi
 fi
 
 if [[ "$HARNESS_STATUS" == PASS ]]; then
@@ -488,6 +564,9 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		fail "HTTP smoke test returned an error or unexpected body"
 		if [[ "$NGINX_DIAGNOSTICS" == 1 ]]; then
 			capture_host_vmlinux_backtrace
+			if [[ "$CONTROL_CHANNEL" == serial ]]; then
+				send_guest_command "probe $(date -Ins)" || true
+			fi
 		fi
 	fi
 	if [[ -n "${NGINX_TLS_CURL_TIMEOUT:-}" ]]; then
