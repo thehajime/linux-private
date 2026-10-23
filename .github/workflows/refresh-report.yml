@@ -69,7 +69,7 @@ jobs:
           RECOLLECT_KSELFTEST: ${{ inputs.recollect_kselftest }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gnuplot-nox
+          sudo apt-get install -y --no-install-recommends gnuplot-nox python3-matplotlib
           python3 .github/workflows/refresh-result-report.py
           python3 .github/workflows/plot-benchmark-results.py \
             --snapshot "$RUNNER_TEMP/result-snapshot.json" --output output/out

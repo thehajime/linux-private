@@ -1,162 +1,71 @@
 #!/usr/bin/env python3
-"""Plot nginx throughput by UML profile, CPU count, and worker count."""
-
+"""Compare nginx CPU scaling; boxes use repeated runs, never mixed conditions."""
 import csv
 import json
 import math
-import subprocess
 import sys
+from collections import defaultdict
 from pathlib import Path
-
-from report_profiles import PROFILES, profile_sort_key
-WORKERS = (1, 4)
-CONNECTIONS = (4, 16, 64)
-
-
-def quote(value):
-    return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
-
-
-def finite(value):
-    return isinstance(value, (int, float)) and math.isfinite(value)
-
-
-def load_measurements(source):
-    rows = json.loads(source.read_text()).get("matrix", [])
-    values = {}
-    statuses = {}
-    host_cpu_counts = {}
-    for row in rows:
-        key = (row.get("profile"), int(row.get("ncpus", 1)),
-               int(row.get("workers", 0)), int(row.get("connections", 0)))
-        statuses[key] = row.get("status", "MISSING")
-        if row.get("profile") == "native" and isinstance(row.get("host_cpu_count"), int):
-            host_cpu_counts[row["profile"]] = row["host_cpu_count"]
-        if row.get("status") == "PASS":
-            values[key] = row.get("requests_per_second")
-    return values, statuses, host_cpu_counts
-
-
-def series_for(worker, statuses, host_cpu_counts):
-    series = []
-    for profile, label, color in PROFILES:
-        cpu_counts = sorted({key[1] for key in statuses
-                             if key[0] == profile and key[2] == worker})
-        for cpus in cpu_counts:
-            smp = "SMP=y" if profile.startswith("um-mmu") or profile in ("um-nommu", "um-nommu-seccomp") else "SMP=n"
-            if profile == "native":
-                host_cpus = host_cpu_counts.get(profile, "unknown")
-                legend = f"(native) [host: {host_cpus} CPUs]"
-            else:
-                legend = f"{label} [{smp}, {cpus} CPU{'s' if cpus != 1 else ''}]"
-            series.append((profile, cpus, legend, color))
-    return series
-
-
-def write_csv(out_dir, values, statuses):
-    path = out_dir / "throughput-comparison.csv"
-    with path.open("w", newline="") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(("profile", "ncpus", "workers", "connections", "status", "requests_per_second"))
-        for key in sorted(statuses, key=lambda item: (profile_sort_key(item[0]), item[1:])):
-            value = values.get(key)
-            writer.writerow((*key[:1], key[1], key[2], key[3],
-                             "PASS" if finite(value) else statuses[key],
-                             value if finite(value) else "NaN"))
-    return path
-
-
-def write_worker_plot(out_dir, worker, values, statuses, host_cpu_counts, all_values):
-    series = series_for(worker, statuses, host_cpu_counts)
-    if not series:
-        return None
-    width = min(0.09, 0.72 / len(series))
-    plot_items = []
-    for index, (profile, cpus, label, color) in enumerate(series):
-        offset = (index - (len(series) - 1) / 2) * width
-        data_file = out_dir / f"throughput-{profile}-{cpus}cpu-workers-{worker}.dat"
-        lines = []
-        has_measurement = False
-        for x_index, connections in enumerate(CONNECTIONS, start=1):
-            value = values.get((profile, cpus, worker, connections))
-            has_measurement |= finite(value)
-            x = x_index + offset
-            lines.append(f"{x:.5f} {value:.12g}\n" if finite(value) else f"{x:.5f} NaN\n")
-        data_file.write_text("".join(lines))
-        if not has_measurement:
-            continue
-        fill = f"fs solid 0.70" if cpus == 1 else "fs pattern 4"
-        plot_items.append(
-            f"{quote(data_file)} using 1:2 with boxes {fill} "
-            f"fc rgb {quote(color)} lc rgb {quote(color)} lw 0.7 title {quote(label)}"
-        )
-
-    if not plot_items:
-        return None
-    maximum = max(value for value in all_values if finite(value))
-    upper = max(10.0, maximum * 2.5)
-    image = out_dir / f"nginx-workers-{worker}.png"
-    script = out_dir / f"nginx-workers-{worker}.gnuplot"
-    commands = (
-        "set terminal pngcairo size 1200,720 enhanced font 'Helvetica,14' linewidth 3",
-        f"set output {quote(image)}",
-        "set xlabel 'Client connections'",
-        "set ylabel 'Requests per second'",
-        "set xtics ('4' 1, '16' 2, '64' 3)",
-        "set ytics",
-        "set xrange [0.5:3.5]",
-        f"set yrange [1:{upper:.8g}]",
-        "set logscale y",
-        "set grid ytics",
-        f"set boxwidth {width * 0.86:.5f} absolute",
-        "set lmargin 11",
-        "set rmargin 2",
-        "set bmargin 7",
-        "set tmargin 7",
-        "set key top center horizontal maxrows 3 opaque font ',12'",
-        "set tics out",
-        "plot \\\n  " + ", \\\n  ".join(plot_items),
-        "",
-    )
-    script.write_text("\n".join(commands))
-    subprocess.run(["gnuplot", str(script)], check=True)
-    return image
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from report_profiles import PROFILES
 
 
 def main():
     if len(sys.argv) != 3:
-        raise SystemExit("usage: plot-nginx-comparison.py AGGREGATE_JSON OUTPUT_DIR")
-    source, out_dir = Path(sys.argv[1]), Path(sys.argv[2])
-    out_dir.mkdir(parents=True, exist_ok=True)
-    values, statuses, host_cpu_counts = load_measurements(source)
-    write_csv(out_dir, values, statuses)
-    all_values = list(values.values())
+        raise SystemExit('usage: plot-nginx-comparison.py AGGREGATE_JSON OUTPUT_DIR')
+    source, out = map(Path, sys.argv[1:]); out.mkdir(parents=True, exist_ok=True)
+    groups = defaultdict(list)
+    for row in json.loads(source.read_text()).get('matrix', []):
+        if row.get('status') != 'PASS':
+            continue
+        profile = row['profile']
+        cpu = row.get('host_cpu_count') if profile == 'native' else row.get('ncpus')
+        if not isinstance(cpu, int) or cpu < 1:
+            continue  # Do not invent a native CPU allocation.
+        samples = row.get('requests_per_second_samples', [row.get('requests_per_second')])
+        key = (profile, cpu, row['workers'], row['connections'])
+        groups[key].extend(x for x in samples if isinstance(x, (int, float)) and math.isfinite(x) and x > 0)
+    with (out / 'throughput-comparison.csv').open('w', newline='') as f:
+        writer = csv.writer(f); writer.writerow(['profile', 'cpus', 'workers', 'connections', 'sample', 'requests_per_second'])
+        for key, values in sorted(groups.items()):
+            for i, value in enumerate(values, 1): writer.writerow([*key, i, value])
     generated = []
-    for worker in WORKERS:
-        image = write_worker_plot(out_dir, worker, values, statuses, host_cpu_counts, all_values)
-        if image:
-            generated.append(image.name)
-    status = out_dir / "plot-status.txt"
-    if generated:
-        status.write_text(
-            "Separate charts compare workers=1 and workers=4. The x-axis is client "
-            "connections. MMU profiles use CONFIG_SMP=y; um-mmu(p) uses one online "
-            "CPU, while um-mmu(s) compares one and four CPUs (solid versus "
-            "patterned fill). Plain NOMMU PTRACE uses one CPU. In the workers=1 "
-            "chart, um-nommu(s) compares one and four online CPUs using one "
-            "CONFIG_SMP=y kernel build. Plain NOMMU worker=4 is skipped "
-            "because fork is unavailable. NOMMU SAS profiles remain CONFIG_SMP=n "
-            "because the kernel configuration does not support SMP for "
-            "UML_NOMMU_SAS. Native is measured on the runner and its host CPU count "
-            "is recorded in the legend. "
-            "Profile colors are consistent between both charts.\n"
-        )
-        for image in generated:
-            print(f"Generated {out_dir / image}")
-    else:
-        status.write_text("Plots omitted: no finite nginx measurements are available.\n")
-        print(status.read_text().strip())
+    for workers in (1, 4):
+        profiles = [(p, label, color) for p, label, color in PROFILES
+                    if any(k[0] == p and k[2] == workers and v for k, v in groups.items())]
+        if not profiles: continue
+        fig, axes = plt.subplots(1, 3, figsize=(15, 6), sharey=True)
+        width = min(.12, .72 / len(profiles))
+        cpus = sorted({k[1] for k, v in groups.items() if k[2] == workers and v})
+        for ax, connections in zip(axes, (4, 16, 64)):
+            for index, (profile, label, color) in enumerate(profiles):
+                offset = (index - (len(profiles) - 1) / 2) * width
+                for cpu in cpus:
+                    values = groups.get((profile, cpu, workers, connections), [])
+                    if not values: continue
+                    pos = cpu + offset
+                    if len(values) >= 2:
+                        ax.boxplot([values], positions=[pos], widths=width*.8, patch_artist=True,
+                                   manage_ticks=False, boxprops={'facecolor': color, 'alpha': .55},
+                                   medianprops={'color': 'black'}, whis=1.5, showfliers=True)
+                    else:
+                        ax.plot(pos, values[0], marker='D', color=color, ms=5)
+                    ax.annotate(f'n={len(values)}', (pos, max(values)), xytext=(0, 5),
+                                textcoords='offset points', ha='center', fontsize=7, rotation=90)
+            ax.set_title(f'{connections} client connections'); ax.set_xticks(cpus)
+            ax.set_xlim(min(cpus)-.55, max(cpus)+.55); ax.set_xlabel('Online CPUs (native: host CPUs)')
+            ax.set_yscale('log'); ax.grid(axis='y', alpha=.25); ax.margins(y=.22)
+        axes[0].set_ylabel('Requests / second (log scale)')
+        fig.suptitle(f'nginx CPU scaling — {workers} worker(s)')
+        handles = [Line2D([], [], color=c, marker='s', linestyle='', label=l) for _, l, c in profiles]
+        fig.legend(handles=handles, loc='lower center', ncol=4, bbox_to_anchor=(.5, .035), fontsize=9)
+        fig.text(.5, .012, 'Boxes: repeated measurements of the same condition; diamond: n=1, no distribution estimate. Native uses a separate host.', ha='center', fontsize=9)
+        fig.tight_layout(rect=(0, .17, 1, .94))
+        image = out / f'nginx-workers-{workers}.png'; fig.savefig(image, dpi=150); plt.close(fig)
+        generated.append(image.name); print(f'Generated {image}')
+    (out / 'plot-status.txt').write_text('CPU x-axis; profile colors; panels separate connection counts; figures separate worker counts. Boxplots require repeated same-condition observations. Singleton observations are diamonds. Missing configurations remain absent.\n' if generated else 'No finite measurements.\n')
 
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__': main()

@@ -60,6 +60,25 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- Review follow-up: implementation remains swmmu-nommu-exp, not the already
+  integrated feature-swmmu-nommu branch. New trap organization moves SAS PC
+  classification and invalid-zpoline recovery into the formerly unbuilt
+  arch/um/nommu/trap.c; common signal delivery remains in kernel/trap.c.
+- IMPORTANT: last_ditch_exit handles host SIGINT/SIGTERM. Commit 35016cac12d5
+  avoids unsafe signal-context cleanup, but also removes that path's exitcalls
+  and ptraced-process cleanup. Normal guest halt/reboot still cleans up.
+  Audit abrupt-exit child/device cleanup and a safe out-of-handler shutdown
+  mechanism before considering this review item closed; do not restore sleeping
+  cleanup inside the signal handler.
+- nginx charts now use CPUs on x, profiles together and connection-count panels.
+  UML wrk measurements repeat five times per boot for real boxplot samples;
+  historical single samples and native single runs remain explicit diamonds.
+  These are within-boot distributions, not confidence intervals across boots.
+- Full local syscalls runs started for native and MMU ptrace/seccomp with the
+  five LTP candidates, normal native port boundary, shadow and prepared cgroups.
+  Kirk in this artifact rejects -1; a local one-line scheduler patch makes 0
+  mean no suite timeout. Keep this separate from existing monotonic/EOF fixes.
+
 - User reopened the existing MMU/native baseline failures as an explicit goal:
   reduce FAIL/BROK/WARN to zero, without disguising unsupported tests as passes.
   The earlier acceptance decision to exclude baseline failures does not close
@@ -795,9 +814,11 @@ later application milestone.
 
 ### Known limitations
 
-- Lazy SIGSYS zpoline patching rewrites the two-byte syscall instruction from
-  the host-reported continuation address. It is tested only in the recorded
-  single-threaded scope and is unsafe against concurrent execution/fetch.
+- Lazy SIGSYS zpoline rewriting is restricted to the tested UP SAS paths.
+  Private backing ownership, region/mm locks and preemption exclusion protect
+  the supported update; they are not a general cross-CPU concurrent instruction
+  patching protocol. Keep the multi-thread/SMP execution/fetch issue open until
+  explicit concurrency tests and a supported synchronization contract exist.
 - Paged mode requires the loader, libc, programs, and relevant libraries to be
   built for SWMMU. This applies to static and dynamic binaries; rebuilding only
   musl is insufficient. Incidental success of an uninstrumented binary is not

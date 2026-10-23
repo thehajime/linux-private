@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Turn one raw wrk run into a JSON result with separate warnings and failures."""
+"""Parse wrk repetitions into a JSON result with separate warnings and failures."""
 
 import argparse
 import json
 import re
+import statistics
 from pathlib import Path
 
 
@@ -214,6 +215,37 @@ def main() -> int:
             "host-vmlinux-backtrace.log",
         ],
     }
+    count = read_int(args.output / "wrk-sample-count.txt")
+    if count is not None:
+        samples = []
+        latencies = []
+        sample_results = []
+        totals = [0, 0, 0, 0]
+        for index in range(1, count + 1):
+            name = f"wrk-sample-{index}"
+            text = read_text(args.output / f"{name}.log")
+            code = read_int(args.output / f"{name}.exit-code")
+            rate = re.search(r"Requests/sec:\s*([0-9.]+)", text)
+            delay = re.search(r"^\s*Latency\s+([0-9.]+(?:ns|us|µs|ms|s))", text, re.MULTILINE)
+            errors = re.search(r"Socket errors:\s*connect\s+(\d+),\s*read\s+(\d+),\s*write\s+(\d+),\s*timeout\s+(\d+)", text, re.IGNORECASE)
+            counts = [int(v) for v in errors.groups()] if errors else [0]*4
+            valid = code == 0 and rate and float(rate[1]) > 0 and delay and not any(counts)
+            value = float(rate[1]) if rate else None
+            sample_results.append({"sample": index, "exit_code": code, "requests_per_second": value, "socket_errors": counts, "valid": bool(valid)})
+            result["raw_logs"].extend([f"{name}.log", f"{name}.exit-code"])
+            if not valid:
+                failures.append(f"wrk sample {index} failed or has incomplete measurements")
+            else:
+                samples.append(value)
+                latencies.append(latency_ms(delay[1]))
+            totals = [a+b for a,b in zip(totals, counts)]
+        result["wrk_samples"] = sample_results
+        result["requests_per_second_samples"] = samples
+        result["requests_per_second"] = statistics.median(samples) if samples else None
+        result["average_latency_ms"] = statistics.median(latencies) if latencies else None
+        result["socket_errors"] = totals
+        result["status"] = "FAIL" if failures else "PASS"
+        result["measurement_summary"] = "median across repeated wrk runs; boxes show within-boot variation"
     (args.output / "measurement.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n"
     )

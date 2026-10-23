@@ -672,29 +672,40 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	fi
 fi
 if [[ "$HARNESS_STATUS" == PASS ]]; then
-	printf 'Starting main wrk measurement for %ss.\n' "$DURATION"
-	wrk_rc=0
-	timeout --foreground --signal=TERM --kill-after=5s \
-		"$((DURATION + NGINX_WRK_TIMEOUT_SECONDS + 15))s" \
-		docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
-		-T "${NGINX_WRK_TIMEOUT_SECONDS}s" -d"${DURATION}s" --latency \
-		"http://$GUEST_IP:8080/" \
-		>"$OUTPUT/wrk.log" 2>&1 || wrk_rc=$?
-	printf '%s\n' "$wrk_rc" >"$OUTPUT/wrk.exit-code"
-	if [[ "$wrk_rc" -ne 0 ]]; then
-		fail "wrk failed or timed out with exit status $wrk_rc"
-	elif ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
-		"$OUTPUT/wrk.log"; then
-		fail "wrk completed without serving any requests"
+	# Independent wrk invocations, after one warmup, for same-condition boxes.
+	NGINX_WRK_REPEATS=${NGINX_WRK_REPEATS:-5}
+	if [[ ! "$NGINX_WRK_REPEATS" =~ ^[1-9][0-9]*$ ]] || ((NGINX_WRK_REPEATS > 20)); then
+		fail "NGINX_WRK_REPEATS must be between 1 and 20"
+		NGINX_WRK_REPEATS=1
 	fi
-	if [[ "$(cat "$OUTPUT/wrk-warmup.status")" == FAIL ]] || \
-	   [[ "$wrk_rc" -ne 0 ]] || \
-	   ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
-		"$OUTPUT/wrk.log" || \
-	   grep -Eq 'Socket errors:.*(connect|read|write|timeout) [1-9][0-9]*' \
-		"$OUTPUT/wrk.log"; then
-		capture_host_vmlinux_backtrace
-	fi
+	printf '%s\n' "$NGINX_WRK_REPEATS" >"$OUTPUT/wrk-sample-count.txt"
+	for ((sample=1; sample<=NGINX_WRK_REPEATS; sample++)); do
+		printf 'Starting main wrk measurement for %ss.\n' "$DURATION"
+		wrk_rc=0
+		timeout --foreground --signal=TERM --kill-after=5s \
+			"$((DURATION + NGINX_WRK_TIMEOUT_SECONDS + 15))s" \
+			docker exec "$CLIENT" wrk -t"$THREADS" -c"$CONNECTIONS" \
+			-T "${NGINX_WRK_TIMEOUT_SECONDS}s" -d"${DURATION}s" --latency \
+			"http://$GUEST_IP:8080/" \
+			>"$OUTPUT/wrk.log" 2>&1 || wrk_rc=$?
+		printf '%s\n' "$wrk_rc" >"$OUTPUT/wrk.exit-code"
+		if [[ "$wrk_rc" -ne 0 ]]; then
+			fail "wrk failed or timed out with exit status $wrk_rc"
+		elif ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
+			"$OUTPUT/wrk.log"; then
+			fail "wrk completed without serving any requests"
+		fi
+		if [[ "$(cat "$OUTPUT/wrk-warmup.status")" == FAIL ]] || \
+		   [[ "$wrk_rc" -ne 0 ]] || \
+		   ! awk '/Requests\/sec:/ { if ($2 > 0) found = 1 } END { exit !found }' \
+			"$OUTPUT/wrk.log" || \
+		   grep -Eq 'Socket errors:.*(connect|read|write|timeout) [1-9][0-9]*' \
+			"$OUTPUT/wrk.log"; then
+			capture_host_vmlinux_backtrace
+		fi
+		cp "$OUTPUT/wrk.log" "$OUTPUT/wrk-sample-$sample.log"
+		cp "$OUTPUT/wrk.exit-code" "$OUTPUT/wrk-sample-$sample.exit-code"
+	done
 else
 	printf '%s\n' "not run: harness setup failed" >"$OUTPUT/wrk.log"
 	printf '125\n' >"$OUTPUT/wrk.exit-code"

@@ -17,11 +17,11 @@ CHARTS = {
 NGINX_CHARTS = (
     (
         "nginx-workers-1.png",
-        "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Plain NOMMU SAS appears as um-nommu-sas(s/z); SWMMU SAS uses um-nommu-sas-swmmu(s/z).",
+        "Nginx throughput versus online CPUs. Profile colors and separate client-connection panels; boxes use repeated same-condition runs, diamonds denote n=1. Native shows host CPU count on a separate runner.",
     ),
     (
         "nginx-workers-4.png",
-        "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Plain NOMMU profiles are unavailable because they do not support fork(); the SAS labels are um-nommu-sas(s/z) and um-nommu-sas-swmmu(s/z).",
+        "Nginx throughput versus online CPUs. Profile colors and separate client-connection panels; boxes use repeated same-condition runs, diamonds denote n=1. Native shows host CPU count on a separate runner.",
     ),
 )
 

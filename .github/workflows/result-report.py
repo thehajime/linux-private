@@ -711,6 +711,7 @@ def render(snapshot, previous):
             lines.append("")
     else:
         lines.append(f"No nginx matrix results were collected ({nginx.get('state', 'unknown')}).")
+    lines.append("Repeated nginx measurements report median throughput; CPU-axis boxes show within-boot wrk samples. A diamond denotes a single observation, not an estimated distribution.")
     lines.extend(["", "<!-- report-chart:nginx-workers-1.png -->",
                   "<!-- report-chart:nginx-workers-4.png -->", ""])
 

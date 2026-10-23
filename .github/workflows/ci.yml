@@ -1812,7 +1812,7 @@ jobs:
         run: mkdir -p output && ls -R output || true
       - name: Install packages
         if: ${{ needs.benchmark.result == 'success' || github.event_name == 'workflow_dispatch' }}
-        run: sudo apt update -y && sudo apt install -y gnuplot jq
+        run: sudo apt update -y && sudo apt install -y gnuplot jq python3-matplotlib
       - name: Aggregate UML nginx results
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
@@ -1960,8 +1960,8 @@ jobs:
               "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
               "iperf3.png": "iperf3 forward goodput is positive and reverse goodput is negative. Both directions for each profile share the same x coordinate and legend entry, in Gbit/s.",
               "tcp-stream.png": "netperf TCP_STREAM (positive) and TCP_MAERTS (negative) goodput by payload size. Both directions for a profile share the same x coordinate and legend entry. The vertical range is symmetric and includes native values when available.",
-              "nginx-workers-1.png": "Nginx requests per second with one worker, grouped by client connections (4, 16, 64). Both MMU profiles use CONFIG_SMP=y; um-mmu(p) uses one CPU and um-mmu(s) compares one/four CPUs. Plain NOMMU SAS includes um-nommu-sas(s/z); SWMMU SAS profiles use um-nommu-sas-swmmu(s/z).",
-              "nginx-workers-4.png": "Nginx requests per second with four workers, grouped by client connections (4, 16, 64). Plain NOMMU worker=4 legs are unavailable because fork is not implemented; SAS labels are um-nommu-sas(s/z) and um-nommu-sas-swmmu(s/z).",
+              "nginx-workers-1.png": "Nginx throughput versus online CPU count, with profile colors and separate client-connection panels. Boxes show repeated same-condition wrk runs; diamonds denote n=1. Native uses host CPU count on a separate runner.",
+              "nginx-workers-4.png": "Nginx throughput versus online CPU count, with profile colors and separate client-connection panels. Boxes show repeated same-condition wrk runs; diamonds denote n=1. Native uses host CPU count on a separate runner.",
           }
           for filename, description in descriptions.items():
               marker = f"<!-- report-chart:{filename} -->"
