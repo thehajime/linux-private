@@ -42,13 +42,16 @@ reproducible kselftest build instructions in
   transaction state, resize locking, alias teardown, and plugin organization.
 - [x] Document a reproducible fresh kselftest build.
 - [x] Move the authoritative handoff and CI workflows to `ci/uml-nommu`.
-- [ ] Reproduce the fresh kselftest build and record exact results for both
-  zpoline modes. **This is the next task.**
+- [x] Reproduce fresh musl static-PIE kselftests in both zpoline modes.
+  Latest local functional source 846ce0178c93 passes SWMMU 38/0/8,
+  register/signal-state regression 15/0 and shared-file regression 3/0;
+  complete console logs and exit codes are pushed in Obsidian.
 - [ ] Close the remaining correctness gaps for signals, mappings, user-copy,
   nonlocal control flow, and supported compiler-generated accesses.
-- [ ] Extend the instrumented Alpine profile through coreutils, then validate
-  OpenSSL and broader applications. Nginx has exploratory CI HTTP/TLS smoke
-  and wrk matrix coverage; this is not yet broad application validation.
+- [x] Extend the signed instrumented Alpine package profile through coreutils,
+  OpenSSL, Python, nginx and apk-tools. Broader application acceptance remains
+  separate: nginx has CI HTTP/TLS/wrk coverage with intermittent stalls still
+  under investigation; package availability is not a complete correctness claim.
 - [ ] Define the final mode ABI and expand beyond the current x86_64 SAS scope.
 - [ ] Address concurrency and performance after functional validation is
   stable.
