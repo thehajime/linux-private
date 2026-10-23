@@ -1082,3 +1082,11 @@ aports SHA and checked release/archive manifests. The diff changes kernel-only
 state/handlers, docs and selftests; compiler plugin, runtime and UAPI sources are
 unchanged. This exception does not authorize future kernel tips or prove LTP
 acceptance. Full CI must run; FAIL/BROK/WARN review remains a separate merge gate.
+
+### User-directed CI hold — 2026-10-23
+
+Do not dispatch further CI or merge feature while local LTP FAIL/BROK/WARN and
+SIGSEGV investigations remain unresolved. This supersedes the earlier green-only
+merge plan. Run 39924156114 was cancelled. sendmsg01 raw syscall candidate is
+pushed in thehajime/ltp:hajime/ltp-mmu-native-fixes (6510b8434), validated on native
+and MMU ptrace/seccomp, 15 cases each. Full-suite acceptance and result gates remain.
