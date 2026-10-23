@@ -12,10 +12,9 @@ from pathlib import Path
 work = Path(os.environ["RUNNER_TEMP"])
 snapshot_path = next((work / "source-report").rglob("result-snapshot.json"))
 snapshot = json.loads(snapshot_path.read_text())
+source_snapshot = snapshot.copy()
 original = (work / "source-live-body.md").read_text()
 marker = re.search(r"<!-- uml-ci-result-snapshot:v1\s+([A-Za-z0-9+/=\s]+?)\s*-->", original)
-if not marker or json.loads(gzip.decompress(base64.b64decode(marker[1]))) != snapshot:
-    raise SystemExit("The issue comment and source-run snapshot do not match")
 module = runpy.run_path(str(Path(__file__).with_name("result-report.py")))
 render = module["render"]
 recollected = os.environ.get("RECOLLECT_KSELFTEST", "false").lower() == "true"
@@ -24,6 +23,8 @@ if recollected:
     if result["state"] not in ("passed", "failed") or not result["suites"]:
         raise SystemExit("Original TAP artifacts are missing or incomplete")
     snapshot["kselftest"] = result
+if not marker or json.loads(gzip.decompress(base64.b64decode(marker[1]))) not in (source_snapshot, snapshot):
+    raise SystemExit("The issue comment and source-run snapshot do not match")
 report = render(snapshot, None)
 heading = "### Changes from previous report"
 if heading in original:
