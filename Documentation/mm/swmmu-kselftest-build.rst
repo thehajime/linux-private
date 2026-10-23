@@ -416,6 +416,14 @@ normal poweroff with UML exit status zero.
 Relocated Autotools and native LTP controls
 ==========================================
 
+Building the SWMMU GCC plugin also requires the development headers for GMP,
+MPFR and MPC, in addition to the plugin headers matching the selected GCC.
+When these packages are staged under a workspace prefix, pass their include
+directories through the kernel build's ``HOSTCXXFLAGS`` (including the
+multiarch include directory containing ``gmp.h``). Merely exposing GCC's
+``plugin/include`` directory can leave the build failing on ``mpc.h``.
+Preserve the existing optimization flags when adding these include paths.
+
 After changing an LTP source revision, regenerate its Autotools files and
 rebuild libltp as well as the selected test programs. Reusing an old libltp
 archive with newer headers can cause a structure-layout mismatch. A stale
