@@ -417,7 +417,7 @@ def collect_kselftest(root):
                              if parent.name.startswith("swmmu-kselftest-")), None)
         target = (artifact_dir.name.removeprefix("swmmu-kselftest-")
                   if artifact_dir else "um-nommu-sas")
-        identity = (target, digest)
+        identity = (target, path.stem, digest)
         if identity in seen_tap_hashes:
             continue
         seen_tap_hashes.add(identity)
