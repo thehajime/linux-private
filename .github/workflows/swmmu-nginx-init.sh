@@ -39,7 +39,9 @@ while IFS= read -r command <&3; do
 		busybox cat /proc/net/dev >> /run/nginx-runtime-probe.log 2>&1
 		;;
 	stop)
+		echo SWMMU_NGINX_STOP_RECEIVED
 		nginx -s quit -c /etc/nginx/nginx-swmmu.conf || true
+		echo SWMMU_NGINX_POWEROFF_BEGIN
 		busybox poweroff -f
 		break
 		;;

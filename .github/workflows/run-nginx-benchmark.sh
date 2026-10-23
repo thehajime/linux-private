@@ -94,6 +94,18 @@ printf '%s\n' "$GCC_VERSION" >"$OUTPUT/gcc-version.txt"
 			cat "$resource"
 		fi
 	done
+	group=$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)
+	while [[ "$group" == /* ]]; do
+		for resource in cpu.max cpu.stat; do
+			file="/sys/fs/cgroup${group%/}/$resource"
+			if [[ -r "$file" ]]; then
+				printf '\n%s\n' "$file"
+				cat "$file"
+			fi
+		done
+		[[ "$group" == / ]] && break
+		group=$(dirname "$group")
+	done
 } >"$OUTPUT/host-cpu-limits.log"
 : >"$OUTPUT/guest-runtime-probe.log"
 : >"$OUTPUT/tap100-tcpdump.log"
@@ -619,7 +631,8 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 	else
 		printf 'FAIL\n' >"$OUTPUT/smoke-tls.status"
 		fail "TLS smoke test returned an error or unexpected body"
-		if [[ "$PROFILE" == um-nommu-sas-zpoline && \
+		if [[ "$NGINX_DIAGNOSTICS" == 1 ]] || \
+		   [[ "$PROFILE" == um-nommu-sas-zpoline && \
 		      "$WORKERS" == 1 && "$CONNECTIONS" == 4 ]]; then
 			capture_host_vmlinux_backtrace
 		fi
