@@ -469,3 +469,46 @@ normal poweroff. The test also prints three getpid timing samples using a
 dedicated ELF syscall site and verifies every returned guest PID. Compare the
 same test binary, kernel configuration, rootfs and host allocation; do not
 substitute these samples for lmbench numbers from separate CI jobs.
+
+Full LTP installation and container prerequisites
+-------------------------------------------------
+
+Preserve archive permissions when extracting an LTP install tree. A runner
+umask of 0077 can turn installed directories and executable helpers into 0700
+when tar does not restore the archived modes. Root can start Kirk and most
+cases, but a testcase which drops privileges then fails to execute its helper
+with EACCES. Use ``tar --same-permissions`` when supported, and verify the
+parent directories and helper modes against the archive before running tests.
+Do not repair this by marking every file executable: preserve each member's
+actual mode, including non-executable fixtures.
+
+Use ``docker run --init`` for native test containers so orphaned test children
+are reaped. Keep a shell or runner as the testcase's parent, rather than making
+an individual LTP test PID 1. For native memory-pressure tests, configure an
+explicit container memory budget within the runner's available allocation.
+A test can inspect visible cgroup-v2 ancestors, but a private cgroup namespace
+cannot expose a hidden parent's remaining budget. Record ``memory.max``,
+``memory.current`` and ``memory.events`` when diagnosing OOM termination.
+
+The native loop-device tests require partition hotplug handling, not just
+manually created ``/dev/loopN`` nodes. In a dedicated test container, a restricted
+mdev configuration can create and remove loop-partition nodes. Use a free loop
+device for the scratch filesystem, retain its exact identity, and detach only
+that device during cleanup. A writable ext4 scratch filesystem and truthful
+``LTP_SINGLE_FS_TYPE=ext4`` avoid confusing hostfs limitations with kernel
+regressions. UML guests should additionally use ``LTP_VIRT_OVERRIDE=uml``;
+native controls should not claim to be UML.
+
+Some native tests temporarily change host-visible namespace limits. In
+particular, bind06 saves ``max_user_namespaces``, sets it to 1024, and restores
+it on cleanup. In the cloud workspace this temporarily prevented sandbox shell
+creation with ENOSPC even though disk space remained available. Preserve the
+running test and its saved setting, verify cleanup/restoration, and distinguish
+this from storage exhaustion. Do not guess a replacement global limit or reset
+the development environment. Official approved execution can inspect the
+existing test while ordinary shell creation is unavailable.
+
+A Kirk exit status of zero alone does not establish acceptance. Check the
+JSON assertion totals, FAIL/BROK/WARN counters, exact selected testcase names,
+and normal guest termination. Preserve interrupted or partial JSON separately;
+do not combine it with a focused rerun to claim a complete zero-error suite.
