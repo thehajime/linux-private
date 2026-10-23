@@ -383,3 +383,63 @@ A preexisting address may report EEXIST; verify the resulting state instead of
 silencing other failures. Absolute applet paths avoid an init PATH that omits
 ``/sbin``. Otherwise ``accept4_01`` can stop with ENETUNREACH before reaching
 its actual test path; such a result cannot validate a previous fault fix.
+
+Nginx replay and host/guest control
+==================================
+
+The CI branch provides a single-row replay using immutable artifacts from a
+previous full run, without rebuilding its kernel or rootfs::
+
+   gh workflow run nginx-benchmark.yml --repo thehajime/linux-private \
+       --ref ci/uml-nommu -f source_run_id=RUN_ID \
+       -f profile=um-nommu-sas-zpoline -f workers=4 -f ncpus=1 \
+       -f connections=64 -f capture_diagnostics=true \
+       -f control_channel=serial
+
+Record the source run, helper commit, kernel hash, package manifest, nginx
+configuration and client version. Diagnostic packet captures and GDB attaches
+can perturb timing; distinguish a replay from a matched uninstrumented
+measurement. Successful smoke requests do not prove that the subsequent wrk
+run served requests. Check the measured request count, socket errors and guest
+shutdown separately.
+
+A FIFO inode on hostfs has separate pipe state in the host and guest kernels.
+Writing it on the host does not deliver commands to a guest FIFO reader. The
+SWMMU nginx helper instead uses a native host PTY relay, with UML
+``ssl0=tty:/dev/pts/N`` and the guest reading ``/dev/ttyS0``. Keep both host PTY
+ends open before boot to avoid an initial hangup. Keep host command FIFOs in a
+private temporary directory outside artifact uploads. The relay blocks in
+``select()`` and does not periodically wake the guest during measurements.
+A serial write alone is not an acknowledgement: require guest completion and
+normal poweroff with UML exit status zero.
+
+Relocated Autotools and native LTP controls
+==========================================
+
+After changing an LTP source revision, regenerate its Autotools files and
+rebuild libltp as well as the selected test programs. Reusing an old libltp
+archive with newer headers can cause a structure-layout mismatch. A stale
+configure script can also omit newly introduced feature probes.
+
+A local installation without system write access can stage the Debian
+``autoconf``, ``automake`` and ``autotools-dev`` packages in a workspace prefix.
+Relocate ``autom4te.cfg`` and select that prefix's executables and data using
+``PERL5LIB``, ``autom4te_perllibdir``, ``AC_MACRODIR``, ``AUTOM4TE``,
+``ACLOCAL_AUTOMAKE_DIR``, ``trailer_m4``, ``M4``, ``AUTOM4TE_CFG`` and
+``AUTOMAKE_LIBDIR`` as appropriate for those packaged scripts. Save package
+versions, hashes and the exact environment script with the run. Merely adding
+the executable directory to PATH does not relocate their embedded data paths.
+
+Run native MMU controls in a stock, noninstrumented rootfs. Even a native
+static test inside an instrumented container can invoke its instrumented
+``/bin/sh`` through libc ``system()`` or ``popen()``. Replacing PATH does not
+change that hardcoded shell. Give an LTP control a real parent process:
+running the testcase as container PID 1 can trigger its orphan-process check.
+
+When Docker uses the ``vfs`` storage driver and disk space is limited, loading
+a saved layered image can require much more space than its compressed archive.
+Extract only the required kernel from the saved image layers or tested image
+context, recording its artifact provenance and hash. Preserve source, configs,
+logs and exact package identities before deleting regenerable build objects.
+Large packet captures and decoded packet text can be compressed losslessly;
+record hashes of their original bytes.
