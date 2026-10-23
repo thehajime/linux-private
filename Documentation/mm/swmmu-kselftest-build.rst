@@ -520,3 +520,24 @@ A Kirk exit status of zero alone does not establish acceptance. Check the
 JSON assertion totals, FAIL/BROK/WARN counters, exact selected testcase names,
 and normal guest termination. Preserve interrupted or partial JSON separately;
 do not combine it with a focused rerun to claim a complete zero-error suite.
+
+Copying files into a running container tmpfs
+-------------------------------------------
+
+In the managed Docker environment, ``docker cp`` to a path under a running
+container's tmpfs mount can populate the archive/rootfs view without making the
+file visible to ``docker exec``. A local kernel copy to ``/tmp`` exhibited this:
+``docker cp CONTAINER:/tmp/mmu-vmlinux -`` found it, while the running container
+reported ENOENT. Verify the file in the execution namespace before booting.
+For this case, stream through a process in that namespace instead::
+
+   set -o pipefail
+   cat /path/to/vmlinux | docker exec -i CONTAINER /bin/sh -c \
+       'cat > /tmp/mmu-vmlinux; chmod 755 /tmp/mmu-vmlinux'
+   docker exec CONTAINER sha256sum /tmp/mmu-vmlinux
+
+The shell and utilities in this example must be host-executable. Instrumented
+SAS rootfs containers require the already staged native BusyBox helper instead.
+Preserve the original failure log; this is a copy/mount visibility issue, not a
+kernel boot failure. Removing only the task-owned finished container reclaims
+a hidden rootfs copy after the evidence has been saved.
