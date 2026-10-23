@@ -11,6 +11,7 @@
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <ucontext.h>
 
 #include "../kselftest.h"
 
@@ -137,6 +138,50 @@ static int vector_supported(unsigned int width)
 	return (b & (1U << 16)) && (enabled & 0xe6) == 0xe6;
 }
 
+static volatile sig_atomic_t malformed_kind;
+
+static void malformed_fp_handler(int sig, siginfo_t *info, void *context)
+{
+	ucontext_t *uc = context;
+	unsigned char *fp = (void *)uc->uc_mcontext.fpregs;
+
+	(void)sig;
+	(void)info;
+	if (malformed_kind == 0)
+		*(uint32_t *)(fp + 24) |= 1U << 31;
+	else if (malformed_kind == 1)
+		*(uint64_t *)(fp + 512) |= 1ULL << 63;
+	else if (malformed_kind == 2)
+		*(uint64_t *)(fp + 520) = 1ULL << 63;
+	else
+		*(uint64_t *)(fp + 528) = 1;
+}
+
+static int malformed_fp_context(int kind)
+{
+	struct sigaction action = {
+		.sa_sigaction = malformed_fp_handler,
+		.sa_flags = SA_SIGINFO,
+	};
+	pid_t child;
+	int status;
+
+	fflush(stdout);
+	child = fork();
+	if (child < 0)
+		return 0;
+	if (!child) {
+		malformed_kind = kind;
+		if (sigaction(SIGUSR1, &action, NULL) || raise(SIGUSR1))
+			_exit(1);
+		_exit(2);
+	}
+	while (waitpid(child, &status, 0) < 0)
+		if (errno != EINTR)
+			return 0;
+	return WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV;
+}
+
 int main(int argc, char **argv)
 {
 	size_t page = sysconf(_SC_PAGESIZE);
@@ -146,7 +191,7 @@ int main(int argc, char **argv)
 	long pid = getpid();
 
 	ksft_print_header();
-	ksft_set_plan(11);
+	ksft_set_plan(15);
 	p = new_code(page, 0, 0);
 	ksft_test_result(raw(p), "new RX code contains syscall\n");
 	ksft_test_result(invoke(p) == pid, "RX syscall returns guest PID\n");
@@ -198,6 +243,14 @@ int main(int argc, char **argv)
 			ksft_test_result(fp_process_context(width),
 					 "%u-byte vector state survives scheduling and signals\n",
 					 width);
+	}
+
+	for (int kind = 0; kind < 4; kind++) {
+		if (kind && !vector_supported(32))
+			ksft_test_result_skip("XSTATE frame unsupported (%d)\n", kind);
+		else
+			ksft_test_result(malformed_fp_context(kind),
+					 "malformed FP signal frame rejected (%d)\n", kind);
 	}
 
 	munmap(p, page);

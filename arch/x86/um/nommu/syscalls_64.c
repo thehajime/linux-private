@@ -28,6 +28,7 @@
 long long host_fs = -1;
 
 static u64 sas_xstate_mask;
+static u32 sas_mxcsr_mask = 0xffbf;
 
 static void __init sas_cpuid(u32 leaf, u32 subleaf, u32 regs[4])
 {
@@ -41,9 +42,13 @@ static int __init um_nommu_init_fp(void)
 {
 	u32 regs[4], low, high;
 	u64 enabled;
+	u32 legacy[128] __aligned(16);
 	unsigned int bit;
 
 	BUILD_BUG_ON(offsetof(struct task_struct, thread.regs.regs.fp) % 64);
+	asm volatile("fxsaveq %0" : "=m"(legacy));
+	if (legacy[7])
+		sas_mxcsr_mask = legacy[7];
 	sas_cpuid(1, 0, regs);
 	if ((regs[2] & ((1U << 26) | (1U << 27))) !=
 	    ((1U << 26) | (1U << 27)) || host_fp_size < 576)
@@ -66,6 +71,25 @@ static int __init um_nommu_init_fp(void)
 	return 0;
 }
 arch_initcall(um_nommu_init_fp);
+
+int arch_validate_guest_fp(const void *fp)
+{
+	const u32 *legacy = fp;
+	const u64 *header = (const u64 *)((const char *)fp + 512);
+	unsigned int i;
+
+	if (legacy[6] & ~sas_mxcsr_mask)
+		return -EINVAL;
+	if (!sas_xstate_mask)
+		return 0;
+	/* XRSTOR accepts only the standard, enabled user-state layout. */
+	if ((header[0] & ~sas_xstate_mask) || header[1])
+		return -EINVAL;
+	for (i = 2; i < 8; i++)
+		if (header[i])
+			return -EINVAL;
+	return 0;
+}
 
 int os_x86_arch_prctl(int pid, int option, unsigned long *arg2)
 {

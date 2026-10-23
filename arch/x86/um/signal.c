@@ -17,7 +17,11 @@
 #include <skas.h>
 
 #include <linux/regset.h>
+#include <linux/slab.h>
 #include <asm/sigframe.h>
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_X86_64)
+#include "nommu/syscalls.h"
+#endif
 
 #ifdef CONFIG_X86_32
 struct _xstate_64 {
@@ -88,7 +92,21 @@ static int copy_sc_from_user(struct pt_regs *regs,
 	from_fp64 = (void __user *)sc.fpstate;
 #endif
 
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_X86_64)
+	/* Never install a malformed image that would fault in kernel XRSTOR. */
+	{
+		void *fp = memdup_user(from_fp64, host_fp_size);
+
+		if (IS_ERR(fp))
+			return 1;
+		err = arch_validate_guest_fp(fp);
+		if (!err)
+			memcpy(regs->regs.fp, fp, host_fp_size);
+		kfree(fp);
+	}
+#else
 	err = copy_from_user(regs->regs.fp, from_fp64, host_fp_size);
+#endif
 	if (err)
 		return 1;
 
