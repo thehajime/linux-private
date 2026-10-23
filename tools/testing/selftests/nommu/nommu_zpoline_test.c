@@ -62,22 +62,24 @@ static int fp_probe(uint64_t pattern, unsigned int width)
 	struct itimerval timer = { { 0, 1000 }, { 0, 1000 } }, old_timer;
 	uint64_t wanted[8], actual[8];
 
-	for (unsigned int i = 0; i < 8; i++)
-		wanted[i] = pattern ^ (0x123456789abcdefULL * i);
 	unsigned int errors = 0;
 	long ret;
+
+	for (unsigned int i = 0; i < 8; i++)
+		wanted[i] = pattern ^ (0x123456789abcdefULL * i);
 
 	if (sigaction(SIGALRM, &action, &old_action) ||
 	    setitimer(ITIMER_REAL, &timer, &old_timer))
 		return 1;
 	for (unsigned int i = 0; i < 10000; i++) {
-#define FP_ROUNDTRIP(insn, reg) \
+#define FP_ROUNDTRIP(insn, reg) do { \
 		asm volatile(insn " %2, %%" reg "15\n\t" \
 			     "syscall\n\t" \
 			     insn " %%" reg "15, %0" \
 			     : "=m"(actual), "=a"(ret) \
 			     : "m"(wanted), "1"((long)SYS_sched_yield) \
-			     : "xmm15", "rcx", "r11", "memory")
+			     : "xmm15", "rcx", "r11", "memory"); \
+	} while (0)
 		if (width == 64)
 			FP_ROUNDTRIP("vmovdqu64", "zmm");
 		else if (width == 32)
