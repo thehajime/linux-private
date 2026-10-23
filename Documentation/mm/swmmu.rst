@@ -411,3 +411,28 @@ optimization never writes directly to an RX user address or enables a RWX user
 mapping. ``nommu_zpoline_test 1`` checks the rewritten path in the default-on
 SWMMU profile; pass ``0`` to check the same cases with ``zpoline=0``. The test
 includes an intentional child SIGSEGV to verify that RX user writes still fail.
+
+SAS floating-point context
+--------------------------
+
+The x86-64 SAS syscall entry saves guest floating-point state before any alias
+activation or host operation that can schedule. Return restores it after pending
+work, alias activation and host FS changes, immediately before guest execution.
+A per-task, 64-byte-aligned XSAVE image preserves enabled user components whose
+standard-layout offsets fit the host's saved context size. Hosts without usable
+XSAVE retain the legacy FXSAVE path. This does not enable supervisor state or
+extended components absent from the host context layout.
+
+Signal return validates MXCSR, the enabled component mask and the standard
+XSTATE header before installing the user image. An invalid image takes the guest
+SIGSEGV path without replacing the task's last valid floating-point image.
+``nommu_zpoline_test`` checks separate parent/child register patterns across
+scheduling and timer signals, including AVX and AVX-512 when CPUID and XGETBV
+permit them. Its malformed-frame cases check that rejection does not panic the
+kernel. This test must run in both zpoline modes; preserving SSE alone does not
+establish preservation of upper vector registers.
+
+``nommu_shared_file_test`` covers an anonymous shared region followed by two
+shared file mappings. NOMMU's file-sharing search must ignore fileless anonymous
+regions. Set ``TMPDIR`` to tmpfs or another filesystem supporting shared file
+mmap; an unsupported hostfs mapping is not a substitute for this regression.
