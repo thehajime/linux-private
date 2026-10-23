@@ -45,6 +45,7 @@ RUN apk update && apk add \
 	dosfstools parted util-linux make iperf3 python3 bash git && \
 	adduser -D -g "Unprivileged LTP user" ltp && \
 	apk del btrfs-progs
+RUN if [ "${USERSPACE_PROFILE}" = alpine ]; then apk add --no-cache shadow; fi
 RUN if [ "${USERSPACE_PROFILE}" = nommu-plain ]; then touch /.lmbench-nommu; fi
 RUN if [ "${USERSPACE_PROFILE}" = alpine ] || \
       [ "${USERSPACE_PROFILE}" = nommu-plain ]; then \

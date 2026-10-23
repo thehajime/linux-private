@@ -1614,6 +1614,11 @@ jobs:
             -v "$RUNNER_TEMP/ltp-home:/github/home"
             -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro"
           )
+          if [[ "$LTP_TESTNAME" == native ]]; then
+            # bind02 requires the Linux privileged-port boundary. Docker's
+            # default of zero permits unprivileged binding to every port.
+            docker_args+=(--sysctl net.ipv4.ip_unprivileged_port_start=1024)
+          fi
           if [[ "$LTP_TESTNAME" == um-nommu* ]]; then
             docker create "${docker_args[@]}" \
               --entrypoint /opt/uml-host-tools/busybox "${{ matrix.image_name }}" \

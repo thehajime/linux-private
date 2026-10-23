@@ -1,0 +1,123 @@
+--- a/testcases/kernel/syscalls/readlink/readlink03.c
++++ b/testcases/kernel/syscalls/readlink/readlink03.c
+@@ -25,6 +25,7 @@
+ #include <string.h>
+ 
+ #include "tst_test.h"
++#include "lapi/syscalls.h"
+ 
+ #define DIR_TEMP	"test_dir_1"
+ #define TEST_FILE1	"test_dir_1/test_file_1"
+@@ -61,7 +62,12 @@
+ {
+ 	struct tcase *tc = &tcases[n];
+ 
+-	TEST(readlink(tc->link, tc->buf, tc->buf_size));
++	/* Test kernel argument validation without libc buffer-size adjustment. */
++#if __NR_readlink != __LTP__NR_INVALID_SYSCALL
++	TEST(tst_syscall(__NR_readlink, tc->link, tc->buf, tc->buf_size));
++#else
++	TEST(tst_syscall(__NR_readlinkat, AT_FDCWD, tc->link, tc->buf, tc->buf_size));
++#endif
+ 	if (TST_RET != -1) {
+ 		tst_res(TFAIL, "readlink() sueeeeded unexpectedly");
+ 		return;
+--- a/testcases/kernel/syscalls/readlinkat/readlinkat02.c
++++ b/testcases/kernel/syscalls/readlinkat/readlinkat02.c
+@@ -22,6 +22,7 @@
+  */
+ 
+ #include "tst_test.h"
++#include "lapi/syscalls.h"
+ 
+ #define TEST_FILE	"test_file"
+ #define SYMLINK_FILE	"symlink_file"
+@@ -51,7 +52,7 @@
+ 
+ 	memset(buf, 0, sizeof(buf));
+ 
+-	TST_EXP_FAIL(readlinkat(*tc->fd, tc->pathname, buf, tc->bufsiz),
++	TST_EXP_FAIL(tst_syscall(__NR_readlinkat, *tc->fd, tc->pathname, buf, tc->bufsiz),
+ 		     tc->exp_errno, "readlinkat(%d, %s, NULL, %ld)",
+ 		     *tc->fd, tc->pathname, tc->bufsiz);
+ }
+--- a/testcases/kernel/syscalls/recvmmsg/recvmmsg01.c
++++ b/testcases/kernel/syscalls/recvmmsg/recvmmsg01.c
+@@ -90,7 +90,7 @@
+ static void test_bad_addr(unsigned int i)
+ {
+ 	struct time64_variants *tv = &variants[tst_variant];
+-	void *timeout = bad_addr;
++	void *timeout = tcase[i].bad_ts_addr ? bad_addr : tst_ts_get(&ts);
+ 	pid_t pid;
+ 	int status;
+ 
+@@ -119,7 +119,8 @@
+ {
+ 	struct test_case *tc = &tcase[i];
+ 
+-	if (tc->bad_ts_addr)
++	/* libc may dereference either argument before entering the kernel. */
++	if (tc->bad_ts_addr || tc->msg_vec == (void *)&bad_addr)
+ 		test_bad_addr(i);
+ 	else
+ 		verify_recvmmsg(i, tst_ts_get(&ts));
+--- a/testcases/kernel/syscalls/seccomp/seccomp01.c
++++ b/testcases/kernel/syscalls/seccomp/seccomp01.c
+@@ -45,6 +45,10 @@
+ static const struct sock_filter  strict_filter[] = {
+ 	BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
+ 
++#if __NR_fork != __LTP__NR_INVALID_SYSCALL
++	/* musl uses fork(2), while other libcs implement fork via clone(2). */
++	BPF_JUMP(BPF_JMP | BPF_JEQ, __NR_fork, 8, 0),
++#endif
+ 	BPF_JUMP(BPF_JMP | BPF_JEQ, __NR_waitid, 7, 0),
+ 	BPF_JUMP(BPF_JMP | BPF_JEQ, __NR_rt_sigprocmask, 6, 0),
+ 	BPF_JUMP(BPF_JMP | BPF_JEQ, __NR_close, 5, 0),
+--- a/testcases/kernel/syscalls/setgroups/setgroups03.c
++++ b/testcases/kernel/syscalls/setgroups/setgroups03.c
+@@ -10,7 +10,8 @@
+ /*\
+  * Test for EINVAL, EPERM, EFAULT errors.
+  *
+- * - setgroups() fails with EINVAL if the size argument value is > NGROUPS.
++ * - setgroups() fails with EINVAL if the size exceeds the kernel
++ *   supplementary group limit.
+  *
+  * - setgroups() fails with EPERM if the calling process is not super-user.
+  *
+@@ -18,6 +19,7 @@
+  */
+ 
+ #include <pwd.h>
++#include <limits.h>
+ #include <stdlib.h>
+ 
+ #include "tst_test.h"
+@@ -33,9 +35,9 @@
+ 	GID_T **glist;
+ 	int exp_errno;
+ } tcases[] = {
+-	{NGROUPS + 1, &glist1, EINVAL},
++	{0, &glist1, EINVAL},
+ 	{1, &glist2, EPERM},
+-	{NGROUPS, &glist3, EFAULT},
++	{1, &glist3, EFAULT},
+ };
+ 
+ static void verify_setgroups(unsigned int i)
+@@ -54,6 +56,13 @@
+ 
+ static void setup(void)
+ {
++	long max_groups;
++
++	SAFE_FILE_SCANF("/proc/sys/kernel/ngroups_max", "%ld", &max_groups);
++
++	if (max_groups < 0 || max_groups >= INT_MAX)
++		tst_brk(TBROK, "Invalid kernel ngroups_max: %ld", max_groups);
++	tcases[0].gsize = max_groups + 1;
+ 	user_info = SAFE_GETPWNAM(TESTUSER);
+ 	glist2[0] = 42;
+ 	glist3 = tst_get_bad_addr(NULL);

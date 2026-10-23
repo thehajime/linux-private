@@ -186,6 +186,7 @@ jobs:
         sparse-checkout: |
           .github/workflows/patches/ltp-madvise11-void-ptrs.patch
           .github/workflows/patches/ltp-nommu-config-results.patch
+          .github/workflows/patches/ltp-musl-syscall-errors.patch
           .github/workflows/instrument-ltp-setns02.py
           .github/workflows/patch-kirk-monotonic.py
 
@@ -211,6 +212,16 @@ jobs:
           fi
         else
           echo "Selected LTP ref uses the legacy NOMMU framework; runtime IPC patch is not applicable"
+        fi
+
+    - name: Keep LTP syscall error coverage independent of musl wrappers
+      run: |
+        patch_file=linux-private-ci/.github/workflows/patches/ltp-musl-syscall-errors.patch
+        if git apply --check "$patch_file"; then
+          git apply "$patch_file"
+        else
+          git apply --reverse --check "$patch_file"
+          echo "LTP musl syscall error fixes are already present"
         fi
 
     - name: Instrument setns02 child and wait status

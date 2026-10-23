@@ -60,6 +60,34 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- User reopened the existing MMU/native baseline failures as an explicit goal:
+  reduce FAIL/BROK/WARN to zero, without disguising unsupported tests as passes.
+  The earlier acceptance decision to exclude baseline failures does not close
+  this new task. Full-suite zero-error acceptance remains pending.
+- Local first batch: readlink03/readlinkat02 test raw syscall validation;
+  setgroups03 uses the kernel ngroups_max; seccomp01 permits libc fork(2);
+  recvmmsg01 isolates both deliberately invalid pointer cases. These five
+  tests pass 45 assertions, zero fail/broken/warnings, on native and the exact
+  CI MMU kernel in both ptrace and seccomp modes. The libc-invalid-pointer
+  child SIGSEGV is intentional; raw syscall variants still require EFAULT.
+  Patch is carried in .github/workflows/patches/ltp-musl-syscall-errors.patch;
+  the external LTP upstream-review branch has not been rewritten.
+- Native bind02 passes with ip_unprivileged_port_start=1024; prot_hsymlinks
+  passes with shadow installed. CI container/rootfs prerequisites are updated.
+- Remaining: signal wait tests loop because musl retries EINTR; sendmsg01
+  invalid cmsg pointer; unsupported musl sbrk growth; MMU MAP_32BIT, ptrace,
+  PR_SET_TSC, request_key; kcmp03 timeout (CHECKPOINT_RESTORE absent); native
+  cgroup delegation, filesystem/device/reboot namespace assumptions, timing
+  and taint-dependent cases. Diagnose before selecting fixes or TCONF policy.
+- Cgroup diagnosis: enabling memory in the populated container cgroup root
+  returns EBUSY. A dedicated container moving its init into a runner leaf
+  before enabling memory passes mmap22; three other cases stop at truthful
+  no-swap TCONF. Production CI cgroup lifecycle handling is not yet changed.
+- Issue #4 cleanup backed up all 22 old comments in Obsidian before deleting
+  19 obsolete/failed reports. Retained three successful default-branch reports
+  now fold KUnit details; generator updated. nginx CPU/worker scaling chart
+  proposal is saved with raw measurements; no measurement values were changed.
+
 - [x] Restore safe plain SAS zpoline text rewriting in work-branch commit
   `ee7a1b92d18a741efee6a30eb68ce7b7ec0c4ced`. Only exclusively owned executable
   VM_MAPPED_COPY regions are eligible; a temporary RW/non-executable host alias

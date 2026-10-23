@@ -15,7 +15,7 @@ if [ "$LTP_TESTNAME" = native ]; then
 	# UML image, so install the runtime packages normally supplied by it.
 	apk add --no-cache acl curl jq keyutils libaio libcap libselinux \
 		libsepol libtirpc numactl openssl py3-msgpack e2fsprogs xfsprogs \
-		dosfstools parted util-linux python3 bash git
+		dosfstools parted util-linux python3 bash git shadow
 fi
 
 case "$LTP_ARTIFACT_NAME" in
