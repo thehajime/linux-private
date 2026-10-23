@@ -23,6 +23,7 @@ nginx -t -c /etc/nginx/nginx-swmmu.conf
 nginx -c /etc/nginx/nginx-swmmu.conf
 if [ "$control_channel" = serial ]; then
 	exec 3<>/dev/ttyS0
+	busybox stty -echo <&3
 fi
 echo SWMMU_NGINX_READY
 if [ "$control_channel" = legacy ]; then

@@ -200,11 +200,21 @@ capture_host_vmlinux_backtrace() {
 			printf 'gdb is unavailable on the runner.\n'
 			return 0
 		fi
-		sudo timeout --foreground --signal=TERM --kill-after=3s 20s \
-			gdb -q -batch -ex 'set pagination off' -ex 'set debuginfod enabled off' \
-			-ex 'info registers rip rsp rdi rsi rdx rax' -ex 'x/16i $rip' \
-			-ex 'info proc mappings' -ex 'info threads' \
-			-ex 'thread apply all bt 30' -ex detach -ex quit -p "$pid"
+		for sample in 1 2 3; do
+			printf '\nSnapshot %s at %s\n' "$sample" "$(date -Ins)"
+			sudo timeout --foreground --signal=TERM --kill-after=3s 20s \
+				gdb -q -batch -ex 'set pagination off' -ex 'set debuginfod enabled off' \
+				-ex 'info registers rip rsp rdi rsi rdx rax' -ex 'x/16i $rip' \
+				-ex 'p cpu_tasks[0]->pid' -ex 'p cpu_tasks[0]->comm' \
+				-ex 'p cpu_tasks[0]->mm' -ex 'p swmmu_host_active_mm' \
+				-ex 'p cpu_tasks[0]->nvcsw' -ex 'p cpu_tasks[0]->nivcsw' \
+				-ex 'p cpu_tasks[0]->se.sum_exec_runtime' \
+				-ex 'p cpu_tasks[0]->thread.regs' \
+				-ex 'info threads' -ex 'thread apply all bt 15' \
+				-ex detach -ex quit -p "$pid" || true
+			[[ "$sample" == 3 ]] || sleep 1
+		done
+
 	} >"$log" 2>&1 || printf 'GDB attach/backtrace failed (exit=%s).\n' "$?" >>"$log"
 }
 
