@@ -768,7 +768,15 @@ def render(snapshot, previous):
         lines.extend(["", "Disabled targets outside this matrix: " + ", ".join(disabled_ltp) + "."])
     lines.append("")
 
+    kunit_suites = snapshot["kunit"]["suites"]
+    kunit_totals = {key: sum(item["counts"].get(key, 0)
+                             for item in kunit_suites.values())
+                    for key in KUNIT_COUNTS}
     lines.extend(["### KUnit results", "",
+                  f"<details><summary>{len(kunit_suites)} suites — "
+                  f"{kunit_totals['passed']} passed, {kunit_totals['failed']} failed, "
+                  f"{kunit_totals['crashed']} crashed, {kunit_totals['skipped']} skipped, "
+                  f"{kunit_totals['errors']} errors</summary>", "",
                   "| Build target | Artifact coverage |", "|---|---|"])
     for target, state in sorted(snapshot["kunit"].get("targets", {}).items(), key=lambda item: profile_sort_key(item[0])):
         lines.append(f"| {display_profile(target, build=True)} | {state} |")
@@ -780,7 +788,7 @@ def render(snapshot, previous):
             lines.append(f"| {display_profile(suite, build=True)} | {counts['passed']} | {counts['failed']} | {counts['crashed']} | {counts['skipped']} | {counts['errors']} |")
     else:
         lines.append("No KUnit JSON artifacts were collected.")
-    lines.append("")
+    lines.extend(["", "</details>", ""])
 
     lines.append("### Changes from previous report")
     if not previous:
