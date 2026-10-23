@@ -1,0 +1,79 @@
+name: Diagnose native LTP host faults
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Completed CI run containing the uninstrumented LTP artifact
+        required: true
+        default: '39951978045'
+        type: string
+permissions:
+  actions: read
+  contents: read
+jobs:
+  native-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: ltp-alpine-um-mmu.tar.gz
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: archive
+      - name: Prepare original LTP binaries and host evidence
+        run: |
+          set -euo pipefail
+          mkdir -p ltp output
+          sha256sum archive/* > output/artifact-sha256.txt
+          tar --same-permissions -xzf archive/ltp-alpine-um-mmu.tar.gz -C ltp
+          uname -a > output/host-uname.txt
+          cat /etc/os-release > output/host-os-release.txt
+          dpkg-query -W 'linux-image*' > output/host-kernel-packages.txt
+          systemd-detect-virt --vm > output/host-virtualization.txt
+          sudo dmesg > output/host-dmesg-before.txt
+          cat /proc/sys/kernel/tainted > output/host-tainted-before.txt
+          test "$(cat output/host-tainted-before.txt)" = 0
+      - name: Run four existing tests with per-test taint evidence
+        run: |
+          set -euo pipefail
+          cat > output/run.sh <<'SH'
+          #!/bin/sh
+          set -eu
+          export PATH=/opt/ltp/testcases/bin:$PATH
+          failed=0
+          for test_name in epoll_pwait03 wait403 io_uring04 setsockopt11; do
+            cat /proc/sys/kernel/tainted > /results/$test_name.taint-before
+            test "$(cat /results/$test_name.taint-before)" = 0
+            status=0
+            "$test_name" > /results/$test_name.log 2>&1 || status=$?
+            printf '%s\n' "$status" > /results/$test_name.exit
+            dmesg > /results/$test_name.dmesg
+            cat /proc/sys/kernel/tainted > /results/$test_name.taint-after
+            case "$status" in 0|32) ;; *) failed=1 ;; esac
+            test "$(cat /results/$test_name.taint-after)" = 0 || exit 1
+          done
+          exit "$failed"
+          SH
+          memory=$(awk '/^MemAvailable:/ {printf "%.0f", $2 * 1024 * 3 / 4}' /proc/meminfo)
+          (( memory <= 8589934592 )) || memory=8589934592
+          (( memory >= 536870912 ))
+          printf '%s\n' "$memory" > output/memory-budget.txt
+          docker run --rm --init --privileged --memory "$memory" --memory-swap -1 \
+            -e LTP_VIRT_OVERRIDE="$(cat output/host-virtualization.txt)" -e LTP_TIMEOUT_MUL=10 \
+            -v /boot:/boot:ro -v /lib/modules:/lib/modules:ro \
+            -v "$PWD/ltp/opt/ltp:/opt/ltp:ro" -v "$PWD/output:/results" \
+            mirror.gcr.io/library/alpine:edge sh /results/run.sh
+      - name: Preserve final host diagnostics
+        if: always()
+        run: |
+          mkdir -p output
+          sudo dmesg > output/host-dmesg-after.txt
+          cat /proc/sys/kernel/tainted > output/host-tainted-after.txt
+          sudo chmod -R a+rX output
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: native-ltp-host-diagnostic
+          path: output
+          if-no-files-found: error
