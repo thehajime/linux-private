@@ -70,6 +70,7 @@ ENTRY(__kernel_vsyscall)
 	 * to the right task.
 	 */
 	movq	current_top_of_stack, %rsp
+	call	arch_save_guest_fp
 	call	um_syscall_enter
 	mov %r12, %rdi
 

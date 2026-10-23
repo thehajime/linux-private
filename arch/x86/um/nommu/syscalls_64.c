@@ -55,6 +55,12 @@ int os_x86_arch_prctl(int pid, int option, unsigned long *arg2)
 	return 0;
 }
 
+void arch_save_guest_fp(void)
+{
+	/* Save before alias activation or any other scheduling host operation. */
+	asm volatile("fxsaveq %0" : "=m"(current->thread.regs.regs.fp) : : "memory");
+}
+
 void arch_set_stack_to_current(void)
 {
 	current_top_of_stack = task_top_of_stack(current);
@@ -70,6 +76,7 @@ void arch_set_stack_to_current(void)
 
 void arch_restore_guest_fs(void)
 {
+	struct uml_pt_regs *regs = &current->thread.regs.regs;
 	unsigned long fs;
 
 	if (!current->mm)
@@ -78,6 +85,9 @@ void arch_restore_guest_fs(void)
 	fs = current->thread.regs.regs.gp[FS_BASE / sizeof(unsigned long)];
 
 	os_x86_arch_prctl(0, ARCH_SET_FS, (void __user *)fs);
+
+	/* Pending work and alias activation can schedule and change host FP. */
+	asm volatile("fxrstorq %0" : : "m"(regs->fp));
 }
 
 void arch_switch_to(struct task_struct *to)

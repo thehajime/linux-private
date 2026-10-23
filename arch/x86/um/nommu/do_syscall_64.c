@@ -22,9 +22,6 @@ __visible void do_syscall_64(struct pt_regs *regs)
 	/* set fs register to the original host one */
 	os_x86_arch_prctl(0, ARCH_SET_FS, (void *)host_fs);
 
-	/* save fp registers */
-	asm volatile("fxsaveq %0" : "=m"(*(struct _xstate *)regs->regs.fp));
-
 	zpoline_finish_sigsys(regs);
 
 	if (!seccomp_permit_syscall())
@@ -46,7 +43,5 @@ __visible void do_syscall_64(struct pt_regs *regs)
 	/* handle tasks and signals at the end */
 	interrupt_end();
 
-	/* restore fp registers */
-	asm volatile("fxrstorq %0" : : "m"((current->thread.regs.regs.fp)));
 
 }
