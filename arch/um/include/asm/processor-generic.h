@@ -25,6 +25,8 @@ struct mm_struct;
 #endif
 
 struct thread_struct {
+	/* This task is waiting for its separate host userspace process. */
+	bool user_running;
 	/* Deferred SIGSYS text rewrite; consumed on this task's kernel stack. */
 	unsigned long zpoline_pending_ip;
 	struct pt_regs *segv_regs;

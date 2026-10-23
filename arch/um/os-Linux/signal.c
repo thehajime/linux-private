@@ -122,12 +122,10 @@ static void sig_handler(int sig, struct siginfo *si, mcontext_t *mc)
 
 static void timer_real_alarm_handler(mcontext_t *mc)
 {
-	struct uml_pt_regs regs;
+	struct uml_pt_regs regs = {};
 
 	if (mc != NULL)
 		get_regs_from_mc(&regs, mc);
-	else
-		memset(&regs, 0, sizeof(regs));
 	timer_handler(SIGALRM, NULL, &regs);
 }
 

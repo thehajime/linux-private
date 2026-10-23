@@ -35,6 +35,7 @@ extern unsigned int do_IRQ(int irq, struct uml_pt_regs *regs);
 extern void initial_thread_cb(void (*proc)(void *), void *arg);
 
 extern void timer_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs);
+extern void uml_set_user_running(int running);
 
 extern void uml_pm_wake(void);
 

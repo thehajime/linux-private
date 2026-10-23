@@ -49,6 +49,11 @@ struct task_struct *cpu_tasks[NR_CPUS] = {
 };
 EXPORT_SYMBOL(cpu_tasks);
 
+void uml_set_user_running(int running)
+{
+	WRITE_ONCE(current->thread.user_running, !!running);
+}
+
 void free_stack(unsigned long stack, int order)
 {
 	free_pages(stack, order);

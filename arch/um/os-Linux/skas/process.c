@@ -608,7 +608,9 @@ void userspace(struct uml_pt_regs *regs)
 			/* Mark pending syscalls for flushing */
 			proc_data->syscall_data_len = mm_id->syscall_data_len;
 
+			uml_set_user_running(1);
 			wait_stub_done_seccomp(mm_id, 0, 0);
+			uml_set_user_running(0);
 
 			sig = proc_data->signal;
 
@@ -684,13 +686,16 @@ void userspace(struct uml_pt_regs *regs)
 			else
 				op = PTRACE_SYSEMU;
 
+			uml_set_user_running(1);
 			if (ptrace(op, pid, 0, 0)) {
+				uml_set_user_running(0);
 				printk(UM_KERN_ERR "%s - ptrace continue failed, op = %d, errno = %d\n",
 				       __func__, op, errno);
 				fatal_sigsegv();
 			}
 
 			CATCH_EINTR(err = waitpid(pid, &status, WUNTRACED | __WALL));
+			uml_set_user_running(0);
 			if (err < 0) {
 				printk(UM_KERN_ERR "%s - wait failed, errno = %d\n",
 				       __func__, errno);
