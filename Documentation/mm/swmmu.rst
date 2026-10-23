@@ -405,12 +405,25 @@ uniprocessor backend excludes guest execution during replacement and serializes
 x86 instruction fetch before returning to userspace. Fork copies the private
 backing, so a child's later rewrite does not modify its parent's text.
 
-Native and shared mappings, native-fork guard backing, instructions crossing a
-page boundary, and invalid syscall numbers retain the SIGSYS fallback. The
+With SWMMU disabled, plain SAS can rewrite an executable ``VM_MAPPED_COPY``
+region owned by exactly one VMA. Under the mm and global NOMMU region locks,
+the kernel creates a temporary writable, non-executable host alias of the
+physical-memory backing file. It compares and replaces the instruction through
+that alias with guest preemption disabled, then removes the alias. The original
+file is not modified. Direct filesystem/device mappings and regions referenced
+by more than one VMA retain the fallback. This does not add memory protection
+or private fork support to plain NOMMU.
+
+Native mappings in the SWMMU profile, shared mappings, native-fork guard
+backing, instructions crossing a page boundary, and invalid syscall numbers
+retain the SIGSYS fallback. The
 optimization never writes directly to an RX user address or enables a RWX user
 mapping. ``nommu_zpoline_test 1`` checks the rewritten path in the default-on
 SWMMU profile; pass ``0`` to check the same cases with ``zpoline=0``. The test
 includes an intentional child SIGSEGV to verify that RX user writes still fail.
+The separate ``nommu_zpoline_native_test`` exercises the plain SAS path without
+fork; it checks ELF and anonymous code, private-copy file integrity and shared
+ramfs fallback, then prints three one-million-call getpid samples.
 
 SAS floating-point context
 --------------------------

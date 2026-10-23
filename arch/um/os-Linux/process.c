@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
@@ -119,6 +120,32 @@ int os_map_memory_file(void *virt, int fd, unsigned long long off,
 		unsigned long len, int r, int w, int x)
 {
 	return __os_map_memory(virt, fd, off, len, r, w, x, 0);
+}
+
+/* Caller pins private guest backing and excludes concurrent instruction fetch. */
+int os_patch_memory_file(int fd, unsigned long long off,
+			 const void *expected, const void *replacement,
+			 unsigned int size)
+{
+	unsigned int offset = off % UM_KERN_PAGE_SIZE;
+	void *alias;
+	int ret;
+
+	if (!size || size > UM_KERN_PAGE_SIZE - offset)
+		return -EINVAL;
+	/* Never change permissions on guest text or write through its RX address. */
+	alias = mmap64(NULL, UM_KERN_PAGE_SIZE, PROT_READ | PROT_WRITE,
+		       MAP_SHARED, fd, off - offset);
+	if (alias == MAP_FAILED)
+		return -errno;
+	ret = -EAGAIN;
+	if (!memcmp(alias + offset, expected, size)) {
+		memcpy(alias + offset, replacement, size);
+		ret = 0;
+	}
+	if (munmap(alias, UM_KERN_PAGE_SIZE) < 0)
+		return -errno;
+	return ret;
 }
 
 int os_protect_memory(void *addr, unsigned long len, int r, int w, int x)

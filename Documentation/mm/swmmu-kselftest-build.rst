@@ -443,3 +443,29 @@ context, recording its artifact provenance and hash. Preserve source, configs,
 logs and exact package identities before deleting regenerable build objects.
 Large packet captures and decoded packet text can be compressed losslessly;
 record hashes of their original bytes.
+
+Plain SAS zpoline rewrite regression
+-----------------------------------
+
+Build ``nommu_zpoline_native_test.c`` using the musl static-PIE procedure above,
+without SWMMU instrumentation. Use a plain SAS kernel with ``CONFIG_MMU=n``,
+``CONFIG_NOMMU_SWMMU=n`` and ``CONFIG_UML_NOMMU_SAS=y``. For a container lacking
+the host glibc loader, build UML with ``CONFIG_STATIC_LINK=y`` as well.
+
+The test takes the expected zpoline mode, a writable filename on hostfs and a
+filename on ramfs. The hostfs path must support private copied mappings; the
+ramfs path checks that genuinely shared text is not rewritten. For example,
+inside a hostfs-rooted guest::
+
+    mount -t proc proc /proc
+    mount -t ramfs ramfs /mnt
+    /tests/nommu_zpoline_native_test 1 /tests/private-code.tmp /mnt/shared-code.tmp
+    echo NATIVE_SELFTEST_EXIT=$?
+    poweroff -f
+
+Run separate boots with ``zpoline=0`` and ``zpoline=1``, passing the matching
+argument to the test. Require all nine assertions, the guest exit status and
+normal poweroff. The test also prints three getpid timing samples using a
+dedicated ELF syscall site and verifies every returned guest PID. Compare the
+same test binary, kernel configuration, rootfs and host allocation; do not
+substitute these samples for lmbench numbers from separate CI jobs.

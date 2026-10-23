@@ -8,6 +8,7 @@ TEST_GEN_PROGS += nommu_swmmu_expand_test
 TEST_GEN_PROGS += nommu_swmmu_direct_test
 # Exercise raw instruction bytes and RX faults without helper interception.
 TEST_GEN_PROGS += nommu_zpoline_test
+TEST_GEN_PROGS += nommu_zpoline_native_test
 TEST_GEN_PROGS += nommu_shared_file_test
 
 $(OUTPUT)/nommu_swmmu_direct_test: CFLAGS += \

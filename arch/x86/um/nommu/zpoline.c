@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/elf-fdpic.h>
+#include <linux/mm.h>
 #include <linux/nommu_swmmu.h>
 #include <asm/unistd.h>
 #include <asm/insn.h>
@@ -96,10 +97,57 @@ void zpoline_patch_sigsys(struct siginfo *si)
 		   si ? (unsigned long)si->si_call_addr : 0);
 }
 
+#if !IS_ENABLED(CONFIG_NOMMU_SWMMU)
+static int zpoline_patch_native(struct mm_struct *mm, unsigned long address,
+				const void *expected, const void *replacement,
+				size_t size)
+{
+	struct vm_area_struct *vma;
+	struct vm_region *region;
+	unsigned long long offset;
+	int fd, ret = -EOPNOTSUPP;
+
+	/* This backend cannot text-poke concurrently executing guest CPUs. */
+	if (IS_ENABLED(CONFIG_SMP) || !mm || !size || size > PAGE_SIZE ||
+	    offset_in_page(address) > PAGE_SIZE - size)
+		return -EOPNOTSUPP;
+
+	mmap_write_lock(mm);
+	down_write(&nommu_region_sem);
+	vma = find_vma(mm, address);
+	if (!vma || address < vma->vm_start || size > vma->vm_end - address ||
+	    !(vma->vm_flags & VM_EXEC) || (vma->vm_flags & VM_SHARED) ||
+	    !(vma->vm_flags & VM_MAPPED_COPY))
+		goto out;
+	region = vma->vm_region;
+	/* Exclude direct filesystem/device mappings and copies used by other VMAs. */
+	if (!region || region->vm_usage != 1 ||
+	    !(region->vm_flags & VM_MAPPED_COPY) ||
+	    address < region->vm_start || address >= region->vm_end ||
+	    size > region->vm_end - address || !virt_addr_valid(address))
+		goto out;
+	fd = phys_mapping(__pa(address), &offset);
+	if (fd < 0)
+		goto out;
+
+	/*
+	 * The region lock prevents another mm acquiring this copy. mmap_lock
+	 * pins its lifetime; preemption exclusion prevents guest execution while
+	 * a temporary writable, non-executable host alias updates the backing.
+	 */
+	preempt_disable();
+	ret = os_patch_memory_file(fd, offset, expected, replacement, size);
+	preempt_enable();
+out:
+	up_write(&nommu_region_sem);
+	mmap_write_unlock(mm);
+	return ret;
+}
+#endif
+
 void zpoline_finish_sigsys(struct pt_regs *regs)
 {
 	unsigned long ip = READ_ONCE(current->thread.zpoline_pending_ip);
-#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
 	static const u8 syscall[] = { 0x0f, 0x05 };
 	static const u8 call_rax[] = { 0xff, 0xd0 };
 	unsigned int eax, ebx, ecx, edx;
@@ -111,19 +159,21 @@ void zpoline_finish_sigsys(struct pt_regs *regs)
 	    PT_SYSCALL_NR(regs->regs.gp) < 0 ||
 	    PT_SYSCALL_NR(regs->regs.gp) >= NR_syscalls)
 		return;
+#if IS_ENABLED(CONFIG_NOMMU_SWMMU)
 	if (nommu_swmmu_patch_text(current->mm, ip - sizeof(syscall),
 				   syscall, call_rax, sizeof(syscall)))
 		return;
+#else
+	if (zpoline_patch_native(current->mm, ip - sizeof(syscall),
+				 syscall, call_rax, sizeof(syscall)))
+		return;
+#endif
 
 	/* Serialize instruction fetch after writing through a different alias. */
 	eax = 0;
 	ecx = 0;
 	asm volatile("cpuid" : "+a" (eax), "=b" (ebx), "+c" (ecx), "=d" (edx)
 		     : : "memory");
-#else
-	if (ip)
-		WRITE_ONCE(current->thread.zpoline_pending_ip, 0);
-#endif
 }
 
 /**

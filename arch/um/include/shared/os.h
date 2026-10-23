@@ -215,6 +215,9 @@ extern int os_map_memory(void *virt, int fd, unsigned long long off,
 			 unsigned long len, int r, int w, int x);
 extern int os_map_memory_file(void *virt, int fd, unsigned long long off,
 			unsigned long len, int r, int w, int x);
+extern int os_patch_memory_file(int fd, unsigned long long off,
+			       const void *expected, const void *replacement,
+			       unsigned int size);
 extern int os_protect_memory(void *addr, unsigned long len,
 			     int r, int w, int x);
 extern int os_unmap_memory(void *addr, int len);
