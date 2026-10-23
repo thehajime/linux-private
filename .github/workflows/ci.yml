@@ -112,8 +112,11 @@ jobs:
                   # Reviewed immutable pair: kernel-only FP/GUP/alias fixes,
                   # plain zpoline and SAS trap refactor. Plugin/runtime/UAPI
                   # are unchanged; aports and archive manifests checked above/below.
+                  # 6c0c5d71 adds kernel-only uaccess/ptrace/MAP_32BIT/timer
+                  # fixes and docs; exact delta reviewed locally, ABI unchanged.
                   ($apk_kernel == "52a8dfe6b58adffa2c5e57df1421a7e82cc50d9b" and
-                   $tested_kernel == "6d8e67f9be14d5f612eafd4ca78ee2c813cd6baa")
+                   ($tested_kernel == "6d8e67f9be14d5f612eafd4ca78ee2c813cd6baa" or
+                    $tested_kernel == "6c0c5d71b58a161fa4eb503dff8688156faf3141"))
                 or
                   (.files | length > 0 and length < 300) and
                   all(.files[]; .filename == "arch/um/kernel/trap.c")
