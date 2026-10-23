@@ -64,7 +64,7 @@ long arch_ptrace(struct task_struct *child, long request,
 #ifdef PTRACE_GETREGS
 	case PTRACE_GETREGS: { /* Get all gp regs from the child. */
 		if (!access_ok(p, MAX_REG_OFFSET)) {
-			ret = -EIO;
+			ret = -EFAULT;
 			break;
 		}
 		for ( i = 0; i < MAX_REG_OFFSET; i += sizeof(long) ) {
@@ -80,7 +80,7 @@ long arch_ptrace(struct task_struct *child, long request,
 	case PTRACE_SETREGS: { /* Set all gp regs in the child. */
 		unsigned long tmp = 0;
 		if (!access_ok(p, MAX_REG_OFFSET)) {
-			ret = -EIO;
+			ret = -EFAULT;
 			break;
 		}
 		for ( i = 0; i < MAX_REG_OFFSET; i += sizeof(long) ) {
