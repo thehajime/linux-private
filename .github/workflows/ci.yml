@@ -1757,6 +1757,11 @@ jobs:
         run: |
           echo "${{ matrix.testname }} report: ${{ steps.upload_html.outputs.artifact-url }}" > \
              output/ltp/${{ matrix.testname }}-url.txt
+      - name: Require zero LTP FAIL BROK WARN
+        if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
+        env:
+          LTP_TESTNAME: ${{ matrix.testname }}
+        run: python3 .github/workflows/check-ltp-result.py "output/ltp/result-${LTP_TESTNAME}.json"
       - uses: actions/upload-artifact@v7
         if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         with:
