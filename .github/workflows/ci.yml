@@ -198,13 +198,15 @@ jobs:
                     # Reviewed private-backing rewrite and its kernel-only
                     # declarations/tests/docs, plus the preceding fixes.
                     # No plugin, runtime or UAPI source is changed.
-                    (.files | length == 12) and
+                    ((.files | length == 12) or (.files | length == 14)) and
                     all(.files[];
                       if .filename == "tools/testing/selftests/nommu/nommu_zpoline_test.c"
                       then .status == "added"
                       else .status == "modified" and
                         (
                           .filename == "Documentation/mm/swmmu.rst" or
+                          .filename == "Documentation/mm/swmmu-kselftest-build.rst" or
+                          .filename == "arch/um/kernel/physmem.c" or
                           .filename == "arch/um/include/asm/processor-generic.h" or
                           .filename == "arch/um/os-Linux/main.c" or
                           .filename == "arch/x86/um/nommu/do_syscall_64.c" or
@@ -459,6 +461,11 @@ jobs:
           lmbench_bin="$GITHUB_WORKSPACE/lmbench/bin/x86_64-linux-gnulibc1"
           mkdir -p "$lmbench_bin"
           lmbench_cflags="-O2 -std=gnu17 -D_GNU_SOURCE -DHAVE_socklen_t -I/usr/include/tirpc -include string.h"
+          if [[ "${{ matrix.userspace_profile }}" == nommu-plain ]]; then
+            # benchmp itself needs CLONE_VM on kernels without private fork;
+            # selecting lat_proc --vfork only changes the measured operation.
+            lmbench_cflags="$lmbench_cflags -DCONFIG_NOMMU"
+          fi
           if printf '#include <stdio.h>\nint main(void) { off64_t n = 0; return (int)n; }\n' | \
             gcc -D_GNU_SOURCE -x c -fsyntax-only - >/dev/null 2>&1; then
             lmbench_cflags="$lmbench_cflags -DHAVE_off64_t"
