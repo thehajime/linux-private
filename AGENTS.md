@@ -88,7 +88,15 @@ reproducible kselftest build instructions in
   private fork, while only lat_proc selected vfork. A matching musl static-PIE
   control on the plain-SAS CI kernel reproduces empty output/exit 0 before and
   a numerical result with CONFIG_NOMMU's CLONE_VM harness. `6eda6139c0bc`
-  adds that define only to nommu-plain builds. Validate all affected cells.
+  adds that define only to nommu-plain builds. Completed run 39881692721
+  confirms numerical results in all five affected profiles, with no FAIL cells.
+- [x] Collect full corrected zpoline LTP results from 39878485571 and
+  39881692721: each has 1,477 records (890 pass / 587 conf / 0 fail / 0 broken),
+  6,714 passing assertions, 1,089 skipped assertions. clock_gettime04 passes
+  6/0/0 in both; mmap04 is configuration-skip and setns02 passes. Raw JSON and
+  generated HTML are pushed in Obsidian. Final combined-source CI 39888448097
+  pins 846ce0178c93cb91d1aeb6dff2ad4c71a6d15b00; newer work-branch commits
+  only normalize test formatting and document the new architecture behavior.
 - [ ] Collect corrected LTP/Kirk run `39878485571` (completed failure on c0)
   and batching/lmbench run `39881692721` (2dc kernel). Both hit the same
   mmap02 panic in SWMMU seccomp; neither includes the FP or mmap02 fixes. Run `39880693528` was canceled for short-
