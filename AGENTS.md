@@ -60,6 +60,43 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+Current local remediation checkpoint (supersedes the original failure inventory
+below; CI is still held):
+
+- [x] Native full syscalls on freshly built LTP `1bb350a1cd55501173e33f1836a674494f2cb48b`:
+  1,481 records, 9,895 pass / 405 skip / 0 FAIL/BROK/WARN, normal exit 0,
+  with exact selected-name coverage validated. Branch: `hajime/ltp-mmu-native-fixes`.
+- [x] MMU seccomp full baseline on kernel `42f11eb7159a`: 1,481 records,
+  10,046 pass / 514 skip / 0 FAIL/BROK/WARN, normal poweroff. A newer candidate
+  still needs the same full acceptance after common timer/ptrace changes.
+- [x] Diagnose uninitialized timer is_user with live GDB. Kernel `67ff6a9a07a7`
+  initializes the timer frame and tracks separate-process user execution per
+  task; SAS uses its existing PC classifier. `c2c5790d8558` also returns EFAULT
+  for out-of-range ptrace register buffers. Focused TT tests pass 36 timing,
+  6 clock and 21 ABI checks. Later branch commits are documentation-only.
+- [x] Current SAS regression in both zpoline modes: parsed KUnit 34/0/1,
+  SWMMU 38/0/8, FP/signal 15/0 and shared-file 3/0, syscall02 and mmap02 pass,
+  with normal poweroff. This is not a freshly rebuilt full SAS LTP suite.
+- [ ] Finish combined-candidate TT and ptrace full suites; both are running.
+  Build the normal CI MMU configuration and repeat normal seccomp acceptance.
+  Prior msgstress01 PASS labels already included one runtime-budget TCONF;
+  audit assertion counters and stress coverage, not the UI label alone.
+- [ ] Port verified runtime prerequisites to CI: archived extraction modes,
+  native child reaping and visible memory budget, cgroup delegation, private
+  loop hotplug handling, ext4 scratch and truthful UML virtualization override.
+  Keep old failed/interrupted evidence; do not merge focused retests into a
+  purported complete zero-error suite. Validate normal termination as well
+  as exact JSON coverage and zero FAIL/BROK/WARN.
+- [ ] Review the final kernel/APK compatibility pair before CI dispatch.
+  The existing exception only covers 52a8dfe6b58a -> 6d8e67f9be14.
+
+Full JSON, HTML, configs, GDB evidence and exact commands are in Obsidian
+`nommu-swmmu/Codex-Logs/2026-10-23_175737+0900-ltp-local-abi-and-runtime-fixes`.
+Native bind06/setsockopt06 can temporarily set max_user_namespaces=1024 and
+prevent cloud sandbox creation with ENOSPC. Confirm test cleanup restores the
+saved value; do not confuse this with disk exhaustion or reset the environment.
+
+
 - [ ] Keep general default-off fork migration, user-VA/backing redesign and
   general multithread/SMP-safe instruction rewriting as separate architecture TODOs.
 - [ ] Merge swmmu-nommu-exp into feature-swmmu-nommu only after the full main CI
