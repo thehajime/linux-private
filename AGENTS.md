@@ -57,6 +57,36 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- [x] Fix reproducible guest SSE context crossover in `a637af743264`.
+  Parent/child sched_yield probes on the exact c0 CI kernel observe the other
+  process's XMM15 pattern in both zpoline modes. Saving before alias activation
+  and restoring immediately before user return eliminates the standalone
+  failures. The new nine-case selftest fails only its added FP test on c0,
+  and passes three fresh boots per mode on the candidate; KUnit 34/0/1,
+  SWMMU selftest 38/0/8 and syscall02 also pass, with normal poweroff.
+- [ ] Check AVX/extended-state preservation: the current SAS save/restore uses
+  FXSAVE/FXRSTOR. SSE validation does not establish preservation of YMM/ZMM
+  upper state. Do not claim this explains nginx until matched tests support it.
+- [x] Batch consecutive PFN aliases in `2dcda6ba8906`, preserving backing-file
+  boundaries, per-VMA permissions and full-range failure rollback. Both modes
+  pass KUnit/selftests, including partial-batch failure and retry. A same-binary
+  diagnostic reduces traced mmap calls from 90,711 to 68,703, but does not
+  establish an nginx throughput improvement or resolve the CI stalls.
+- [x] Diagnose missing plain NOMMU lmbench numbers: benchmp was built for
+  private fork, while only lat_proc selected vfork. A matching musl static-PIE
+  control on the plain-SAS CI kernel reproduces empty output/exit 0 before and
+  a numerical result with CONFIG_NOMMU's CLONE_VM harness. `6eda6139c0bc`
+  adds that define only to nommu-plain builds. Validate all affected cells.
+- [ ] Monitor corrected LTP/Kirk run `39878485571` (c0 kernel), and replacement
+  batching/lmbench run `39881692721` (full 2dcda6ba89065152370ec1195f695d4ed1a342b9).
+  Neither includes the later SSE fix. Run `39880693528` was canceled for short-
+  SHA checkout failure; `d44397b6e727` now uses the package-preparation job's
+  resolved full kernel SHA for checkout. A moving source branch cannot race
+  that resolution. Do not classify that checkout failure as a kernel defect.
+- The experiment deferring the first userspace alias activation was tested but
+  did not establish a performance gain; its patch/logs are preserved in
+  Obsidian, and the source experiment was reverted before the SSE fix.
+
 - [x] Apply the candidate LTP shared-counter/configuration patch and Kirk
   complete-output/cancellation fixes through `78c75250643c`. Local four-test
   results are 8 pass / 3 skip / 0 fail / 0 broken in both zpoline modes, with
