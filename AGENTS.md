@@ -57,6 +57,45 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- [x] Apply the candidate LTP shared-counter/configuration patch and Kirk
+  complete-output/cancellation fixes through `78c75250643c`. Local four-test
+  results are 8 pass / 3 skip / 0 fail / 0 broken in both zpoline modes, with
+  native and injected-error controls. Keep clone06/clone08 enabled only for
+  the modern SWMMU runtime framework with shared counters verified.
+- [ ] Validate those fixes in a new full CI. Older run `39866498606` completed
+  both SWMMU LTP rows with 1,475 records each: seccomp 887 pass, 585 conf,
+  1 fail, 2 brok; zpoline 886 pass, 586 conf, 1 fail, 2 brok. The affected
+  records are clock_gettime04, mmap04 and setns02. Its old Kirk channel loses
+  buffered output and its old private IPC loses child counters, so assertion
+  aggregates are not final acceptance data. Do not silently compare them with
+  counts produced by the corrected framework.
+- [ ] Diagnose intermittent nginx SWMMU zpoline startup/64-client stalls.
+  Exact source assets from `39866498606` reproduce zero measured requests in
+  five of six 64-client manual replays, with one passing replay. Four
+  16-client manual replays pass. Three independent local boots using the
+  exact CI kernel/rootfs pass 64-client measurements (2,128--4,502 req/s),
+  plus an initial 30-second local run at 4,748 req/s. These differ in client
+  build and host conditions and do not close the CI failure. GDB on a failed
+  run catches multiple nginx tasks mapping aliases and later reaches idle;
+  remapping is observed, but not proven to be the complete cause.
+- [x] Replace SWMMU nginx's ineffective hostfs FIFO command bridge with a
+  host PTY relay (`21c20f64b4dc`), then add repeated GDB task snapshots in
+  `9dc1d5cd4265`. A hostfs FIFO has separate pipe state in each kernel.
+  Six small local serial probes and passing real nginx replays terminate
+  normally. Serial shutdown failed during one stalled workload; do not
+  claim universal lifecycle correctness yet. Non-SWMMU control is unchanged.
+- [ ] Investigate clock_gettime04 CI latency separately from correctness.
+  In a controlled 0.25-CPU container, adjacent readings have 74--78 ms gaps;
+  after verifying `cpu.max` is `max 100000`, three unthrottled local runs
+  pass. `docker update --cpus 0` did not remove that quota; explicit
+  `--cpus=0 --cpu-quota=-1` did. The throttled logs are diagnostics, not a
+  matched reproduction of the CI host. Do not increase tolerances or label
+  this a kernel clock bug from those logs alone.
+- [x] Preserve replay, host/guest FIFO, native-shell, relocated Autotools and
+  artifact-storage procedures in implementation-branch documentation commit
+  `0ed152954fa8` (documentation only). Kernel validation remains pinned to
+  the identical code revision `c0bdf6a0c7a1979e689cadbc6ff095954f93fa69`.
+
 - [x] Match the upstream NOMMU kit by defaulting all `um-nommu*` LTP rows to
   `LTP_VIRT_OVERRIDE=uml` (`7c5dd4c8385a`). The setting identifies virtualization;
   LTP skips oversleep assertions, so raw latency remains a separate metric.
