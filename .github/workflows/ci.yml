@@ -198,9 +198,11 @@ jobs:
                     # Reviewed private-backing rewrite and its kernel-only
                     # declarations/tests/docs, plus the preceding fixes.
                     # No plugin, runtime or UAPI source is changed.
-                    ((.files | length == 12) or (.files | length == 14)) and
+                    ((.files | length == 12) or (.files | length == 14) or
+                     (.files | length == 19)) and
                     all(.files[];
-                      if .filename == "tools/testing/selftests/nommu/nommu_zpoline_test.c"
+                      if (.filename == "tools/testing/selftests/nommu/nommu_zpoline_test.c" or
+                          .filename == "tools/testing/selftests/nommu/nommu_shared_file_test.c")
                       then .status == "added"
                       else .status == "modified" and
                         (
@@ -211,6 +213,10 @@ jobs:
                           .filename == "arch/um/os-Linux/main.c" or
                           .filename == "arch/x86/um/nommu/do_syscall_64.c" or
                           .filename == "arch/x86/um/nommu/syscalls.h" or
+                          .filename == "arch/x86/um/nommu/entry_64.S" or
+                          .filename == "arch/x86/um/nommu/syscalls_64.c" or
+                          .filename == "arch/x86/um/signal.c" or
+                          .filename == "mm/nommu.c" or
                           .filename == "arch/x86/um/nommu/zpoline.c" or
                           .filename == "include/linux/nommu_swmmu.h" or
                           .filename == "mm/gup.c" or
@@ -704,7 +710,7 @@ jobs:
         run: |
           mkdir -p build/kselftest/uapi output/kselftest rootfs/tests
           make ARCH=um INSTALL_HDR_PATH=build/kselftest/uapi headers_install
-      - name: Build only the SWMMU selftest executable
+      - name: Build NOMMU regression selftests
         if: matrix.testname == 'um-nommu-sas'
         shell: alpine.sh {0}
         run: |
@@ -719,37 +725,42 @@ jobs:
             USERCFLAGS="-O2 -fPIE -include sys/prctl.h" \
             USERLDFLAGS="-static-pie -Wl,--no-relax" \
             all
-      - name: Stage direct SWMMU kselftest init and binary
+      - name: Stage NOMMU kselftest init and binaries
         if: matrix.testname == 'um-nommu-sas'
         run: |
           install -m 0755 build/kselftest/nommu_swmmu_test rootfs/tests/nommu_swmmu_test
+          for test in nommu_zpoline_test nommu_shared_file_test; do
+            if [ -x "build/kselftest/$test" ]; then
+              install -m 0755 "build/kselftest/$test" "rootfs/tests/$test"
+            fi
+          done
           install -m 0755 .github/workflows/swmmu-kselftest-init.sh \
             rootfs/sbin/swmmu-kselftest-init
-      - name: Run only nommu_swmmu_test directly
+      - name: Run NOMMU kselftests in both zpoline modes
         if: matrix.testname == 'um-nommu-sas'
         run: |
           mkdir -p output/kselftest
-          set +e
-          timeout --signal=TERM --kill-after=5s 120s faketty ./vmlinux \
-            root=/dev/root rootflags="$GITHUB_WORKSPACE/rootfs" rootfstype=hostfs rw \
-            mem=2048m loglevel=8 console=tty zpoline=0 \
-            init=/sbin/swmmu-kselftest-init 2>&1 | \
-            tee output/kselftest/uml-console.log
-          rc=${PIPESTATUS[0]}
-          set -e
-          printf 'uml_exit=%s\n' "$rc" | tee output/kselftest/uml-exit.txt
-          if [ -f rootfs/tests/nommu_swmmu_test.tap ]; then
-            cp rootfs/tests/nommu_swmmu_test.tap output/kselftest/
-            cat rootfs/tests/nommu_swmmu_test.tap
-          fi
-          if [ -f rootfs/tests/nommu_swmmu_test.exit ]; then
-            cp rootfs/tests/nommu_swmmu_test.exit output/kselftest/
-            cat rootfs/tests/nommu_swmmu_test.exit
-          fi
-          test "$rc" -eq 0
-          grep -qx '0' rootfs/tests/nommu_swmmu_test.exit
-          grep -q '^# Totals: pass:' rootfs/tests/nommu_swmmu_test.tap
-          ! grep -q '^not ok ' rootfs/tests/nommu_swmmu_test.tap
+          for mode in 0 1; do
+            set +e
+            timeout --signal=TERM --kill-after=5s 120s faketty ./vmlinux \
+              root=/dev/root rootflags="$GITHUB_WORKSPACE/rootfs" rootfstype=hostfs rw \
+              mem=2048m loglevel=8 console=tty zpoline="$mode" \
+              init=/sbin/swmmu-kselftest-init 2>&1 | \
+              tee "output/kselftest/uml-console-z$mode.log"
+            rc=${PIPESTATUS[0]}
+            set -e
+            printf 'uml_exit=%s\n' "$rc" > "output/kselftest/uml-z$mode.exit"
+            for test in nommu_swmmu_test nommu_zpoline_test nommu_shared_file_test; do
+              [ -x "rootfs/tests/$test" ] || continue
+              cp "rootfs/tests/$test-z$mode.tap" "rootfs/tests/$test-z$mode.exit" output/kselftest/
+              cat "rootfs/tests/$test-z$mode.tap"
+              grep -qx '0' "rootfs/tests/$test-z$mode.exit"
+              grep -q '^# Totals: pass:' "rootfs/tests/$test-z$mode.tap"
+              ! grep -q '^not ok ' "rootfs/tests/$test-z$mode.tap"
+            done
+            test "$rc" -eq 0
+            grep -q 'Power down' "output/kselftest/uml-console-z$mode.log"
+          done
       - name: Upload direct SWMMU kselftest diagnostics
         if: ${{ always() && matrix.testname == 'um-nommu-sas' }}
         uses: actions/upload-artifact@v7
@@ -757,8 +768,8 @@ jobs:
           name: swmmu-kselftest-${{ matrix.testname }}
           path: |
             output/kselftest
-            rootfs/tests/nommu_swmmu_test.tap
-            rootfs/tests/nommu_swmmu_test.exit
+            rootfs/tests/*.tap
+            rootfs/tests/*.exit
           if-no-files-found: warn
       - name: test-1
         run: |

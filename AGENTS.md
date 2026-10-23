@@ -64,9 +64,21 @@ reproducible kselftest build instructions in
   failures. The new nine-case selftest fails only its added FP test on c0,
   and passes three fresh boots per mode on the candidate; KUnit 34/0/1,
   SWMMU selftest 38/0/8 and syscall02 also pass, with normal poweroff.
-- [ ] Check AVX/extended-state preservation: the current SAS save/restore uses
-  FXSAVE/FXRSTOR. SSE validation does not establish preservation of YMM/ZMM
-  upper state. Do not claim this explains nginx until matched tests support it.
+- [x] Fix AVX/AVX-512 preservation in `a75dc74fb20e`, using enabled user
+  XSAVE components fitting the host image and aligned per-task storage.
+  `846ce0178c93` also validates signal-return MXCSR/XSTATE before installing
+  the image. Both modes pass the extended 15-case register/malformed-frame
+  test, KUnit 34/0/1, SWMMU 38/0/8 and syscall02, with normal poweroff.
+- [x] Fix the newly exposed mmap02 NULL-file panic in `27f78527df26`.
+  Anonymous shared LTP counters expose a fileless region in the shared-file
+  reuse scanner. A minimal tmpfs-backed probe reproduces c0's exact fault;
+  six candidate boots pass the new 3-case regression and actual mmap02.
+- [ ] Complete final CI on the combined FP/mmap02 fixes. The selftest job now
+  stages all available regressions, runs both zpoline modes, retains separate
+  TAP/exit files and requires normal guest poweroff. Kernel-only APK reuse
+  accepts the reviewed 19-file delta; compiler/runtime/UAPI changes remain
+  rejected. Three post-XSTATE local nginx repeats pass HTTP/TLS and 64-client
+  wrk, but c0 also passed local repeats, so CI stall causation remains open.
 - [x] Batch consecutive PFN aliases in `2dcda6ba8906`, preserving backing-file
   boundaries, per-VMA permissions and full-range failure rollback. Both modes
   pass KUnit/selftests, including partial-batch failure and retry. A same-binary
@@ -77,9 +89,9 @@ reproducible kselftest build instructions in
   control on the plain-SAS CI kernel reproduces empty output/exit 0 before and
   a numerical result with CONFIG_NOMMU's CLONE_VM harness. `6eda6139c0bc`
   adds that define only to nommu-plain builds. Validate all affected cells.
-- [ ] Monitor corrected LTP/Kirk run `39878485571` (c0 kernel), and replacement
-  batching/lmbench run `39881692721` (full 2dcda6ba89065152370ec1195f695d4ed1a342b9).
-  Neither includes the later SSE fix. Run `39880693528` was canceled for short-
+- [ ] Collect corrected LTP/Kirk run `39878485571` (completed failure on c0)
+  and batching/lmbench run `39881692721` (2dc kernel). Both hit the same
+  mmap02 panic in SWMMU seccomp; neither includes the FP or mmap02 fixes. Run `39880693528` was canceled for short-
   SHA checkout failure; `d44397b6e727` now uses the package-preparation job's
   resolved full kernel SHA for checkout. A moving source branch cannot race
   that resolution. Do not classify that checkout failure as a kernel defect.
