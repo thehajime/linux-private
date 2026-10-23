@@ -60,6 +60,14 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- Historical completion audit: musl bytewise/chunk/direct-bulk comparison was
+  completed on 2026-10-20 (18 matched boots; help medians 4.47/2.62/2.40 s,
+  first-test medians 8.08/4.20/3.95 s). Python general guarded-access work also
+  completed then (first-test median 3.45 s, help 1.95 s). These historical
+  measurements must not be mislabeled as open work or as today's timings.
+  Default-off arbitrary fork remains a held, fail-closed design limitation,
+  separate from the current default-on acceptance path.
+
 - [x] Fix reproducible guest SSE context crossover in `a637af743264`.
   Parent/child sched_yield probes on the exact c0 CI kernel observe the other
   process's XMM15 pattern in both zpoline modes. Saving before alias activation
