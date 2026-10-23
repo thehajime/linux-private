@@ -60,6 +60,19 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- Final acceptance: CI 39888448097 completed success (97 successful jobs,
+  2 intended skips). All seven NOMMU LTP profiles have zero fail/broken;
+  MMU/native affected tests all occur in both saved pre-fix baselines.
+  Generic KUnit totals: 4836 pass, 252 skip, zero fail/crash/error; dedicated
+  SWMMU KUnit 34/0/1 is separately local. Corrected selftests: 110 pass,
+  18 skip, zero fail across both modes (AVX-512 absent on the CI CPU).
+  Issue 4 comment 6356910713 and Pages were refreshed successfully in
+  39897200876, including canonical mode labels and original TAP reaggregation.
+  Current CI startup to accept01: SWMMU zpoline 5.884 s, seccomp 9.519 s,
+  plain SAS seccomp 0.699 s. These are host-timestamp CI observations,
+  not a controlled cold-pyc rerun. Work-branch kernel 8274a8c5b996 remains
+  unmerged; CI tested functional source 846ce0178c93cb91d1aeb6dff2ad4c71a6d15b00.
+
 - Historical completion audit: musl bytewise/chunk/direct-bulk comparison was
   completed on 2026-10-20 (18 matched boots; help medians 4.47/2.62/2.40 s,
   first-test medians 8.08/4.20/3.95 s). Python general guarded-access work also
@@ -84,7 +97,7 @@ reproducible kselftest build instructions in
   Anonymous shared LTP counters expose a fileless region in the shared-file
   reuse scanner. A minimal tmpfs-backed probe reproduces c0's exact fault;
   six candidate boots pass the new 3-case regression and actual mmap02.
-- [ ] Complete final CI on the combined FP/mmap02 fixes. The selftest job now
+- [x] Complete final CI on the combined FP/mmap02 fixes (39888448097 success). The selftest job now
   stages all available regressions, runs both zpoline modes, retains separate
   TAP/exit files and requires normal guest poweroff. Kernel-only APK reuse
   accepts the reviewed 19-file delta; compiler/runtime/UAPI changes remain
@@ -108,7 +121,7 @@ reproducible kselftest build instructions in
   generated HTML are pushed in Obsidian. Final combined-source CI 39888448097
   pins 846ce0178c93cb91d1aeb6dff2ad4c71a6d15b00; newer work-branch commits
   only normalize test formatting and document the new architecture behavior.
-- [ ] Collect corrected LTP/Kirk run `39878485571` (completed failure on c0)
+- [x] Collect corrected LTP/Kirk run `39878485571` (completed failure on c0)
   and batching/lmbench run `39881692721` (2dc kernel). Both hit the same
   mmap02 panic in SWMMU seccomp; neither includes the FP or mmap02 fixes. Run `39880693528` was canceled for short-
   SHA checkout failure; `d44397b6e727` now uses the package-preparation job's
@@ -123,14 +136,18 @@ reproducible kselftest build instructions in
   results are 8 pass / 3 skip / 0 fail / 0 broken in both zpoline modes, with
   native and injected-error controls. Keep clone06/clone08 enabled only for
   the modern SWMMU runtime framework with shared counters verified.
-- [ ] Validate those fixes in a new full CI. Older run `39866498606` completed
+- [x] Validate those fixes in full CI 39888448097. Older run `39866498606` completed
   both SWMMU LTP rows with 1,475 records each: seccomp 887 pass, 585 conf,
   1 fail, 2 brok; zpoline 886 pass, 586 conf, 1 fail, 2 brok. The affected
   records are clock_gettime04, mmap04 and setns02. Its old Kirk channel loses
   buffered output and its old private IPC loses child counters, so assertion
   aggregates are not final acceptance data. Do not silently compare them with
   counts produced by the corrected framework.
-- [ ] Diagnose intermittent nginx SWMMU zpoline startup/64-client stalls.
+- [x] Revalidate intermittent nginx SWMMU zpoline startup/64-client stalls.
+  Final CI passes the full nginx matrix, followed by three passing immutable
+  artifact 4-worker/64-client replays (39894238540/39894241245/39894244213).
+  Historical failed-replay evidence below remains; a single causal explanation
+  is not inferred from the newer throughput results alone.
   Exact source assets from `39866498606` reproduce zero measured requests in
   five of six 64-client manual replays, with one passing replay. Four
   16-client manual replays pass. Three independent local boots using the
