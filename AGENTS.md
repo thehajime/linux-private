@@ -77,18 +77,22 @@ below; CI is still held):
 - [x] Current SAS regression in both zpoline modes: parsed KUnit 34/0/1,
   SWMMU 38/0/8, FP/signal 15/0 and shared-file 3/0, syscall02 and mmap02 pass,
   with normal poweroff. This is not a freshly rebuilt full SAS LTP suite.
-- [ ] Finish combined-candidate TT and ptrace full suites; both are running.
-  Build the normal CI MMU configuration and repeat normal seccomp acceptance.
-  Prior msgstress01 PASS labels already included one runtime-budget TCONF;
-  audit assertion counters and stress coverage, not the UI label alone.
-- [ ] Port verified runtime prerequisites to CI: archived extraction modes,
-  native child reaping and visible memory budget, cgroup delegation, private
-  loop hotplug handling, ext4 scratch and truthful UML virtualization override.
-  Keep old failed/interrupted evidence; do not merge focused retests into a
-  purported complete zero-error suite. Validate normal termination as well
-  as exact JSON coverage and zero FAIL/BROK/WARN.
-- [ ] Review the final kernel/APK compatibility pair before CI dispatch.
-  The existing exception only covers 52a8dfe6b58a -> 6d8e67f9be14.
+- [x] Combined-candidate TT and ptrace full syscalls: 1,481 records each,
+  zero FAIL/BROK/WARN, exact coverage and normal poweroff. TT: 10,053 pass /
+  513 skip; ptrace: 10,054 pass / 513 skip. Ptrace uses a TT-capable kernel
+  with time travel disabled. Deliberate fault assertions audited separately.
+- [ ] Finish the current normal CI SMP-config MMU seccomp full run and audit
+  its complete JSON, fault log and termination. Prior msgstress01 PASS labels
+  already included one runtime-budget TCONF; do not claim all stress pairs ran.
+- [x] Port runtime prerequisites to CI: preserved extraction modes, native
+  child reaping and memory budget, cgroup delegation, private loop hotplug,
+  ext4 scratch, truthful UML override and explicit completion gates. Actual
+  helper smoke tests pass native and UML; injected UML setup failure powers
+  down without a false success marker. Full CI remains unrun.
+- [x] Review exact APK compatibility: 52a8dfe6b58a -> 6c0c5d71b58a is now
+  explicitly allowed, in addition to the older reviewed pair. Added changes
+  are kernel uaccess/ptrace/MAP_32BIT/timer fixes and docs; no plugin/runtime/
+  exported UAPI change. Source and signed manifest checks remain mandatory.
 
 Full JSON, HTML, configs, GDB evidence and exact commands are in Obsidian
 `nommu-swmmu/Codex-Logs/2026-10-23_175737+0900-ltp-local-abi-and-runtime-fixes`.
