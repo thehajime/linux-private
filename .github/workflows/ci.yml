@@ -1624,6 +1624,20 @@ jobs:
             -v "$GITHUB_WORKSPACE/ltp-source:/ltp-source:ro"
           )
           if [[ "$LTP_TESTNAME" == native ]]; then
+            # Alpine does not provide systemd-detect-virt. Detect the actual
+            # runner VM before entering Docker, then pass LTP's documented
+            # override instead of misclassifying Azure as bare metal.
+            mkdir -p output/ltp
+            ltp_host_virt_status=0
+            ltp_host_virt=$(systemd-detect-virt --vm) || ltp_host_virt_status=$?
+            printf '%s\n' "$ltp_host_virt" > output/ltp/native-host-virtualization.txt
+            if (( ltp_host_virt_status == 1 )) && [[ "$ltp_host_virt" == none ]]; then
+              ltp_host_virt=
+            elif (( ltp_host_virt_status != 0 )); then
+              echo "Host virtualization detection failed: $ltp_host_virt_status" >&2
+              exit "$ltp_host_virt_status"
+            fi
+            docker_args+=(-e "LTP_VIRT_OVERRIDE=$ltp_host_virt")
             # bind02 requires the Linux privileged-port boundary. Docker's
             # default of zero permits unprivileged binding to every port.
             docker_args+=(--sysctl net.ipv4.ip_unprivileged_port_start=1024)

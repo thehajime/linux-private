@@ -150,6 +150,8 @@ if [ "$LTP_TESTNAME" = riscv-nommu ]; then
 elif [ "$LTP_TESTNAME" = native ]; then
 	. .github/workflows/ltp-runtime.sh
 	ltp_runtime_prepare native
+	dmesg > output/ltp/native-dmesg-before.txt
+	cat /proc/sys/kernel/tainted > output/ltp/native-tainted-before.txt
 	ltp_native_status=0
 	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
 		-f syscalls --suite-timeout "$LTP_SUITE_TIMEOUT" \
@@ -197,6 +199,8 @@ case "$LTP_TESTNAME" in
 esac
 
 if [ "$LTP_TESTNAME" = native ]; then
+	dmesg > output/ltp/native-dmesg-after.txt
+	cat /proc/sys/kernel/tainted > output/ltp/native-tainted-after.txt
 	cp /tmp/ltp-mdev.log output/ltp/native-mdev.log
 	cp /sys/fs/cgroup/memory.events output/ltp/native-memory-events.txt
 	printf '%s\n' "$ltp_native_status" > output/ltp/native-complete-status.txt

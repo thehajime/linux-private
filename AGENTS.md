@@ -103,6 +103,15 @@ Actual native and MMU CI entrypoint/report smoke paths both pass 102 assertions
 with one architecture skip and normal completion. This executor has no swap,
 so actual swap I/O remains a CI validation item. Do not merge while CI is active.
 
+
+CI 39951978045 native completed but is not accepted: epoll_pwait03 has three
+oversleep failures because Alpine could not detect the Azure VM. setsockopt11
+newly tainted the runner kernel; wait403/io_uring04 then BROK on taint D.
+The exact host fault trace is missing. Detect runner virtualization before
+Docker creation and preserve native before/after dmesg/taint snapshots. Do not
+skip these tests or merge until the native kernel failure is understood.
+Local epoll_pwait03 with the actual host VM override passes 14 assertions.
+
 Full JSON, HTML, configs, GDB evidence and exact commands are in Obsidian
 `nommu-swmmu/Codex-Logs/2026-10-23_175737+0900-ltp-local-abi-and-runtime-fixes`.
 Native bind06/setsockopt06 can temporarily set max_user_namespaces=1024 and
