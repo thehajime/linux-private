@@ -417,6 +417,11 @@ def collect_kselftest(root):
                              if parent.name.startswith("swmmu-kselftest-")), None)
         target = (artifact_dir.name.removeprefix("swmmu-kselftest-")
                   if artifact_dir else "um-nommu-sas")
+        if target == "um-nommu-sas":
+            if path.stem.endswith("-z0"):
+                target = "um-nommu-sas-seccomp"
+            elif path.stem.endswith("-z1"):
+                target = "um-nommu-sas-zpoline"
         identity = (target, path.stem, digest)
         if identity in seen_tap_hashes:
             continue
@@ -716,13 +721,14 @@ def render(snapshot, previous):
     else:
         kselftest_status = kselftest["state"]
     lines.extend(["### kselftest results", f"Current status: {kselftest_status}.",
-                  "The direct SWMMU kselftest applies to the `um-nommu-sas` SWMMU build; plain SAS and TT comparison rows do not enable this SWMMU-specific test.", ""])
+                  "The direct SWMMU kselftests apply to `um-nommu-sas-swmmu(s/z)`; plain SAS and TT comparison rows do not enable this SWMMU-specific test.", ""])
     if kselftest.get("suites"):
         lines.extend(["| Suite | State | Passed | Failed | Skipped |",
                       "|---|---|---:|---:|---:|"])
         for suite, result in sorted(kselftest["suites"].items(), key=lambda item: profile_sort_key(item[0])):
             counts = result["counts"]
-            lines.append(f"| {display_profile(suite, build=True)} | {result['state']} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |")
+            label = display_profile(suite, build=suite.partition("/")[0] not in PROFILE_LABELS)
+            lines.append(f"| {label} | {result['state']} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |")
     else:
         lines.append("No kselftest TAP artifacts were collected.")
     lines.append("")
