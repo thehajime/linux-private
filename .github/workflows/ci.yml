@@ -1634,8 +1634,11 @@ jobs:
             (( ltp_memory_bytes <= 8589934592 )) || ltp_memory_bytes=8589934592
             (( ltp_memory_bytes >= 536870912 ))
             echo "Native LTP memory budget: $ltp_memory_bytes bytes"
+            # LTP reads host SwapFree. Keep host swap usable; setting total
+            # memory+swap equal to memory would falsely advertise unavailable
+            # swap and break the madvise memory-pressure prerequisites.
             docker_args+=(--init --memory "$ltp_memory_bytes"
-              --memory-swap "$ltp_memory_bytes" --tmpfs /tmp:rw,exec,size=4g)
+              --memory-swap -1 --tmpfs /tmp:rw,exec,size=4g)
           else
             docker_args+=(-v /dev:/dev)
           fi
