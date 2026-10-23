@@ -61,7 +61,7 @@ reproducible kselftest build instructions in
 ### CI failure follow-up (2026-10-23)
 
 Current local remediation checkpoint (supersedes the original failure inventory
-below; CI is still held):
+below; local acceptance is complete, full CI is next):
 
 - [x] Native full syscalls on freshly built LTP `1bb350a1cd55501173e33f1836a674494f2cb48b`:
   1,481 records, 9,895 pass / 405 skip / 0 FAIL/BROK/WARN, normal exit 0,
@@ -81,8 +81,9 @@ below; CI is still held):
   zero FAIL/BROK/WARN, exact coverage and normal poweroff. TT: 10,053 pass /
   513 skip; ptrace: 10,054 pass / 513 skip. Ptrace uses a TT-capable kernel
   with time travel disabled. Deliberate fault assertions audited separately.
-- [ ] Finish the current normal CI SMP-config MMU seccomp full run and audit
-  its complete JSON, fault log and termination. Prior msgstress01 PASS labels
+- [x] Current normal CI SMP-config MMU seccomp full run: 1,481 records,
+  10,046 pass / 513 skip / zero FAIL/BROK/WARN, normal poweroff and exact
+  coverage. All 22 fault events match intentional tests. Prior msgstress01 PASS labels
   already included one runtime-budget TCONF; do not claim all stress pairs ran.
 - [x] Port runtime prerequisites to CI: preserved extraction modes, native
   child reaping and memory budget, cgroup delegation, private loop hotplug,
