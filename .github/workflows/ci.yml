@@ -1761,7 +1761,11 @@ jobs:
         if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
-        run: python3 .github/workflows/check-ltp-result.py "output/ltp/result-${LTP_TESTNAME}.json"
+        run: |
+          python3 .github/workflows/check-ltp-result.py "output/ltp/result-${LTP_TESTNAME}.json" \
+            --runtest "output/ltp/runtest-${LTP_TESTNAME}.txt" \
+            --skip-file "output/ltp/skip-${LTP_TESTNAME}.txt" \
+            --pattern-file output/ltp/run-pattern.txt
       - uses: actions/upload-artifact@v7
         if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         with:

@@ -122,6 +122,10 @@ if [ -n "${LTP_RUN_PATTERN_OVERRIDE:-}" ]; then
 	printf 'focused run-pattern override\n' > output/ltp/run-mode.txt
 fi
 
+# Preserve the exact selection so a timed-out partial JSON cannot pass CI.
+cp /opt/ltp/runtest/syscalls "output/ltp/runtest-${LTP_TESTNAME}.txt"
+cp /ltp-skip "output/ltp/skip-${LTP_TESTNAME}.txt"
+
 run_faketty()
 {
 	case "$LTP_TESTNAME" in
