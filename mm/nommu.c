@@ -1138,7 +1138,9 @@ unsigned long do_mmap_nommu(struct file *file,
 		for (rb = rb_first(&nommu_region_tree); rb; rb = rb_next(rb)) {
 			pregion = rb_entry(rb, struct vm_region, vm_rb);
 
-			if (!is_nommu_shared_mapping(pregion->vm_flags))
+			/* Anonymous shared regions cannot match a file mapping. */
+			if (!pregion->vm_file ||
+			    !is_nommu_shared_mapping(pregion->vm_flags))
 				continue;
 
 			/* search for overlapping mappings on the same file */
