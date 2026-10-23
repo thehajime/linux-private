@@ -60,8 +60,8 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
-Current local remediation checkpoint (supersedes the original failure inventory
-below; local acceptance is complete, CI 39951978045 is active):
+Current remediation checkpoint (supersedes the original failure inventory
+below; local and full CI acceptance are complete):
 
 - [x] Native full syscalls on freshly built LTP `1bb350a1cd55501173e33f1836a674494f2cb48b`:
   1,481 records, 9,895 pass / 405 skip / 0 FAIL/BROK/WARN, normal exit 0,
@@ -124,6 +124,16 @@ passing assertion. The main full CI still needs to verify the complete result.
 
 Full JSON, HTML, configs, GDB evidence and exact commands are in Obsidian
 `nommu-swmmu/Codex-Logs/2026-10-23_175737+0900-ltp-local-abi-and-runtime-fixes`.
+Corrected full CI 40020987840 completed 99/99 jobs successfully on CI
+eebc9ead90e1, kernel 6c0c5d71b58a and LTP 1bb350a1cd55. All 11 full LTP
+profiles pass exact selection coverage and normal termination: 16,253 records,
+87,866 pass / 9,394 skip / zero FAIL/BROK/WARN. Native taint remains zero
+before and after. Six KUnit profiles total 4,836 pass / 252 skip / zero errors;
+both direct SWMMU modes total 112 pass / 16 skip / zero failures. The result
+report is issue #4 comment 6375108650. Validated head 6c0c5d71b58a was
+fast-forwarded to feature-swmmu-nommu, review PR #17 was closed, and the
+redundant swmmu-nommu-exp branch was deleted.
+
 Native bind06/setsockopt06 can temporarily set max_user_namespaces=1024 and
 prevent cloud sandbox creation with ENOSPC. Confirm test cleanup restores the
 saved value; do not confuse this with disk exhaustion or reset the environment.
@@ -131,15 +141,15 @@ saved value; do not confuse this with disk exhaustion or reset the environment.
 
 - [ ] Keep general default-off fork migration, user-VA/backing redesign and
   general multithread/SMP-safe instruction rewriting as separate architecture TODOs.
-- [ ] Merge swmmu-nommu-exp into feature-swmmu-nommu only after the full main CI
-  validates the exact candidate and is green; a report-refresh success is not
-  this gate. Close review PR #17 after the integration succeeds, not before.
+- [x] Full CI 40020987840 validated the exact candidate; swmmu-nommu-exp was
+  fast-forwarded into feature-swmmu-nommu at 6c0c5d71b58a, PR #17 was closed,
+  and the redundant exp branch was deleted.
 - [ ] Kirk upstream preparation is preserved in thehajime/ltp branch
   hajime/kirk-runtime-fixes-review, tools/kirk/runtime-fixes. This is a staged
   patch series, not an LTP submodule update or a submitted Kirk PR.
 
-- Review follow-up: implementation remains swmmu-nommu-exp, not the already
-  integrated feature-swmmu-nommu branch. New trap organization moves SAS PC
+- Review follow-up: implementation is now integrated into
+  feature-swmmu-nommu. New trap organization moves SAS PC
   classification and invalid-zpoline recovery into the formerly unbuilt
   arch/um/nommu/trap.c; common signal delivery remains in kernel/trap.c.
 - IMPORTANT: last_ditch_exit handles host SIGINT/SIGTERM. Commit 35016cac12d5
