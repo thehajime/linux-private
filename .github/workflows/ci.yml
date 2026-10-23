@@ -1602,7 +1602,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/ltp-root"
           archive="$RUNNER_TEMP/ltp-install/ltp-alpine-${{ matrix.name }}.tar.gz"
-          tar -xzf "$archive" \
+          tar --same-permissions -xzf "$archive" \
             -C "$RUNNER_TEMP/ltp-root"
           test -x "$RUNNER_TEMP/ltp-root/opt/ltp/kirk"
       - name: Create local test container

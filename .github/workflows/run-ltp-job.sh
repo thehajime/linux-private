@@ -26,7 +26,8 @@ if [ "${LTP_INSTALL_PREEXTRACTED:-0}" = 1 ]; then
 	test -x /opt/ltp/kirk
 else
 	test -r "$ltp_archive"
-	tar xfz "$ltp_archive" -C /
+	# Restore installed helper/directory modes even under umask 0077.
+	tar xpfz "$ltp_archive" -C /
 fi
 
 ltp_source=/ltp-source
