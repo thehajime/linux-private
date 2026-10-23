@@ -60,6 +60,22 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- [x] Restore safe plain SAS zpoline text rewriting in work-branch commit
+  `ee7a1b92d18a741efee6a30eb68ce7b7ec0c4ced`. Only exclusively owned executable
+  VM_MAPPED_COPY regions are eligible; a temporary RW/non-executable host alias
+  updates physical backing under mm/region locks and preemption exclusion.
+  Shared/direct regions, SMP, cross-page instructions and invalid syscall
+  numbers retain fallback. Matched local getpid medians: rewrite-disabled
+  plain SAS(z) 1406.526 ns, candidate seccomp 1386.313 ns, candidate zpoline
+  264.931 ns (three million-call samples each). New plain test passes 9/9 in
+  both modes with normal shutdown. Both SWMMU modes pass KUnit 34/0/1,
+  SWMMU selftest 38/0/8, FP/signal 15/0, shared-file 3/0 and syscall02/mmap02.
+- [ ] Run full plain-SAS CI acceptance for `ee7a1b92d18a` before integration.
+  The previous successful full CI below does not include this new fix. Stage
+  the new nommu_zpoline_native_test with a hostfs private-copy filename and a
+  ramfs shared filename in both plain modes; any kernel/APK reuse allowlist
+  update must review the exact new delta. No userspace runtime/UAPI changed.
+
 - Final acceptance: CI 39888448097 completed success (97 successful jobs,
   2 intended skips). All seven NOMMU LTP profiles have zero fail/broken;
   MMU/native affected tests all occur in both saved pre-fix baselines.
