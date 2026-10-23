@@ -60,6 +60,15 @@ reproducible kselftest build instructions in
 
 ### CI failure follow-up (2026-10-23)
 
+- [ ] Keep general default-off fork migration, user-VA/backing redesign and
+  general multithread/SMP-safe instruction rewriting as separate architecture TODOs.
+- [ ] Merge swmmu-nommu-exp into feature-swmmu-nommu only after the full main CI
+  validates the exact candidate and is green; a report-refresh success is not
+  this gate. Close review PR #17 after the integration succeeds, not before.
+- [ ] Kirk upstream preparation is preserved in thehajime/ltp branch
+  hajime/kirk-runtime-fixes-review, tools/kirk/runtime-fixes. This is a staged
+  patch series, not an LTP submodule update or a submitted Kirk PR.
+
 - Review follow-up: implementation remains swmmu-nommu-exp, not the already
   integrated feature-swmmu-nommu branch. New trap organization moves SAS PC
   classification and invalid-zpoline recovery into the formerly unbuilt
