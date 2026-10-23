@@ -106,9 +106,15 @@ jobs:
               [[ "$manifest_aports_sha" == "$aports_sha" ]] || continue
 
               compare=$(gh api "repos/thehajime/linux-private/compare/${candidate_kernel_sha}...${kernel_sha}")
-              if jq -e '
+              if jq -e --arg apk_kernel "$candidate_kernel_sha" --arg tested_kernel "$kernel_sha" '
                 .status == "ahead" and
                 (
+                  # Reviewed immutable pair: kernel-only FP/GUP/alias fixes,
+                  # plain zpoline and SAS trap refactor. Plugin/runtime/UAPI
+                  # are unchanged; aports and archive manifests checked above/below.
+                  ($apk_kernel == "52a8dfe6b58adffa2c5e57df1421a7e82cc50d9b" and
+                   $tested_kernel == "6d8e67f9be14d5f612eafd4ca78ee2c813cd6baa")
+                or
                   (.files | length > 0 and length < 300) and
                   all(.files[]; .filename == "arch/um/kernel/trap.c")
                 or

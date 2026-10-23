@@ -1072,3 +1072,13 @@ does not close broad application validation. OpenSSL has not been started.
 - Candidate source change is tracked in [PR #13](https://github.com/thehajime/linux-private/pull/13), targeting `feature-swmmu-nommu`. It updates the Maple range on shrink and grow.
 - Focused probes for shrink then unmap, and shrink then re-expand then unmap, completed with no validator warnings. On the diagnostic image, a mixed `mmap|munmap|mremap|brk` LTP profile completed 2 iterations (38 pass, 8 fail, 0 broken, 46 skipped), with no panic and normal guest teardown. This is not proof against the historical reproducer, which required 20 iterations. A 20-iteration attempt was interrupted during the third `munmap04`, after two full iterations, so it provided no teardown result.
 - Next: build the candidate on the vector-enabled test image and run the full 20-iteration workload through teardown, retaining `validate_mm()` diagnostics. Close only after the panic is checked against that workload; if it still occurs, continue root-cause investigation.
+
+### APK reuse gate — 2026-10-23
+
+Run 39922152442 stopped before builds/tests: there is no APK release for kernel
+6d8e67f9be14 and the previous file-count allowlist rejected the new trap layout.
+The exact reviewed pair 52a8dfe6b58a -> 6d8e67f9be14 is now accepted with unchanged
+aports SHA and checked release/archive manifests. The diff changes kernel-only
+state/handlers, docs and selftests; compiler plugin, runtime and UAPI sources are
+unchanged. This exception does not authorize future kernel tips or prove LTP
+acceptance. Full CI must run; FAIL/BROK/WARN review remains a separate merge gate.
