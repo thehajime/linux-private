@@ -678,7 +678,7 @@ def render(snapshot, previous):
                     host_counts = sorted({int(item.get("host_cpu_count", 0)) for item in ordered_matrix
                                           if item.get("profile") == profile and item.get("workers") == worker})
                     host_label = f"host, {host_counts[0]} CPUs" if host_counts and host_counts[0] else "host"
-                    series.extend((profile, cpus, f"native ({host_label})") for cpus in cpu_counts)
+                    series.extend((profile, cpus, f"(native) ({host_label})") for cpus in cpu_counts)
                 else:
                     smp = "SMP=y" if profile.startswith("um-mmu") or profile in ("um-nommu", "um-nommu-seccomp") else "SMP=n"
                     series.extend((profile, cpus,

@@ -46,7 +46,7 @@ def series_for(worker, statuses, host_cpu_counts):
             smp = "SMP=y" if profile.startswith("um-mmu") or profile in ("um-nommu", "um-nommu-seccomp") else "SMP=n"
             if profile == "native":
                 host_cpus = host_cpu_counts.get(profile, "unknown")
-                legend = f"native [host: {host_cpus} CPUs]"
+                legend = f"(native) [host: {host_cpus} CPUs]"
             else:
                 legend = f"{label} [{smp}, {cpus} CPU{'s' if cpus != 1 else ''}]"
             series.append((profile, cpus, legend, color))
