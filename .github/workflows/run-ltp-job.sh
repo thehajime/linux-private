@@ -157,6 +157,7 @@ elif [ "$LTP_TESTNAME" = native ]; then
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat" || ltp_native_status=$?
 else
 	cp .github/workflows/ltp-exec.sh /ltp-exec.sh
+	chmod 755 /ltp-exec.sh
 	sed "s/cmd_option/${UML_OPTIONS}/" .github/workflows/ltp-entrypoint.sh \
 		> /tmp/ltp-entrypoint.sh
 	mv /tmp/ltp-entrypoint.sh .github/workflows/ltp-entrypoint.sh
