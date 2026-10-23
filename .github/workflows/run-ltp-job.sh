@@ -51,10 +51,6 @@ case "$LTP_TESTNAME" in
 		echo epoll_wait01 >> /ltp-skip
 		echo "Skipping known epoll_wait01 kernel panic for um-nommu"
 		;;
-	um-mmu)
-		echo ptrace06 >> /ltp-skip
-		echo "Skipping known ptrace06 failure for um-mmu"
-		;;
 	um-nommu-seccomp)
 		echo perf_event_open03 >> /ltp-skip
 		echo "Skipping known perf_event_open03 failure for $LTP_TESTNAME"
@@ -152,10 +148,13 @@ if [ "$LTP_TESTNAME" = riscv-nommu ]; then
 		--run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
 		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 elif [ "$LTP_TESTNAME" = native ]; then
+	. .github/workflows/ltp-runtime.sh
+	ltp_runtime_prepare native
+	ltp_native_status=0
 	run_faketty env LTP_SINGLE_FS_TYPE=ext4 /opt/ltp/kirk \
 		-f syscalls --suite-timeout "$LTP_SUITE_TIMEOUT" \
 		--run-pattern "$LTP_RUN_PATTERN" --skip-file /ltp-skip -o /result.json \
-		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
+		| tee "output/ltp/${LTP_TESTNAME}-ltp.dat" || ltp_native_status=$?
 else
 	cp .github/workflows/ltp-exec.sh /ltp-exec.sh
 	sed "s/cmd_option/${UML_OPTIONS}/" .github/workflows/ltp-entrypoint.sh \
@@ -174,6 +173,7 @@ else
 			;;
 		*)
 			run_faketty sh -x .github/workflows/ltp-entrypoint.sh LTP_SINGLE_FS_TYPE=ext4 \
+				"LTP_VIRT_OVERRIDE=${LTP_VIRT_OVERRIDE-uml}" \
 				LTP_TESTNAME="$LTP_TESTNAME" LTP_SUITE_TIMEOUT="$LTP_SUITE_TIMEOUT" \
 				| tee "output/ltp/${LTP_TESTNAME}-ltp.dat"
 			;;
@@ -194,3 +194,11 @@ case "$LTP_TESTNAME" in
 		cp -rpf /tmp/kirk.root/ output/ltp/ 2>/dev/null || true
 		;;
 esac
+
+if [ "$LTP_TESTNAME" = native ]; then
+	cp /tmp/ltp-mdev.log output/ltp/native-mdev.log
+	cp /sys/fs/cgroup/memory.events output/ltp/native-memory-events.txt
+	printf '%s\n' "$ltp_native_status" > output/ltp/native-complete-status.txt
+	echo "LTP_NATIVE_COMPLETE=$ltp_native_status"
+	exit "$ltp_native_status"
+fi

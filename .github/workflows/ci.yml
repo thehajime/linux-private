@@ -1613,7 +1613,7 @@ jobs:
           install -d "$RUNNER_TEMP/ltp-home"
           docker_args=(
             --name ltp-test --privileged -t
-            -v /boot:/boot -v /home:/home -v /dev:/dev
+            -v /boot:/boot -v /home:/home
             ${{ matrix.docker_opt }}
             -v "$GITHUB_WORKSPACE:/github/workspace"
             -v "$RUNNER_TEMP/ltp-root/opt/ltp:/opt/ltp"
@@ -1624,6 +1624,17 @@ jobs:
             # bind02 requires the Linux privileged-port boundary. Docker's
             # default of zero permits unprivileged binding to every port.
             docker_args+=(--sysctl net.ipv4.ip_unprivileged_port_start=1024)
+            # Expose a real memory budget to LTP instead of host RAM hidden
+            # behind an ancestor cgroup. Leave headroom for the runner.
+            ltp_memory_kib=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+            ltp_memory_bytes=$((ltp_memory_kib * 1024 * 3 / 4))
+            (( ltp_memory_bytes <= 8589934592 )) || ltp_memory_bytes=8589934592
+            (( ltp_memory_bytes >= 536870912 ))
+            echo "Native LTP memory budget: $ltp_memory_bytes bytes"
+            docker_args+=(--init --memory "$ltp_memory_bytes"
+              --memory-swap "$ltp_memory_bytes" --tmpfs /tmp:rw,exec,size=4g)
+          else
+            docker_args+=(-v /dev:/dev)
           fi
           if [[ "$LTP_TESTNAME" == um-nommu* ]]; then
             docker create "${docker_args[@]}" \
@@ -1762,10 +1773,21 @@ jobs:
         env:
           LTP_TESTNAME: ${{ matrix.testname }}
         run: |
+          set -euo pipefail
           python3 .github/workflows/check-ltp-result.py "output/ltp/result-${LTP_TESTNAME}.json" \
             --runtest "output/ltp/runtest-${LTP_TESTNAME}.txt" \
             --skip-file "output/ltp/skip-${LTP_TESTNAME}.txt" \
             --pattern-file output/ltp/run-pattern.txt
+          case "$LTP_TESTNAME" in
+            um-*)
+              tr -d '\r' < "output/ltp/${LTP_TESTNAME}-ltp.dat" |
+                grep -x 'LTP_GUEST_COMPLETE=0'
+              grep -E 'reboot: (Power down|System halted)' "output/ltp/${LTP_TESTNAME}-ltp.dat"
+              ;;
+            native)
+              test "$(cat output/ltp/native-complete-status.txt)" = 0
+              ;;
+          esac
       - uses: actions/upload-artifact@v7
         if: ${{ always() && (matrix.testname != 'riscv-nommu' || inputs.run_riscv_ltp) }}
         with:
