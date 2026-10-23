@@ -112,6 +112,16 @@ Docker creation and preserve native before/after dmesg/taint snapshots. Do not
 skip these tests or merge until the native kernel failure is understood.
 Local epoll_pwait03 with the actual host VM override passes 14 assertions.
 
+Diagnostic run 40020480233 isolated the failure on the same
+6.17.0-1022-azure runner kernel. epoll_pwait03 passed 14 assertions, wait403
+passed, and io_uring04 configuration-skipped because RDS is unavailable.
+setsockopt11 changed kernel taint from 0 to 128 and captured a NULL dereference
+in skb_release_data() through __ip6_flush_pending_frames(). This is the bug
+fixed by 736b380e28d0, which that hosted kernel lacks. Native CI excludes only
+setsockopt11 on the exact diagnosed kernel release; an updated runner
+automatically runs it again. Preserve this as a configuration exclusion, not a
+passing assertion. The main full CI still needs to verify the complete result.
+
 Full JSON, HTML, configs, GDB evidence and exact commands are in Obsidian
 `nommu-swmmu/Codex-Logs/2026-10-23_175737+0900-ltp-local-abi-and-runtime-fixes`.
 Native bind06/setsockopt06 can temporarily set max_user_namespaces=1024 and

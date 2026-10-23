@@ -39,6 +39,18 @@ if [ "$LTP_TESTNAME" = um-nommu-sas-zpoline ] ||
 	mkdir -p output/ltp/uml-python-debug
 fi
 case "$LTP_TESTNAME" in
+	native)
+		# GitHub's ubuntu-24.04 runner currently uses an Azure kernel without
+		# 736b380e28d0 ("ipv6: account for fraggap on the paged allocation
+		# path").  setsockopt11 reproduces that host bug in skb_release_data(),
+		# taints the host with an Oops, and makes later taint-sensitive tests
+		# BROK.  Restrict the exclusion to the diagnosed kernel release so a
+		# fixed or updated runner automatically restores the regression test.
+		if [ "$(uname -r)" = 6.17.0-1022-azure ]; then
+			echo setsockopt11 >> /ltp-skip
+			echo "Skipping setsockopt11: runner kernel lacks 736b380e28d0 and Oopses"
+		fi
+		;;
 	riscv-nommu)
 		# This pthread futex test reports TBROK under the uClibc NOMMU
 		# target and leaves Kirk's QEMU channel waiting for the next shell
