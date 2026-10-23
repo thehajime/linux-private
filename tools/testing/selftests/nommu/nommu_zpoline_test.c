@@ -54,12 +54,15 @@ static void fp_tick(int sig)
 	(void)sig;
 }
 
-static int fp_probe(uint64_t pattern)
+static int fp_probe(uint64_t pattern, unsigned int width)
 {
 	struct sigaction action = { .sa_handler = fp_tick, .sa_flags = SA_RESTART };
 	struct sigaction old_action;
 	struct itimerval timer = { { 0, 1000 }, { 0, 1000 } }, old_timer;
-	uint64_t wanted[2] = { pattern, ~pattern }, actual[2];
+	uint64_t wanted[8], actual[8];
+
+	for (unsigned int i = 0; i < 8; i++)
+		wanted[i] = pattern ^ (0x123456789abcdefULL * i);
 	unsigned int errors = 0;
 	long ret;
 
@@ -67,13 +70,21 @@ static int fp_probe(uint64_t pattern)
 	    setitimer(ITIMER_REAL, &timer, &old_timer))
 		return 1;
 	for (unsigned int i = 0; i < 10000; i++) {
-		asm volatile("movdqu %2, %%xmm15\n\t"
-			     "syscall\n\t"
-			     "movdqu %%xmm15, %0"
-			     : "=m"(actual), "=a"(ret)
-			     : "m"(wanted), "1"((long)SYS_sched_yield)
-			     : "xmm15", "rcx", "r11", "memory");
-		if (ret || actual[0] != wanted[0] || actual[1] != wanted[1])
+#define FP_ROUNDTRIP(insn, reg) \
+		asm volatile(insn " %2, %%" reg "15\n\t" \
+			     "syscall\n\t" \
+			     insn " %%" reg "15, %0" \
+			     : "=m"(actual), "=a"(ret) \
+			     : "m"(wanted), "1"((long)SYS_sched_yield) \
+			     : "xmm15", "rcx", "r11", "memory")
+		if (width == 64)
+			FP_ROUNDTRIP("vmovdqu64", "zmm");
+		else if (width == 32)
+			FP_ROUNDTRIP("vmovdqu", "ymm");
+		else
+			FP_ROUNDTRIP("movdqu", "xmm");
+#undef FP_ROUNDTRIP
+		if (ret || memcmp(actual, wanted, width))
 			errors++;
 	}
 	if (setitimer(ITIMER_REAL, &old_timer, NULL) ||
@@ -84,24 +95,46 @@ static int fp_probe(uint64_t pattern)
 	return errors != 0;
 }
 
-static int fp_process_context(void)
+static int fp_process_context(unsigned int width)
 {
-	pid_t child = fork();
+	pid_t child;
 	int status, failed;
 
+	fflush(stdout);
+	child = fork();
 	if (child < 0)
 		return 0;
 	if (!child) {
-		failed = fp_probe(0x0123456789abcdefULL);
+		failed = fp_probe(0x0123456789abcdefULL, width);
 		fflush(stdout);
 		_exit(failed);
 	}
-	failed = fp_probe(0xfedcba9876543210ULL);
+	failed = fp_probe(0xfedcba9876543210ULL, width);
 	while (waitpid(child, &status, 0) < 0) {
 		if (errno != EINTR)
 			return 0;
 	}
 	return !failed && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static int vector_supported(unsigned int width)
+{
+	unsigned int a = 1, b, c, d;
+	uint64_t enabled;
+
+	asm volatile("cpuid" : "+a"(a), "=b"(b), "=c"(c), "=d"(d));
+	if ((c & ((1U << 27) | (1U << 28))) != ((1U << 27) | (1U << 28)))
+		return 0;
+	asm volatile("xgetbv" : "=a"(a), "=d"(d) : "c"(0));
+	enabled = (uint64_t)d << 32 | a;
+	if ((enabled & 6) != 6)
+		return 0;
+	if (width == 32)
+		return 1;
+	a = 7;
+	c = 0;
+	asm volatile("cpuid" : "+a"(a), "=b"(b), "+c"(c), "=d"(d));
+	return (b & (1U << 16)) && (enabled & 0xe6) == 0xe6;
 }
 
 int main(int argc, char **argv)
@@ -113,7 +146,7 @@ int main(int argc, char **argv)
 	long pid = getpid();
 
 	ksft_print_header();
-	ksft_set_plan(9);
+	ksft_set_plan(11);
 	p = new_code(page, 0, 0);
 	ksft_test_result(raw(p), "new RX code contains syscall\n");
 	ksft_test_result(invoke(p) == pid, "RX syscall returns guest PID\n");
@@ -156,8 +189,17 @@ int main(int argc, char **argv)
 	invalid = new_code(page, 0, 1);
 	ksft_test_result(invoke(invalid) == -ENOSYS && raw(invalid),
 			 "invalid syscall stays on ENOSYS fallback\n");
-	ksft_test_result(fp_process_context(),
+	ksft_test_result(fp_process_context(16),
 			 "FP state survives scheduling and signal delivery\n");
+	for (unsigned int width = 32; width <= 64; width *= 2) {
+		if (!vector_supported(width))
+			ksft_test_result_skip("%u-byte vector state unsupported\n", width);
+		else
+			ksft_test_result(fp_process_context(width),
+					 "%u-byte vector state survives scheduling and signals\n",
+					 width);
+	}
+
 	munmap(p, page);
 	munmap(private, page);
 	munmap(cross, 2 * page);

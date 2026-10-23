@@ -27,6 +27,46 @@
  */
 long long host_fs = -1;
 
+static u64 sas_xstate_mask;
+
+static void __init sas_cpuid(u32 leaf, u32 subleaf, u32 regs[4])
+{
+	asm volatile("cpuid"
+		     : "=a"(regs[0]), "=b"(regs[1]),
+		       "=c"(regs[2]), "=d"(regs[3])
+		     : "0"(leaf), "2"(subleaf));
+}
+
+static int __init um_nommu_init_fp(void)
+{
+	u32 regs[4], low, high;
+	u64 enabled;
+	unsigned int bit;
+
+	BUILD_BUG_ON(offsetof(struct task_struct, thread.regs.regs.fp) % 64);
+	sas_cpuid(1, 0, regs);
+	if ((regs[2] & ((1U << 26) | (1U << 27))) !=
+	    ((1U << 26) | (1U << 27)) || host_fp_size < 576)
+		return 0;
+
+	asm volatile("xgetbv" : "=a"(low), "=d"(high) : "c"(0));
+	enabled = (u64)high << 32 | low;
+	sas_xstate_mask = enabled & 3;
+	/* Include only user components represented in the host's saved layout. */
+	for (bit = 2; bit < 64; bit++) {
+		if (!(enabled & (1ULL << bit)))
+			continue;
+		sas_cpuid(0xd, bit, regs);
+		if (regs[0] && !(regs[2] & 1) &&
+		    (u64)regs[1] + regs[0] <= host_fp_size)
+			sas_xstate_mask |= 1ULL << bit;
+	}
+	pr_info("SAS: xstate mask %#llx, context size %lu bytes\n",
+		sas_xstate_mask, host_fp_size);
+	return 0;
+}
+arch_initcall(um_nommu_init_fp);
+
 int os_x86_arch_prctl(int pid, int option, unsigned long *arg2)
 {
 	if (!host_has_fsgsbase)
@@ -58,7 +98,14 @@ int os_x86_arch_prctl(int pid, int option, unsigned long *arg2)
 void arch_save_guest_fp(void)
 {
 	/* Save before alias activation or any other scheduling host operation. */
-	asm volatile("fxsaveq %0" : "=m"(current->thread.regs.regs.fp) : : "memory");
+	struct uml_pt_regs *regs = &current->thread.regs.regs;
+
+	if (sas_xstate_mask)
+		asm volatile("xsaveq %0" : "=m"(regs->fp)
+			     : "a"((u32)sas_xstate_mask),
+			       "d"((u32)(sas_xstate_mask >> 32)) : "memory");
+	else
+		asm volatile("fxsaveq %0" : "=m"(regs->fp) : : "memory");
 }
 
 void arch_set_stack_to_current(void)
@@ -87,7 +134,12 @@ void arch_restore_guest_fs(void)
 	os_x86_arch_prctl(0, ARCH_SET_FS, (void __user *)fs);
 
 	/* Pending work and alias activation can schedule and change host FP. */
-	asm volatile("fxrstorq %0" : : "m"(regs->fp));
+	if (sas_xstate_mask)
+		asm volatile("xrstorq %0" : : "m"(regs->fp),
+			     "a"((u32)sas_xstate_mask),
+			     "d"((u32)(sas_xstate_mask >> 32)) : "memory");
+	else
+		asm volatile("fxrstorq %0" : : "m"(regs->fp) : "memory");
 }
 
 void arch_switch_to(struct task_struct *to)

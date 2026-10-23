@@ -19,6 +19,11 @@ struct task_struct;
 
 struct mm_struct;
 
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_64BIT)
+/* XSAVE/XRSTOR require a 64-byte-aligned per-task register image. */
+#define ARCH_MIN_TASKALIGN 64
+#endif
+
 struct thread_struct {
 	/* Deferred SIGSYS text rewrite; consumed on this task's kernel stack. */
 	unsigned long zpoline_pending_ip;
@@ -36,7 +41,11 @@ struct thread_struct {
 	void *segv_continue;
 
 	/* Contains variable sized FP registers */
+#if defined(CONFIG_UML_NOMMU_SAS) && defined(CONFIG_64BIT)
+	struct pt_regs regs __aligned(64);
+#else
 	struct pt_regs regs;
+#endif
 };
 
 #define INIT_THREAD \
