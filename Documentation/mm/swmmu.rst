@@ -190,6 +190,14 @@ optional host ``unmap_range`` callback to restore guards once per range;
 backends without it retain page-by-page teardown. A partial activation failure
 clears the complete affected range before retrying.
 
+Alias activation can use the optional host ``map_pages`` callback for a run
+of consecutive physical pages within one VMA and protection range. UML also
+checks the backing descriptor and file offsets, splitting a physical run at
+any backing-file boundary. This reduces host mmap calls without changing
+page ownership, guest addresses, permissions or private clone semantics.
+Backends without the callback retain individual page mapping. Missing pages
+or any failed batch use the existing complete-range rollback.
+
 The ``nommu_swmmu_load`` syscall accepts the standalone query flag
 ``NOMMU_SWMMU_QUERY_DIRECT_WINDOW`` with a null address, a size of 16, and an
 output pointer to two ``u64`` values. It returns the immutable inclusive start

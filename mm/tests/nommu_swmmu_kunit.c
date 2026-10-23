@@ -860,6 +860,37 @@ static int alias_test_map(unsigned long address, struct page *page,
 	return ret;
 }
 
+static unsigned long alias_test_bulk_maps, alias_test_bulk_pages;
+
+static int alias_test_map_pages(unsigned long address, struct page *page,
+				unsigned long nr_pages, unsigned int prot)
+{
+	unsigned long count = nr_pages, i;
+	int ret;
+
+	alias_test_bulk_maps++;
+	if (alias_test_fail_address >= address &&
+	    alias_test_fail_address - address < nr_pages * SWMMU_PAGE_SIZE)
+		count = (alias_test_fail_address - address) / SWMMU_PAGE_SIZE;
+	if (count) {
+		ret = alias_test_real_ops->map_pages(address, page, count, prot);
+		if (ret)
+			return ret;
+	}
+	alias_test_bulk_pages += count;
+	for (i = 0; i < count; i++) {
+		unsigned long target = address + i * SWMMU_PAGE_SIZE;
+
+		if (target >= alias_test_base &&
+		    target - alias_test_base < 8 * SWMMU_PAGE_SIZE) {
+			alias_test_maps++;
+			alias_test_installed |= 1UL <<
+				((target - alias_test_base) / SWMMU_PAGE_SIZE);
+		}
+	}
+	return count == nr_pages ? 0 : -EIO;
+}
+
 static void alias_test_unmap(unsigned long address)
 {
 	alias_test_real_ops->unmap_page(address);
@@ -903,7 +934,7 @@ static void nommu_swmmu_mm_alias_owner_ref_test(struct kunit *test)
 
 	alias_test_real_ops = nommu_swmmu_arch_host_ops();
 	if (!alias_test_real_ops || !alias_test_real_ops->unmap_range) {
-		kunit_skip(test, "backend lacks bulk unmap");
+		kunit_skip(test, "backend lacks required bulk alias operation");
 		return;
 	}
 	alias_test_ops = *alias_test_real_ops;
@@ -933,11 +964,12 @@ static void nommu_swmmu_mm_alias_mm_users_zero_test(struct kunit *test)
 
 	alias_test_real_ops = nommu_swmmu_arch_host_ops();
 	if (!alias_test_real_ops || !alias_test_real_ops->unmap_range) {
-		kunit_skip(test, "backend lacks bulk unmap");
+		kunit_skip(test, "backend lacks required bulk alias operation");
 		return;
 	}
 	alias_test_ops = *alias_test_real_ops;
 	alias_test_ops.map_page = alias_test_map;
+	alias_test_ops.map_pages = NULL;
 	alias_test_ops.unmap_page = alias_test_unmap;
 	alias_test_ops.unmap_range = alias_test_unmap_range;
 	nommu_swmmu_kunit_set_host_ops(ctx->space, &alias_test_ops);
@@ -963,19 +995,23 @@ static void nommu_swmmu_mm_alias_mm_users_zero_test(struct kunit *test)
 	nommu_swmmu_kunit_set_host_ops(ctx->space, alias_test_real_ops);
 }
 
-static void nommu_swmmu_mm_alias_bulk_rollback_test(struct kunit *test)
+static void alias_rollback_test(struct kunit *test, bool batch)
 {
 	struct nommu_swmmu_mm_test_ctx *ctx = test->priv;
 	unsigned long address, i;
 	int ret;
 
 	alias_test_real_ops = nommu_swmmu_arch_host_ops();
-	if (!alias_test_real_ops || !alias_test_real_ops->unmap_range) {
-		kunit_skip(test, "backend lacks bulk unmap");
+	if (!alias_test_real_ops || !alias_test_real_ops->unmap_range ||
+	    (batch && !alias_test_real_ops->map_pages)) {
+		kunit_skip(test, "backend lacks required bulk alias operation");
 		return;
 	}
 	alias_test_ops = *alias_test_real_ops;
 	alias_test_ops.map_page = alias_test_map;
+	alias_test_ops.map_pages = batch ? alias_test_map_pages : NULL;
+	alias_test_bulk_maps = 0;
+	alias_test_bulk_pages = 0;
 	alias_test_ops.unmap_page = alias_test_unmap;
 	alias_test_ops.unmap_range = alias_test_unmap_range;
 	nommu_swmmu_kunit_set_host_ops(ctx->space, &alias_test_ops);
@@ -997,8 +1033,14 @@ static void nommu_swmmu_mm_alias_bulk_rollback_test(struct kunit *test)
 	KUNIT_ASSERT_EQ(test, ret, -EIO);
 	KUNIT_EXPECT_EQ(test, alias_test_bulk_unmaps, 1UL);
 	KUNIT_EXPECT_EQ(test, alias_test_installed, 0UL);
+	if (batch)
+		KUNIT_EXPECT_EQ(test, alias_test_bulk_pages, 2UL);
 	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(ctx->mm), 0);
 	KUNIT_EXPECT_EQ(test, alias_test_installed, 15UL);
+	if (batch) {
+		KUNIT_EXPECT_EQ(test, alias_test_bulk_pages, 6UL);
+		KUNIT_EXPECT_GT(test, alias_test_bulk_maps, 0UL);
+	}
 	for (i = 0; i < 4; i++)
 		KUNIT_EXPECT_EQ(test,
 			READ_ONCE(*(u64 *)(address + i * SWMMU_PAGE_SIZE)), 41ULL + i);
@@ -1009,6 +1051,16 @@ static void nommu_swmmu_mm_alias_bulk_rollback_test(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, alias_test_installed, 0UL);
 	KUNIT_ASSERT_EQ(test, nommu_swmmu_activate_mm(NULL), 0);
 	nommu_swmmu_kunit_set_host_ops(ctx->space, alias_test_real_ops);
+}
+
+static void nommu_swmmu_mm_alias_bulk_rollback_test(struct kunit *test)
+{
+	alias_rollback_test(test, false);
+}
+
+static void nommu_swmmu_mm_alias_batch_mapping_test(struct kunit *test)
+{
+	alias_rollback_test(test, true);
 }
 
 static void nommu_swmmu_mm_alias_repair_test(struct kunit *test)
@@ -1026,6 +1078,7 @@ static void nommu_swmmu_mm_alias_repair_test(struct kunit *test)
 	KUNIT_ASSERT_NOT_NULL(test, alias_test_real_ops);
 	alias_test_ops = *alias_test_real_ops;
 	alias_test_ops.map_page = alias_test_map;
+	alias_test_ops.map_pages = NULL;
 	alias_test_ops.unmap_page = alias_test_unmap;
 	alias_test_ops.unmap_range = NULL; /* Exercise the page fallback too. */
 	alias_test_fail_address = 0;
@@ -2682,6 +2735,7 @@ static struct kunit_case nommu_swmmu_mm_test_cases[] = {
 	KUNIT_CASE(nommu_swmmu_vma_alias_eligibility_test),
 	KUNIT_CASE(nommu_swmmu_mm_alias_repair_test),
 	KUNIT_CASE(nommu_swmmu_mm_alias_bulk_rollback_test),
+	KUNIT_CASE(nommu_swmmu_mm_alias_batch_mapping_test),
 	KUNIT_CASE(nommu_swmmu_mm_alias_owner_ref_test),
 	KUNIT_CASE(nommu_swmmu_mm_alias_mm_users_zero_test),
 	KUNIT_CASE(nommu_swmmu_mm_mremap_shrink_test),

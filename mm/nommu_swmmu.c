@@ -332,9 +332,9 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 		return 0;
 	}
 
-	for (i = 0; i < range->nr_ptes; i++) {
+	for (i = 0; i < range->nr_ptes;) {
 		struct page *page;
-		unsigned long address;
+		unsigned long address, nr_pages = 1;
 
 		address = start + i * SWMMU_PAGE_SIZE;
 		page = range->pagetable->ptes[range->first + i].page;
@@ -343,9 +343,24 @@ static int swmmu_host_map_range(struct nommu_swmmu_space *space,
 			goto rollback;
 		}
 
-		ret = host_ops->map_page(address, page, prot);
+		if (host_ops->map_pages) {
+			/* Never merge across a VMA, permission or physical-page gap. */
+			while (nr_pages < range->nr_ptes - i) {
+				unsigned long index = range->first + i + nr_pages;
+				struct page *next = range->pagetable->ptes[index].page;
+
+				if (!next || page_to_pfn(next) !=
+						page_to_pfn(page) + nr_pages)
+					break;
+				nr_pages++;
+			}
+			ret = host_ops->map_pages(address, page, nr_pages, prot);
+		} else {
+			ret = host_ops->map_page(address, page, prot);
+		}
 		if (ret)
 			goto rollback;
+		i += nr_pages;
 	}
 
 	range->host_start = start;

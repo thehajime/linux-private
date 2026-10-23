@@ -46,6 +46,9 @@ struct nommu_swmmu_host_ops {
 	bool (*alias_range_allowed)(unsigned long address, unsigned long length);
 	int (*map_page)(unsigned long address, struct page *page,
 			unsigned int prot);
+	/* Optional bulk map of consecutive PFNs with identical protections. */
+	int (*map_pages)(unsigned long address, struct page *page,
+			 unsigned long nr_pages, unsigned int prot);
 	void (*unmap_page)(unsigned long address);
 	/* Optional bulk equivalent, including restoration of alias guards. */
 	void (*unmap_range)(unsigned long address, unsigned long length);

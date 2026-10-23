@@ -158,22 +158,45 @@ static bool uml_nommu_swmmu_alias_range_allowed(unsigned long address,
 		address + length <= um_nommu_swmmu_user_end;
 }
 
+static int uml_nommu_swmmu_host_map_pages(unsigned long address,
+					  struct page *page, unsigned long nr_pages,
+					  unsigned int prot)
+{
+	unsigned long phys = page_to_phys(page);
+	unsigned long done = 0;
+
+	while (done < nr_pages) {
+		unsigned long count = 1;
+		unsigned long long offset, next_offset;
+		int fd, next_fd, ret;
+
+		fd = phys_mapping(phys + done * PAGE_SIZE, &offset);
+		if (fd < 0)
+			return -EOPNOTSUPP;
+
+		/* Physical adjacency need not imply the same host backing fd. */
+		while (count < nr_pages - done) {
+			next_fd = phys_mapping(phys + (done + count) * PAGE_SIZE,
+					       &next_offset);
+			if (next_fd != fd || next_offset != offset + count * PAGE_SIZE)
+				break;
+			count++;
+		}
+		ret = os_map_memory_file((void *)(address + done * PAGE_SIZE),
+					 fd, offset, count * PAGE_SIZE,
+					 prot & PROT_READ, prot & PROT_WRITE,
+					 prot & PROT_EXEC);
+		if (ret)
+			return ret;
+		done += count;
+	}
+	return 0;
+}
+
 static int uml_nommu_swmmu_host_map_page(unsigned long address,
 				struct page *page, unsigned int prot)
 {
-	unsigned long phys;
-	unsigned long long offset;
-	int fd;
-
-	phys = page_to_phys(page);
-	fd = phys_mapping(phys, &offset);
-	if (fd < 0)
-		return -EOPNOTSUPP;
-
-	return os_map_memory_file((void *)address, fd, offset, PAGE_SIZE,
-				prot & PROT_READ,
-				prot & PROT_WRITE,
-				prot & PROT_EXEC);
+	return uml_nommu_swmmu_host_map_pages(address, page, 1, prot);
 }
 
 static void uml_nommu_swmmu_host_unmap_page(unsigned long address)
@@ -249,6 +272,7 @@ static const struct nommu_swmmu_host_ops uml_nommu_swmmu_host_ops = {
 	.direct_window = uml_nommu_swmmu_direct_window,
 	.alias_range_allowed = uml_nommu_swmmu_alias_range_allowed,
 	.map_page = uml_nommu_swmmu_host_map_page,
+	.map_pages = uml_nommu_swmmu_host_map_pages,
 	.unmap_page = uml_nommu_swmmu_host_unmap_page,
 	.unmap_range = uml_nommu_swmmu_host_unmap_range,
 	.protect_range = uml_nommu_swmmu_host_protect_range,
