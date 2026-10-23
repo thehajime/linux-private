@@ -11,6 +11,11 @@ on:
         description: Issue 4 report comment belonging to the source run
         type: string
         required: true
+      recollect_kselftest:
+        description: Reaggregate existing per-mode TAP artifacts without rerunning tests
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   actions: read
@@ -39,6 +44,14 @@ jobs:
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/source-report
+      - name: Download original kselftest TAP artifacts
+        if: inputs.recollect_kselftest
+        uses: actions/download-artifact@v7
+        with:
+          pattern: swmmu-kselftest-*
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/source-kselftest/kselftest-artifacts
       - name: Save current issue report
         uses: actions/github-script@v9
         env:
@@ -52,6 +65,8 @@ jobs:
             if (!data.issue_url.endsWith('/issues/4')) throw new Error('Comment is not on issue 4');
             fs.writeFileSync(`${process.env.RUNNER_TEMP}/source-live-body.md`, data.body);
       - name: Re-render tables and charts from saved results
+        env:
+          RECOLLECT_KSELFTEST: ${{ inputs.recollect_kselftest }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gnuplot-nox
