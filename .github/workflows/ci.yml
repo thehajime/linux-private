@@ -373,7 +373,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_ref || (github.ref_name == 'ci/uml-nommu' && 'feature-swmmu-nommu') || github.ref }}
+          ref: ${{ needs.build_nommu_apks.outputs.kernel_sha }}
       - name: Checkout canonical CI support files
         uses: actions/checkout@v6
         with:
@@ -563,7 +563,12 @@ jobs:
           make -j8 ARCH=um O=build ${{ matrix.add_configs }}
       - name: Report ccache statistics after build-0
         if: always()
-        run: ccache --show-stats
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --show-stats
+          else
+            echo "ccache statistics unavailable: setup did not complete"
+          fi
       - name: prep for docker build
         run: |
            make -j8 ARCH=um O=build modules_install INSTALL_MOD_PATH=`pwd`/.github/workflows
