@@ -223,7 +223,7 @@ long strnlen_user(const char __user *str, long len)
 	int count = 0, n;
 
 	if (!access_ok(str, 1))
-		return -EFAULT;
+		return 0;
 	n = buffer_op((unsigned long) str, len, 0, strnlen_chunk, &count);
 	if (n == 0)
 		return count + 1;
