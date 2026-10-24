@@ -170,6 +170,17 @@ Do not use upstream-series SHA `a751a3a48` as the CI LTP runtime. Cancelled run
 binaries return status 2 and eventually panic in fcntl18. This was a ref/base
 selection error, not evidence against the sigaltstack size fix. Use exact
 runtime SHA `659c79cba8ec427eab701a9146ee6bfa1b08328f` for the replacement.
+Corrected full run `40085710687` proved all native and NOMMU LTP rows clean, but
+`um-mmu(p)` alone reported `sigaltstack01` outside its alternate-stack bounds;
+the same binary passed `um-mmu(s)`, `um-mmu-tt(s)`, and 20/20 local ptrace UML
+boots. The run was cancelled before its long nginx jobs could publish an
+incomplete report. Focused run `40089568555` uses diagnostic runtime branch
+`ci/nommu-runtime-sigaltstack-debug` to print the handler address and exact
+bounds. The legacy test compares pointers from distinct objects after the
+handler local has expired, which is undefined C behavior; signed follow-up
+`7764d45a2` captures addresses as `uintptr_t` and compares integer ranges.
+Do not classify the failure as a kernel regression until the focused address
+evidence distinguishes a real stack-selection error from the test predicate.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
