@@ -561,14 +561,13 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		fi
 		if [[ " $KERNEL_ARGS_TEXT " == *" ncpus="* ]]; then
 			online=$(tr -d '\n' <"$ROOTFS/run/online-cpus.txt" 2>/dev/null || true)
-			case "$NCPUS:$online" in
-				1:0|1:0-0) ;;
-				4:0-3) ;;
-				*) fail "UML expected $NCPUS CPUs online, observed '${online:-missing}'" ;;
-			esac
-			if [[ "$NCPUS" == 4 && "$online" != 0-3 ]] && \
-			   ! grep -Eq 'smp: Brought up [0-9]+ node, 4 CPUs' "$OUTPUT/kernel.log"; then
-				fail "SMP UML did not report all four CPUs online"
+			expected_online="0-$((NCPUS - 1))"
+			if [[ "$NCPUS" == 1 ]]; then
+				if [[ "$online" != 0 && "$online" != 0-0 ]]; then
+					fail "UML expected $NCPUS CPUs online, observed '${online:-missing}'"
+				fi
+			elif [[ "$online" != "$expected_online" ]]; then
+				fail "UML expected $NCPUS CPUs online, observed '${online:-missing}'"
 			fi
 		fi
 	fi

@@ -16,6 +16,16 @@ case "$PROFILE" in
 		CPU_COUNTS=(1) ;;
 	*) echo "unknown nginx profile: $PROFILE" >&2; exit 2 ;;
 esac
+if [[ -n ${NGINX_CPU_COUNTS_OVERRIDE:-} ]]; then
+	case "$PROFILE" in
+		um-mmu-seccomp|um-nommu-seccomp) ;;
+		*) echo "CPU override is only supported for seccomp SMP profiles" >&2; exit 2;;
+	esac
+	IFS=, read -r -a CPU_COUNTS <<<"$NGINX_CPU_COUNTS_OVERRIDE"
+	for ncpus in "${CPU_COUNTS[@]}"; do
+		case "$ncpus" in 1|4|8|16) ;; *) echo "unsupported CPU override: $ncpus" >&2; exit 2;; esac
+	done
+fi
 WORKER_COUNTS=(1 4 8 16)
 CONNECTION_COUNTS=(1 4 8 16)
 if [[ ${NGINX_SINGLE_CELL:-0} == 1 ]]; then
