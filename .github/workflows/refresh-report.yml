@@ -16,6 +16,26 @@ on:
         type: boolean
         required: false
         default: false
+      nginx_base_run_id:
+        description: Optional CI run containing the base expanded nginx artifacts
+        type: string
+        required: false
+        default: ''
+      nginx_mmu_seccomp_run_id:
+        description: Optional replay containing MMU seccomp replacement cells
+        type: string
+        required: false
+        default: ''
+      nginx_nommu_seccomp_run_id:
+        description: Optional replay containing NOMMU seccomp replacement cells
+        type: string
+        required: false
+        default: ''
+      nginx_swmmu_zpoline_run_id:
+        description: Optional replay containing SWMMU zpoline replacement cells
+        type: string
+        required: false
+        default: ''
 
 permissions:
   actions: read
@@ -64,9 +84,72 @@ jobs:
             const {data} = await github.rest.issues.getComment({...context.repo, comment_id: id});
             if (!data.issue_url.endsWith('/issues/4')) throw new Error('Comment is not on issue 4');
             fs.writeFileSync(`${process.env.RUNNER_TEMP}/source-live-body.md`, data.body);
+      - name: Download base expanded nginx results
+        if: inputs.nginx_base_run_id != ''
+        uses: actions/download-artifact@v7
+        with:
+          pattern: nginx-result-*
+          run-id: ${{ inputs.nginx_base_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/nginx-refresh/base
+      - name: Download MMU seccomp replacement cells
+        if: inputs.nginx_mmu_seccomp_run_id != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: nginx-result-um-mmu-seccomp
+          run-id: ${{ inputs.nginx_mmu_seccomp_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/nginx-refresh/mmu-seccomp
+      - name: Download NOMMU seccomp replacement cells
+        if: inputs.nginx_nommu_seccomp_run_id != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: nginx-result-um-nommu-seccomp
+          run-id: ${{ inputs.nginx_nommu_seccomp_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/nginx-refresh/nommu-seccomp
+      - name: Download SWMMU zpoline replacement cells
+        if: inputs.nginx_swmmu_zpoline_run_id != ''
+        uses: actions/download-artifact@v7
+        with:
+          name: nginx-result-um-nommu-sas-zpoline
+          run-id: ${{ inputs.nginx_swmmu_zpoline_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/nginx-refresh/swmmu-zpoline
+      - name: Overlay and validate expanded nginx results
+        if: inputs.nginx_base_run_id != ''
+        env:
+          MMU_SECCOMP_RUN: ${{ inputs.nginx_mmu_seccomp_run_id }}
+          NOMMU_SECCOMP_RUN: ${{ inputs.nginx_nommu_seccomp_run_id }}
+          SWMMU_ZPOLINE_RUN: ${{ inputs.nginx_swmmu_zpoline_run_id }}
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/nginx-refresh/base"
+          if [[ -n "$MMU_SECCOMP_RUN" ]]; then
+            cp -a "$RUNNER_TEMP/nginx-refresh/mmu-seccomp/." \
+              "$base/nginx-result-um-mmu-seccomp/"
+          fi
+          if [[ -n "$NOMMU_SECCOMP_RUN" ]]; then
+            cp -a "$RUNNER_TEMP/nginx-refresh/nommu-seccomp/." \
+              "$base/nginx-result-um-nommu-seccomp/"
+          fi
+          if [[ -n "$SWMMU_ZPOLINE_RUN" ]]; then
+            cp -a "$RUNNER_TEMP/nginx-refresh/swmmu-zpoline/." \
+              "$base/nginx-result-um-nommu-sas-zpoline/"
+          fi
+          mkdir -p "$RUNNER_TEMP/nginx-refresh/aggregate"
+          python3 .github/workflows/aggregate-swmmu-nginx-results.py \
+            "$base" "$RUNNER_TEMP/nginx-refresh/aggregate"
+          jq -e '
+            (.matrix | length) == 240 and
+            all(.matrix[];
+              .status == "PASS" and
+              (.requests_per_second | type) == "number")
+          ' "$RUNNER_TEMP/nginx-refresh/aggregate/aggregate.json" >/dev/null
       - name: Re-render tables and charts from saved results
         env:
           RECOLLECT_KSELFTEST: ${{ inputs.recollect_kselftest }}
+          NGINX_MATRIX_PATH: ${{ inputs.nginx_base_run_id != '' && format('{0}/nginx-refresh/aggregate/aggregate.json', runner.temp) || '' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gnuplot-nox python3-matplotlib

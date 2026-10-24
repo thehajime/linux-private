@@ -1831,7 +1831,7 @@ jobs:
           path: output/ltp/*
 
   bench-result:
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'workflow_dispatch' || needs.nginx_benchmark.result == 'success') }}
     runs-on: ubuntu-22.04
     name: bench-result
     needs: [build_uml,benchmark,test_ltp,checkpatch,nginx_benchmark,native_nginx_benchmark]
