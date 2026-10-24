@@ -1,21 +1,15 @@
-name: native nginx benchmark matrix
+name: native nginx benchmark
 
 on:
   workflow_call:
 
 jobs:
   native_nginx_benchmark:
-    name: "native nginx benchmark"
+    name: "nginx native"
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 120
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        workers: [1, 4]
-        connections: [4, 16, 64]
-        wrk_threads: [2]
     steps:
       - name: Check out benchmark helper
         uses: actions/checkout@v6
@@ -25,46 +19,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nginx wrk curl openssl
-      - name: Measure native nginx
-        env:
-          WORKERS: ${{ matrix.workers }}
-          THREADS: ${{ matrix.wrk_threads }}
-          CONNECTIONS: ${{ matrix.connections }}
+      - name: Measure the native profile matrix
         run: |
-          bash .github/workflows/run-native-nginx-benchmark.sh \
-            --workers "$WORKERS" --threads "$THREADS" \
-            --connections "$CONNECTIONS" --duration 30 \
-            --output "output/native/w${WORKERS}-n1-c${CONNECTIONS}"
-      - name: Ensure a structured result exists after setup failures
-        if: always()
-        env:
-          WORKERS: ${{ matrix.workers }}
-          THREADS: ${{ matrix.wrk_threads }}
-          CONNECTIONS: ${{ matrix.connections }}
-        run: |
-          out="output/native/w${WORKERS}-n1-c${CONNECTIONS}"
-          mkdir -p "$out"
-          if [[ ! -s "$out/measurement.json" ]]; then
-            for file in nginx.conf nginx.log nginx-stdout.log nginx-test.log certificate.log smoke-http.log smoke-tls.log wrk-warmup.log wrk.log; do
-              [[ -e "$out/$file" ]] || : >"$out/$file"
+          set -uo pipefail
+          status=0
+          for workers in 1 4 8 16; do
+            for connections in 1 4 8 16; do
+              out="output/native/w${workers}-n1-c${connections}"
+              if ! bash .github/workflows/run-native-nginx-benchmark.sh \
+                --workers "$workers" --threads 2 \
+                --connections "$connections" --duration 30 \
+                --output "$out"; then
+                status=1
+              fi
             done
-            printf 'FAIL\n' >"$out/harness.status"
-            printf 'FAIL\n' >"$out/smoke-http.status"
-            printf 'FAIL\n' >"$out/smoke-tls.status"
-            printf 'FAIL\n' >"$out/wrk-warmup.status"
-            printf '125\n' >"$out/wrk.exit-code"
-            python3 - "$out" "$WORKERS" "$THREADS" "$CONNECTIONS" <<'PY'
-          import json, pathlib, sys
-          out = pathlib.Path(sys.argv[1])
-          workers, threads, connections = map(int, sys.argv[2:])
-          result = {"schema_version": 1, "status": "FAIL", "failures": ["native nginx benchmark setup failed before measurement"], "warnings": [], "profile": "native", "workers": workers, "ncpus": 1, "host_cpu_count": None, "wrk_threads": threads, "connections": connections, "duration_seconds": 30, "warmup_status": "FAIL", "kernel_sha": "native-runner", "aports_sha": "system-packages", "gcc_version": "system-nginx", "requests_per_second": None, "average_latency_ms": None, "socket_errors": None, "smoke_http": False, "smoke_tls": False, "raw_logs": ["nginx.conf", "nginx.log", "nginx-stdout.log", "nginx-test.log", "wrk-warmup.log", "wrk.log", "smoke-http.log", "smoke-tls.log"]}
-          (out / "measurement.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-          PY
-          fi
-      - name: Show native nginx result
+          done
+          exit "$status"
+      - name: Show native nginx results
         if: always()
         run: |
-          python3 - "output/native/w${{ matrix.workers }}-n1-c${{ matrix.connections }}/measurement.json" >>"$GITHUB_STEP_SUMMARY" <<'PY'
+          set -uo pipefail
+          find output/native -name measurement.json -print0 | sort -z | \
+            while IFS= read -r -d '' result; do
+              python3 - "$result" >>"$GITHUB_STEP_SUMMARY" <<'PY'
           import json, pathlib, sys
           result = json.loads(pathlib.Path(sys.argv[1]).read_text())
           print(f"### nginx: native / workers={result.get('workers')} / connections={result.get('connections')}")
@@ -72,13 +49,14 @@ jobs:
           print(f"**Requests/sec:** {result.get('requests_per_second')}  ")
           print(f"**Mean latency (ms):** {result.get('average_latency_ms')}  ")
           print(f"**Host CPUs:** {result.get('host_cpu_count')}  ")
-          print(f"**HTTP/TLS smoke:** {result.get('smoke_http')} / {result.get('smoke_tls')}")
-          for failure in result.get("failures", []): print(f"- {failure}")
+          for failure in result.get('failures') or []:
+              print(f"- {failure}")
           PY
-      - name: Upload native nginx raw logs and measurement
+            done
+      - name: Upload native nginx raw logs and measurements
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nginx-native-w${{ matrix.workers }}-n1-c${{ matrix.connections }}
-          path: output/native/w${{ matrix.workers }}-n1-c${{ matrix.connections }}
+          name: nginx-result-native
+          path: output/native
           if-no-files-found: error

@@ -18,14 +18,14 @@ PROFILES = (
     "um-nommu-sas-seccomp",
     "um-nommu-sas-zpoline",
 )
-WORKERS = (1, 4)
-CONNECTIONS = (4, 16, 64)
+WORKERS = (1, 4, 8, 16)
+CONNECTIONS = (1, 4, 8, 16)
 CPU_COUNTS = {
     "native": (1,),
     "um-mmu": (1,),
-    "um-mmu-seccomp": (1, 4),
+    "um-mmu-seccomp": (1, 4, 8, 16),
     "um-nommu": (1,),
-    "um-nommu-seccomp": (1, 4),
+    "um-nommu-seccomp": (1, 4, 8, 16),
     "um-nommu-plain-sas": (1,),
     "um-nommu-plain-sas-zpoline": (1,),
     "um-nommu-sas-seccomp": (1,),
@@ -37,13 +37,6 @@ def finite(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
-def unsupported(profile, workers):
-    # Plain NOMMU SAS has no fork implementation, so a multiprocess nginx
-    # configuration cannot produce an artifact. The zpoline worker=4 leg is
-    # excluded in the matrix; represent its absence as a deliberate skip.
-    return profile == "um-nommu-plain-sas-zpoline" and workers > 1
-
-
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: aggregate-swmmu-nginx-results.py ARTIFACTS_DIR OUTPUT_DIR", file=sys.stderr)
@@ -52,7 +45,7 @@ def main() -> int:
     output = Path(sys.argv[2])
     output.mkdir(parents=True, exist_ok=True)
     by_key = {}
-    for path in artifacts.glob("nginx-*-w*-n*-c*/measurement.json"):
+    for path in artifacts.rglob("measurement.json"):
         try:
             item = json.loads(path.read_text())
             key = (item["profile"], int(item.get("ncpus", 1)),
@@ -70,13 +63,12 @@ def main() -> int:
                 for connections in CONNECTIONS:
                     item = by_key.get((profile, ncpus, workers, connections))
                     if item is None:
-                        skipped = unsupported(profile, workers)
                         item = {
                             "profile": profile,
                             "ncpus": ncpus,
-                            "status": "SKIP" if skipped else "FAIL",
-                            "failures": [] if skipped else ["matrix artifact or measurement.json is missing"],
-                            "warnings": ["fork is unavailable in plain NOMMU SAS"] if skipped else [],
+                            "status": "FAIL",
+                            "failures": ["matrix artifact or measurement.json is missing"],
+                            "warnings": [],
                             "workers": workers,
                             "connections": connections,
                             "requests_per_second": None,
@@ -90,7 +82,7 @@ def main() -> int:
         )
         with (output / f"throughput-{profile}.csv").open("w", newline="") as stream:
             writer = csv.writer(stream)
-            writer.writerow(("ncpus", "connections", "workers_1", "workers_4"))
+            writer.writerow(("ncpus", "connections", *(f"workers_{workers}" for workers in WORKERS)))
             for connections in CONNECTIONS:
                 for ncpus in CPU_COUNTS[profile]:
                     values = []

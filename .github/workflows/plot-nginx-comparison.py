@@ -33,14 +33,14 @@ def main():
         for key, values in sorted(groups.items()):
             for i, value in enumerate(values, 1): writer.writerow([*key, i, value])
     generated = []
-    for workers in (1, 4):
+    for workers in (1, 4, 8, 16):
         profiles = [(p, label, color) for p, label, color in BENCHMARK_PROFILES
                     if any(k[0] == p and k[2] == workers and v for k, v in groups.items())]
         if not profiles: continue
-        fig, axes = plt.subplots(1, 3, figsize=(16, 6.5), sharey=True)
+        fig, axes = plt.subplots(1, 4, figsize=(19, 6.5), sharey=True)
         width = min(.18, .84 / len(profiles))
         cpus = sorted({k[1] for k, v in groups.items() if k[2] == workers and v})
-        for ax, connections in zip(axes, (4, 16, 64)):
+        for ax, connections in zip(axes, (1, 4, 8, 16)):
             for index, (profile, label, color) in enumerate(profiles):
                 offset = (index - (len(profiles) - 1) / 2) * width
                 for cpu in cpus:

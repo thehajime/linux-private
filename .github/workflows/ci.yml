@@ -542,10 +542,10 @@ jobs:
             ! grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
             ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' build/.config
             if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
-              scripts/config --file build/.config --enable SMP --set-val NR_CPUS 4
+              scripts/config --file build/.config --enable SMP --set-val NR_CPUS 16
               make ARCH=um O=build olddefconfig
               grep -q '^CONFIG_SMP=y$' build/.config
-              grep -q '^CONFIG_NR_CPUS=4$' build/.config
+              grep -q '^CONFIG_NR_CPUS=16$' build/.config
             fi
             if [[ "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
               grep -q '^CONFIG_UML_NOMMU_SAS=y$' build/.config
@@ -558,10 +558,10 @@ jobs:
             grep -q '^CONFIG_NOMMU_SWMMU=y$' build/.config
             grep -q '^CONFIG_UML_NOMMU_SAS=y$' build/.config
           elif [[ "${{ matrix.testname }}" == "um-mmu" ]]; then
-            scripts/config --file build/.config --enable SMP --set-val NR_CPUS 4
+            scripts/config --file build/.config --enable SMP --set-val NR_CPUS 16
             make ARCH=um O=build olddefconfig
             grep -q '^CONFIG_SMP=y$' build/.config
-            grep -q '^CONFIG_NR_CPUS=4$' build/.config
+            grep -q '^CONFIG_NR_CPUS=16$' build/.config
           fi
           if [[ "${{ matrix.testname }}" == *-tt ]]; then
             scripts/config --file build/.config --disable SMP \
@@ -683,10 +683,10 @@ jobs:
             ! grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
             ! grep -q '^CONFIG_GCC_PLUGIN_SWMMU=y$' .config
             if [[ "${{ matrix.testname }}" == "um-nommu" ]]; then
-              scripts/config --enable SMP --set-val NR_CPUS 4
+              scripts/config --enable SMP --set-val NR_CPUS 16
               make ARCH=um olddefconfig
               grep -q '^CONFIG_SMP=y$' .config
-              grep -q '^CONFIG_NR_CPUS=4$' .config
+              grep -q '^CONFIG_NR_CPUS=16$' .config
             fi
             if [[ "${{ matrix.testname }}" == "um-nommu-plain-sas" ]]; then
               grep -q '^CONFIG_UML_NOMMU_SAS=y$' .config
@@ -697,10 +697,10 @@ jobs:
             grep -q '^CONFIG_NOMMU_SWMMU=y$' .config
             grep -q '^CONFIG_UML_NOMMU_SAS=y$' .config
           elif [[ "${{ matrix.testname }}" == "um-mmu" ]]; then
-            scripts/config --enable SMP --set-val NR_CPUS 4
+            scripts/config --enable SMP --set-val NR_CPUS 16
             make ARCH=um olddefconfig
             grep -q '^CONFIG_SMP=y$' .config
-            grep -q '^CONFIG_NR_CPUS=4$' .config
+            grep -q '^CONFIG_NR_CPUS=16$' .config
           fi
           if [[ "${{ matrix.testname }}" == *-tt ]]; then
             scripts/config --disable SMP \
@@ -1855,7 +1855,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          pattern: nginx-*-w*-n*-c*
+          pattern: nginx-result-*
           path: ${{ runner.temp }}/nginx-matrix
           merge-multiple: false
       - name: Download shared SAS rootfs diagnostics
@@ -1879,7 +1879,7 @@ jobs:
           python3 .github/workflows/plot-nginx-comparison.py \
             output/nginx/aggregate.json output/nginx
           mkdir -p output/out
-          for workers in 1 4; do
+          for workers in 1 4 8 16; do
             chart="nginx-workers-$workers.png"
             if [ -f "output/nginx/$chart" ]; then
               cp "output/nginx/$chart" "output/out/$chart"

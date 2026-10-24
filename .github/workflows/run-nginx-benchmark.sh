@@ -142,10 +142,9 @@ if [[ "$PROFILE" == um-nommu-sas-seccomp || "$PROFILE" == um-nommu-sas-zpoline ]
 	EXPECTED_BODY=swmmu-nginx-ok
 fi
 
-case "$WORKERS:$THREADS:$CONNECTIONS:$DURATION" in
-	1:2:4:*|1:2:16:*|1:2:64:*|4:2:4:*|4:2:16:*|4:2:64:*) ;;
-	*) echo "unsupported benchmark parameters" >&2; usage;;
-esac
+case "$WORKERS" in 1|4|8|16) ;; *) echo "unsupported worker count" >&2; usage;; esac
+case "$CONNECTIONS" in 1|4|8|16) ;; *) echo "unsupported connection count" >&2; usage;; esac
+[[ "$THREADS" == 2 ]] || { echo "unsupported wrk thread count" >&2; usage; }
 
 fail() {
 	HARNESS_STATUS=FAIL
@@ -449,19 +448,6 @@ finish() {
 }
 trap finish EXIT
 
-if [[ ( "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp || "$PROFILE" == um-nommu-plain-sas || "$PROFILE" == um-nommu-plain-sas-zpoline ) && "$WORKERS" -gt 1 ]]; then
-	HARNESS_STATUS=SKIP
-	HARNESS_ERROR="plain NOMMU UML does not support fork(), so nginx worker_processes=$WORKERS is unavailable"
-	printf '%s\n' "$HARNESS_ERROR" >"$OUTPUT/harness.error"
-	printf 'SKIP\n' >"$OUTPUT/harness.status"
-	printf 'not run: plain NOMMU has no fork support\n' >"$OUTPUT/wrk.log"
-	printf '125\n' >"$OUTPUT/wrk.exit-code"
-	trap - EXIT
-	finish
-	finish_status=$?
-	exit "$finish_status"
-fi
-
 if [[ ! -x "$KERNEL" ]]; then
 	fail "UML kernel is missing or not executable"
 elif [[ "$NEEDS_RAWIO" == true ]]; then
@@ -500,6 +486,8 @@ sed -i -E 's#^error_log[[:space:]].*;#error_log /run/nginx-error.log notice;#' "
 if [[ "$PROFILE" == um-nommu || "$PROFILE" == um-nommu-seccomp || "$PROFILE" == um-nommu-plain-sas || "$PROFILE" == um-nommu-plain-sas-zpoline ]]; then
 	sed -i -e 's/^daemon on;$/daemon off;/' \
 		-e 's/^master_process on;$/master_process off;/' "$NGINX_CONF"
+	install -m 0755 .github/workflows/nginx-matrix-init.sh \
+		"$ROOTFS/sbin/nginx-matrix-init"
 fi
 cp "$NGINX_CONF" "$OUTPUT/nginx.conf" 2>/dev/null || \
 	fail "nginx SWMMU config is missing"
@@ -551,6 +539,13 @@ if [[ "$HARNESS_STATUS" == PASS ]]; then
 		printf 'UML nginx guest ready; running HTTP/TLS smoke tests and wrk.\n'
 		if [[ -s "$ROOTFS/run/online-cpus.txt" ]]; then
 			cp "$ROOTFS/run/online-cpus.txt" "$OUTPUT/online-cpus.txt"
+		fi
+		if [[ -s "$ROOTFS/run/nginx-worker-count.txt" ]]; then
+			cp "$ROOTFS/run/nginx-worker-count.txt" "$OUTPUT/nginx-worker-count.txt"
+			actual_workers=$(cat "$OUTPUT/nginx-worker-count.txt")
+			if [[ "$actual_workers" != "$WORKERS" ]]; then
+				fail "requested $WORKERS nginx workers but observed $actual_workers"
+			fi
 		fi
 		if [[ " $KERNEL_ARGS_TEXT " == *" ncpus="* ]]; then
 			online=$(tr -d '\n' <"$ROOTFS/run/online-cpus.txt" 2>/dev/null || true)

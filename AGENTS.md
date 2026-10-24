@@ -5,6 +5,127 @@ release-facing feature descriptions in `Documentation/mm/swmmu.rst`, and keep
 reproducible kselftest build instructions in
 `Documentation/mm/swmmu-kselftest-build.rst`.
 
+## Current TODO index
+
+This index is the authoritative list of open work. The detailed task records
+and historical ledger below retain evidence and earlier decisions, but an old
+unchecked box there does not make a task current unless it is listed here.
+
+### Kernel
+
+- **K1 — Default-off fork:** design general fork-time migration and separate
+  user virtual addresses from SWMMU backing without partial-mm failure states.
+- **K2 — Final modes and concurrency:** define the mode ABI, non-SAS path,
+  SMP/multithread rules, and safe concurrent zpoline text rewriting.
+- **K3 — Remaining correctness:** close user-copy, mapping, signal, nonlocal
+  control-flow, and compiler-generated access gaps.
+- **K4 — Abrupt UML cleanup:** restore safe child/device cleanup after
+  `last_ditch_exit()` without sleeping in a signal handler.
+- **K5 — Intermittent bind04 helper fault:** retain as unreproduced until a
+  matching usermodehelper fault is captured or ruled out.
+- **K6 — GOTPCRELX workaround:** track and validate an upstream binutils fix
+  before removing `--no-relax`.
+
+### Tests
+
+- **T1 — LTP upstream series:** finish glibc regression validation and hand the
+  signed 12-patch series to the upstream-submission task.
+- **T2 — Expanded nginx matrix:** validate the profile-grouped 1/4/8/16 worker,
+  connection, and supported CPU measurements, then refresh issue #4.
+- **T3 — Kirk upstream series:** submit the preserved runtime fixes from
+  `hajime/kirk-runtime-fixes-review` in the separate Kirk task.
+- **T4 — Future LTP gate:** keep exact selected-test coverage, normal shutdown,
+  and zero FAIL/BROK/WARN as required CI acceptance conditions.
+
+### Compiler plugin
+
+- **P1 — Generated accesses:** cover stack-clash probes, late RTL/backend
+  accesses, spills/reloads, atomics, vector accesses, and inline assembly.
+- **P2 — Final access policy:** define the production balance between
+  all-access correctness fallback and proven native-access optimization.
+
+### Userspace
+
+- **U1 — Plain NOMMU nginx workers:** validate the independent `SO_REUSEPORT`
+  instance implementation in CI and retain its observed-process-count gate.
+- **U2 — Alpine upstreaming:** prepare the remaining musl/BusyBox/apk profile
+  changes for their appropriate upstreams after kernel/runtime interfaces settle.
+
+### CI, reports, and documentation
+
+- **C1 — Nginx acceptance:** run the expanded per-profile jobs, preserve every
+  measurement, and update plots/report only from a complete run.
+- **C2 — TODO maintenance:** update this index and its matching detail whenever
+  a task is added, completed, superseded, or moved to another repository.
+
+## Current TODO details
+
+### Kernel details
+
+**K1/K2:** The current accepted configuration is default-on paged SWMMU with
+SAS. General default-off fork migration, user-VA/backing separation, non-SAS
+alias synchronization, and general SMP-safe rewriting remain design work. Keep
+failure handling transactional and preserve parent/child private COW semantics.
+
+**K3:** The remaining coverage includes aggregate and bitfield user-copy,
+file-backed/shared/device mappings, partial protection changes, signal frame and
+restart behavior, setjmp/longjmp, compiler-generated accesses, and transactional
+remap rollback. Do not infer these from the completed syscall LTP matrix.
+
+**K4:** Normal halt/reboot runs cleanup. Host SIGINT/SIGTERM now avoids unsafe
+cleanup in signal context, but a safe deferred shutdown path for ptraced children
+and devices is still required.
+
+**K5/K6:** The bind04 signature was exercised repeatedly without reproduction;
+keep its exact historical stack and build conditions in the ledger. The CPython
+GOTPCRELX failure remains avoided with `--no-relax`; retest both link modes only
+after a concrete binutils fix exists.
+
+### Test details
+
+**T1:** LTP branch `hajime/ltp-mmu-native-fixes-upstream` contains 12 reviewable
+patches at `3471e27e1`. Every patch carries `Signed-off-by: Hajime Tazaki
+<thehajime@gmail.com>` and its subject is free of CI-control tags. Ubuntu 24.04
+glibc 2.39 built the changed library and syscall directories. Focused execution
+passed sendmsg01, both signal-wait tests, prctl10, sbrk01, readlink03,
+readlinkat02, setgroups03 and recvmmsg01; kcmp03, the three core-dump tests and
+reboot01 produced configuration skips under the container kernel. seccomp01
+passed four strict-mode checks but its filter-mode setup needs an environment
+with initial-user-namespace `CAP_SYS_ADMIN`; the unprivileged container returned
+EACCES. The loop-device and memory-headroom library changes compiled but need
+their privileged/full-suite upstream CI coverage. Preserve these limits in the
+upstream handoff instead of calling the glibc run fully complete.
+
+**T2/C1:** The nginx workflow uses one GitHub matrix job per runtime profile.
+Every profile measures workers and connections 1/4/8/16. MMU-seccomp and plain
+NOMMU-seccomp also measure 1/4/8/16 online CPUs; PTRACE and SAS profiles remain
+at one CPU. Missing measurements are failures, not inferred skips. Forkless
+plain NOMMU implements worker counts with independent single-process nginx
+instances sharing the listeners through `SO_REUSEPORT`; the harness rejects a
+result unless the guest-observed nginx process count equals the request. CI
+execution and issue #4 refresh remain pending.
+
+**T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
+monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
+behavior as an independently reviewable series.
+
+**T4:** `check-ltp-result.py` compares the JSON records with the exact runtest,
+skip, and run-pattern selection. CI must fail for a missing/duplicate/unexpected
+record, a non-PASS/TCONF/SKIP status, any FAIL/BROK/WARN assertion, inconsistent
+totals, abnormal runner completion, or abnormal UML shutdown.
+
+### Compiler plugin and userspace details
+
+**P1/P2:** Keep the all-access path as the correctness baseline while measuring
+later-pass transformation and kernel-backed native eligibility. Source-specific
+allowlists are experimental evidence, not a production deployment interface.
+
+**U1/U2:** Plain NOMMU uses one `master_process off` nginx instance per requested
+worker, unique pid files, and `SO_REUSEPORT` listeners. Record guest processes
+and fail mismatches rather than trusting the requested count. Keep package
+source, compiler/plugin version, kernel SHA, and signed repository manifest
+exact for every userspace comparison.
+
 ## Project status
 
 - **Current phase:** the validated SWMMU/NOMMU series and complete signed
@@ -56,7 +177,10 @@ reproducible kselftest build instructions in
 - [ ] Address concurrency and performance after functional validation is
   stable.
 
-## Active TODOs
+## Historical task ledger
+
+The entries below preserve prior task state and diagnostic evidence. They are
+not the current TODO index; use the categorized index above for scheduling.
 
 ### CI failure follow-up (2026-10-23)
 

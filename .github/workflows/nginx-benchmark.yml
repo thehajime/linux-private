@@ -9,15 +9,6 @@ on:
       profile:
         type: string
         default: ''
-      workers:
-        type: number
-        default: 4
-      ncpus:
-        type: number
-        default: 1
-      connections:
-        type: number
-        default: 16
       capture_diagnostics:
         type: boolean
         default: false
@@ -34,18 +25,6 @@ on:
         type: choice
         default: um-nommu-sas-zpoline
         options: [um-mmu, um-mmu-seccomp, um-nommu, um-nommu-seccomp, um-nommu-plain-sas, um-nommu-plain-sas-zpoline, um-nommu-sas-seccomp, um-nommu-sas-zpoline]
-      workers:
-        type: choice
-        default: '4'
-        options: ['1', '4']
-      ncpus:
-        type: choice
-        default: '1'
-        options: ['1', '4']
-      connections:
-        type: choice
-        default: '16'
-        options: ['4', '16', '64']
       capture_diagnostics:
         type: boolean
         default: true
@@ -56,9 +35,9 @@ on:
 
 jobs:
   nginx_benchmark:
-    name: "nginx ${{ matrix.profile == 'um-mmu' && 'um-mmu(p)' || matrix.profile == 'um-mmu-seccomp' && 'um-mmu(s)' || matrix.profile == 'um-nommu' && 'um-nommu(p)' || matrix.profile == 'um-nommu-seccomp' && 'um-nommu(s)' || matrix.profile == 'um-nommu-plain-sas' && 'um-nommu-sas(s)' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'um-nommu-sas(z)' || matrix.profile == 'um-nommu-sas-seccomp' && 'um-nommu-sas-swmmu(s)' || 'um-nommu-sas-swmmu(z)' }} (workers=${{ matrix.workers }}, CPUs=${{ matrix.ncpus }}, clients=${{ matrix.connections }})"
+    name: "nginx ${{ matrix.profile == 'um-mmu' && 'um-mmu(p)' || matrix.profile == 'um-mmu-seccomp' && 'um-mmu(s)' || matrix.profile == 'um-nommu' && 'um-nommu(p)' || matrix.profile == 'um-nommu-seccomp' && 'um-nommu(s)' || matrix.profile == 'um-nommu-plain-sas' && 'um-nommu-sas(s)' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'um-nommu-sas(z)' || matrix.profile == 'um-nommu-sas-seccomp' && 'um-nommu-sas-swmmu(s)' || 'um-nommu-sas-swmmu(z)' }}"
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 240
     permissions:
       contents: read
       actions: read
@@ -66,55 +45,19 @@ jobs:
       fail-fast: false
       matrix:
         profile: ${{ inputs.profile && fromJSON(format('["{0}"]', inputs.profile)) || fromJSON('["um-mmu", "um-mmu-seccomp", "um-nommu", "um-nommu-seccomp", "um-nommu-plain-sas", "um-nommu-plain-sas-zpoline", "um-nommu-sas-seccomp", "um-nommu-sas-zpoline"]') }}
-        ncpus: ${{ inputs.profile && fromJSON(format('[{0}]', inputs.ncpus)) || fromJSON('[1,4]') }}
-        workers: ${{ inputs.profile && fromJSON(format('[{0}]', inputs.workers)) || fromJSON('[1,4]') }}
-        connections: ${{ inputs.profile && fromJSON(format('[{0}]', inputs.connections)) || fromJSON('[4,16,64]') }}
-        wrk_threads: [2]
-        exclude:
-          # PTRACE userspace rejects CONFIG_SMP with more than one CPU.
-          # Keep the four-CPU comparison on the seccomp UML profile below.
-          - profile: um-mmu
-            ncpus: 4
-          # Plain NOMMU has one SMP=y kernel build. PTRACE userspace rejects
-          # booting that kernel with more than one online CPU.
-          - profile: um-nommu
-            ncpus: 4
-          - profile: um-nommu-plain-sas
-            ncpus: 4
-          - profile: um-nommu-plain-sas-zpoline
-            ncpus: 4
-          - profile: um-nommu-plain-sas-zpoline
-            workers: 4
-          # NOMMU SAS remains unavailable with SMP.
-          - profile: um-nommu-sas-seccomp
-            ncpus: 4
-          - profile: um-nommu-sas-zpoline
-            ncpus: 4
     env:
       NGINX_DIAGNOSTICS: ${{ inputs.capture_diagnostics && '1' || '0' }}
       NGINX_CONTROL_CHANNEL: ${{ inputs.control_channel || 'auto' }}
       NGINX_PROFILE: ${{ matrix.profile }}
-      NGINX_NCPUS: ${{ matrix.ncpus }}
-      NGINX_WORKERS: ${{ matrix.workers }}
-      NGINX_CONNECTIONS: ${{ matrix.connections }}
-      NGINX_THREADS: ${{ matrix.wrk_threads }}
       NGINX_IMAGE_NAME: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || (matrix.profile == 'um-nommu-plain-sas' || matrix.profile == 'um-nommu-plain-sas-zpoline') && 'um-nommu-plain-sas' || 'um-nommu' }}
       NGINX_ROOTFS_ARTIFACT: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
-      NGINX_KERNEL_ARGS: ${{ ((matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4) && (matrix.profile == 'um-nommu-seccomp' && 'ncpus=4 seccomp=on' || 'ncpus=4') || matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'zpoline=1' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0 swmmu_direct=1' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1 swmmu_direct=1' || '' }}
-      NGINX_NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-plain-sas-zpoline' || matrix.profile == 'um-nommu-sas-zpoline' }}
     steps:
       - name: Check out CI benchmark helpers
         uses: actions/checkout@v6
         with:
           sparse-checkout: .github/workflows
-      - name: Create per-leg output directory
-        run: mkdir -p "output/${{ matrix.profile }}/w${{ matrix.workers }}-n${{ matrix.ncpus }}-c${{ matrix.connections }}"
-      - name: Record artifact and helper provenance
-        run: |
-          printf 'source_run_id=%s\nhelper_commit=%s\ndiagnostics=%s\n' \
-            '${{ inputs.source_run_id || github.run_id }}' '${{ github.sha }}' \
-            "$NGINX_DIAGNOSTICS" > \
-            "output/${{ matrix.profile }}/w${{ matrix.workers }}-n${{ matrix.ncpus }}-c${{ matrix.connections }}/replay-source.txt"
+      - name: Create profile output directory
+        run: mkdir -p "output/${{ matrix.profile }}"
       - name: Download the shared profile rootfs
         uses: actions/download-artifact@v4
         with:
@@ -129,7 +72,7 @@ jobs:
           path: ${{ runner.temp }}/uml-image
           run-id: ${{ inputs.source_run_id || github.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Extract rootfs and kernel
+      - name: Extract the tested kernel
         run: |
           set -euo pipefail
           docker load --input "$RUNNER_TEMP/uml-image/uml-image.tar"
@@ -139,141 +82,53 @@ jobs:
           docker rm "$cid" >/dev/null
           trap - EXIT
           chmod 0755 "$RUNNER_TEMP/vmlinux"
-          mkdir -p rootfs
-          tar -xzf "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" -C rootfs
+          test -s "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz"
       - name: Install UML host networking and capability tools
         env:
           PROFILE: ${{ matrix.profile }}
-          WORKERS: ${{ matrix.workers }}
-          CONNECTIONS: ${{ matrix.connections }}
         run: |
           sudo apt-get update
           host_tools=(iproute2 libcap2-bin curl wrk)
-          if [[ "$NGINX_DIAGNOSTICS" == 1 || "$PROFILE" == um-nommu-sas-seccomp || \
-                ("$PROFILE" == um-nommu-sas-zpoline && "$WORKERS" == 1 && "$CONNECTIONS" == 4) ]]; then
-            host_tools+=(tcpdump)
-            if [[ "$NGINX_DIAGNOSTICS" == 1 ]] || \
-               [[ "$PROFILE" == um-nommu-sas-seccomp && "$WORKERS" == 4 ]] || \
-               [[ "$PROFILE" == um-nommu-sas-zpoline ]]; then
-              host_tools+=(gdb strace)
-            fi
+          if [[ "$NGINX_DIAGNOSTICS" == 1 || "$PROFILE" == um-nommu-sas-* ]]; then
+            host_tools+=(tcpdump gdb strace)
           fi
           sudo apt-get install -y --no-install-recommends "${host_tools[@]}"
-      - name: Run HTTP/TLS smoke tests and wrk from a separate client container
+      - name: Run worker, connection and CPU combinations for this profile
         env:
-          WORKERS: ${{ matrix.workers }}
-          THREADS: ${{ matrix.wrk_threads }}
-          CONNECTIONS: ${{ matrix.connections }}
-          PROFILE: ${{ matrix.profile }}
-          NCPUS: ${{ matrix.ncpus }}
-          KERNEL_ARGS: ${{ ((matrix.profile == 'um-nommu' || matrix.profile == 'um-nommu-seccomp') && matrix.ncpus == 4) && (matrix.profile == 'um-nommu-seccomp' && 'ncpus=4 seccomp=on' || 'ncpus=4') || matrix.profile == 'um-mmu' && format('ncpus={0}', matrix.ncpus) || matrix.profile == 'um-mmu-seccomp' && format('ncpus={0} seccomp=on', matrix.ncpus) || matrix.profile == 'um-nommu-seccomp' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas' && 'seccomp=on' || matrix.profile == 'um-nommu-plain-sas-zpoline' && 'zpoline=1' || matrix.profile == 'um-nommu-sas-seccomp' && 'zpoline=0 swmmu_direct=1' || matrix.profile == 'um-nommu-sas-zpoline' && 'zpoline=1 swmmu_direct=1' || '' }}
-          NEEDS_RAWIO: ${{ matrix.profile == 'um-nommu-plain-sas-zpoline' || matrix.profile == 'um-nommu-sas-zpoline' }}
-          # SAS/SWMMU may need longer request deadlines than other UML profiles.
-          NGINX_WRK_WARMUP_SECONDS: "15"
+          NGINX_SOURCE_RUN_ID: ${{ inputs.source_run_id || github.run_id }}
+          NGINX_HELPER_COMMIT: ${{ github.sha }}
           NGINX_WRK_TIMEOUT_SECONDS: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && '60' || '30' }}
           NGINX_WRK_WARMUP_TIMEOUT_SECONDS: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && '90' || '60' }}
         run: |
-          kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
-          aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
-          gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
-          out="output/${PROFILE}/w${WORKERS}-n${NCPUS}-c${CONNECTIONS}"
-          bash .github/workflows/run-nginx-benchmark.sh \
-            --kernel "$RUNNER_TEMP/vmlinux" \
-            --rootfs rootfs \
-            --workers "$WORKERS" \
-            --ncpus "$NCPUS" \
-            --threads "$THREADS" \
-            --connections "$CONNECTIONS" \
-            --duration 30 \
-            --profile "$PROFILE" \
-            --kernel-args "$KERNEL_ARGS" \
-            --needs-rawio "$NEEDS_RAWIO" \
-            --kernel-sha "$kernel_sha" \
-            --aports-sha "$aports_sha" \
-            --gcc-version "$gcc_version" \
-            --output "$out"
-      - name: Ensure a structured result exists after setup failures
+          bash .github/workflows/run-nginx-profile-matrix.sh \
+            '${{ matrix.profile }}' "$RUNNER_TEMP/vmlinux" \
+            "$RUNNER_TEMP/nginx-rootfs/rootfs.tar.gz" output
+      - name: Show this profile's results
         if: always()
         env:
-          WORKERS: ${{ matrix.workers }}
-          THREADS: ${{ matrix.wrk_threads }}
-          CONNECTIONS: ${{ matrix.connections }}
           PROFILE: ${{ matrix.profile }}
-          NCPUS: ${{ matrix.ncpus }}
-        run: |
-          out="output/${PROFILE}/w${WORKERS}-n${NCPUS}-c${CONNECTIONS}"
-          if [[ ! -s "$out/measurement.json" ]]; then
-            mkdir -p "$out"
-            for file in host-cpu-limits.log host-syscall-profile.log capability.log host-sysctl.log tap.log tap100.pcap tap100-packets.txt tap100-tcpdump.log tap100-tcpdump.pid tap100-pcap.status kernel.log online-cpus.txt nginx.log client-setup.log client-container.log smoke-http.log smoke-tls.log wrk-warmup.log wrk-warmup.status wrk-warmup.error warmup-duration.txt warmup-timeout.txt wrk-timeout.txt wrk.log nginx.conf guest-runtime-probe.log host-runtime-probe.log host-vmlinux-backtrace.log; do
-              [[ -e "$out/$file" ]] || : >"$out/$file"
-            done
-            printf 'FAIL\n' >"$out/harness.status"
-            printf 'FAIL\n' >"$out/smoke-http.status"
-            printf 'FAIL\n' >"$out/smoke-tls.status"
-            printf '125\n' >"$out/wrk.exit-code"
-            python3 .github/workflows/parse-swmmu-nginx-measurement.py \
-              --output "$out" --workers "$WORKERS" --threads "$THREADS" \
-              --ncpus "$NCPUS" \
-              --connections "$CONNECTIONS" --duration 30 \
-              --profile "$PROFILE" \
-              --kernel-sha unknown --aports-sha unknown --gcc-version unknown || true
-          fi
-      - name: Show nginx result and failure details
-        if: always()
-        env:
-          WORKERS: ${{ matrix.workers }}
-          THREADS: ${{ matrix.wrk_threads }}
-          CONNECTIONS: ${{ matrix.connections }}
-          PROFILE: ${{ matrix.profile }}
-          NCPUS: ${{ matrix.ncpus }}
         run: |
           set -uo pipefail
-          out="output/${PROFILE}/w${WORKERS}-n${NCPUS}-c${CONNECTIONS}"
-          result="$out/measurement.json"
-          if [[ -s "$result" ]]; then
-            python3 - "$result" >>"$GITHUB_STEP_SUMMARY" <<'PY'
+          find "output/$PROFILE" -name measurement.json -print0 | sort -z | \
+            while IFS= read -r -d '' result; do
+              python3 - "$result" >>"$GITHUB_STEP_SUMMARY" <<'PY'
           import json, pathlib, sys
           result = json.loads(pathlib.Path(sys.argv[1]).read_text())
           print(f"### nginx: {result.get('profile')} / CPUs={result.get('ncpus')} / workers={result.get('workers')} / connections={result.get('connections')}")
           print(f"\n**Status:** {result.get('status')}  ")
           print(f"**Requests/sec:** {result.get('requests_per_second')}  ")
           print(f"**Mean latency (ms):** {result.get('average_latency_ms')}  ")
+          if result.get('observed_workers') is not None:
+              print(f"**Observed nginx processes:** {result.get('observed_workers')}  ")
           print(f"**HTTP/TLS smoke:** {result.get('smoke_http')} / {result.get('smoke_tls')}")
-          failures = result.get('failures') or []
-          if failures:
-              print("\n<details><summary>Failure details</summary>\n")
-              for failure in failures:
-                  print(f"- {failure}")
-              print("\n</details>")
-          warnings = result.get('warnings') or []
-          if warnings:
-              print("\n<details><summary>Warmup warnings</summary>\n")
-              for warning in warnings:
-                  print(f"- {warning}")
-              print("\n</details>")
+          for failure in result.get('failures') or []:
+              print(f"- {failure}")
           PY
-          else
-            printf '### nginx: %s / workers=%s / connections=%s\n\n**Status:** no measurement.json was produced.\n' \
-              "$PROFILE" "$WORKERS" "$CONNECTIONS" >>"$GITHUB_STEP_SUMMARY"
-          fi
-          if [[ -s "$out/harness.error" ]]; then
-            printf '\nHarness error:\n' >>"$GITHUB_STEP_SUMMARY"
-            printf '\n```text\n' >>"$GITHUB_STEP_SUMMARY"
-            cat "$out/harness.error" >>"$GITHUB_STEP_SUMMARY"
-            printf '\n```\n' >>"$GITHUB_STEP_SUMMARY"
-            printf 'nginx harness failure: '
-            cat "$out/harness.error"
-          fi
-          for log in wrk-warmup.log wrk.log smoke-http.log smoke-tls.log; do
-            if [[ -s "$out/$log" ]] && { [[ "$log" == wrk-warmup.log && "$(cat "$out/wrk-warmup.status" 2>/dev/null)" == FAIL ]] || [[ "$log" == wrk.log && "$(cat "$out/harness.status" 2>/dev/null)" == FAIL ]]; }; then
-              printf '\nRelevant %s tail:\n' "$log"
-              tail -n 40 "$out/$log"
-            fi
-          done
-      - name: Upload this leg's raw logs and measurement JSON
+            done
+      - name: Upload this profile's raw logs and measurements
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nginx-${{ matrix.profile }}-w${{ matrix.workers }}-n${{ matrix.ncpus }}-c${{ matrix.connections }}
-          path: output/${{ matrix.profile }}/w${{ matrix.workers }}-n${{ matrix.ncpus }}-c${{ matrix.connections }}
+          name: nginx-result-${{ matrix.profile }}
+          path: output/${{ matrix.profile }}
           if-no-files-found: error

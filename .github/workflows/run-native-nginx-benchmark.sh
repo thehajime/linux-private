@@ -24,10 +24,9 @@ done
 : "${OUTPUT:?missing --output}"
 mkdir -p "$OUTPUT"
 OUTPUT=$(cd "$OUTPUT" && pwd -P)
-case "$WORKERS:$THREADS:$CONNECTIONS" in
-	1:2:4|1:2:16|1:2:64|4:2:4|4:2:16|4:2:64) ;;
-	*) echo "unsupported benchmark parameters" >&2; usage;;
-esac
+case "$WORKERS" in 1|4|8|16) ;; *) echo "unsupported worker count" >&2; usage;; esac
+case "$CONNECTIONS" in 1|4|8|16) ;; *) echo "unsupported connection count" >&2; usage;; esac
+[[ "$THREADS" == 2 ]] || { echo "unsupported wrk thread count" >&2; usage; }
 
 mkdir -p "$OUTPUT/htdocs" "$OUTPUT/tmp" \
 	"$OUTPUT/tmp/client-body" "$OUTPUT/tmp/proxy" \

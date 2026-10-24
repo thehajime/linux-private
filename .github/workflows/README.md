@@ -69,17 +69,22 @@ dispatch inputs and uses the selected kernel ref plus the pinned aports commit
 recorded in each UML rootfs manifest. A native runner baseline is measured in a
 separate folded matrix while the UML rootfs and kernels build. APKs are built
 once. MMU, plain NOMMU, and SWMMU rootfs artifacts are each prepared once and
-shared across UML runtime profiles. Every supported UML profile runs worker
-counts 1/4 and wrk connections 4/16/64 from
-a separate client container. The native baseline measures the same matrix on
-the runner and records its available CPU count. MMU profiles cross one and
-four online CPUs with both worker counts and all client
-connection counts. Plain NOMMU uses a single `CONFIG_SMP=y` kernel build for
+shared across UML runtime profiles. Each UML profile is one CI matrix job and
+runs worker counts 1/4/8/16 and wrk connections 1/4/8/16 from a separate
+client container. The native baseline remains a separate host measurement.
+MMU and plain-NOMMU seccomp profiles cross 1/4/8/16 online CPUs. Plain NOMMU
+uses a single `CONFIG_SMP=y` kernel build for
 both PTRACE and seccomp profiles; the PTRACE runtime remains limited to one
-online CPU, while the seccomp profile compares one and four. NOMMU SAS remains
-single CPU because UML's NOMMU SAS configuration disables SMP. The top-level matrix
-calls the reusable workflow per leg so GitHub can group the legs at the caller.
-The run records the online CPU list. Each leg
+online CPU, while the seccomp profile compares 1/4/8/16. NOMMU SAS remains
+single CPU because UML's NOMMU SAS configuration disables SMP, but all four
+worker counts are measured instead of being pre-classified as unavailable.
+Because forkless plain NOMMU cannot use nginx's normal master/worker creation,
+its init starts the requested number of independent, single-process nginx
+instances with `SO_REUSEPORT`. The harness records and verifies the observed
+nginx process count, so a requested multi-worker result cannot silently measure
+one process.
+The reusable workflow groups results by profile. The run records the online
+CPU list. Each profile job
 uploads raw logs and `measurement.json`; `bench-result` aggregates profile
 data and uploads `nginx-aggregate-plot` with JSON, CSV, profile plots, and
 SWMMU rootfs diagnostics. HTTP/TLS smoke checks must pass, and a wrk timeout
@@ -92,7 +97,7 @@ lmbench benchmark-1 remains enabled.
 ### CI profile names
 
 Issue #4 reports, comparison plots, and visible UML build, benchmark, and LTP
-matrix job names use the same profile labels: `(native)`, `um-mmu(p)`,
+matrix job names use the same profile labels: `native`, `um-mmu(p)`,
 `um-mmu(s)`, `um-mmu-tt(s)`, `um-nommu(p)`, `um-nommu(s)`,
 `um-nommu-tt(s)`, `um-nommu-sas(s)`, `um-nommu-sas(z)`,
 `um-nommu-sas-swmmu(s)`, and `um-nommu-sas-swmmu(z)`. The parenthetical

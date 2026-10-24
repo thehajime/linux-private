@@ -6,9 +6,7 @@ busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true
 busybox mkdir -p /run
 busybox rm -f /run/nginx-benchmark-stop
-if busybox grep -q '^master_process on;$' /etc/nginx/nginx-matrix.conf; then
-	busybox mkfifo /run/nginx-benchmark-stop
-fi
+busybox mkfifo /run/nginx-benchmark-stop
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /tmp
 busybox mkdir -p /dev/shm /var/www/localhost/htdocs /var/lib/nginx/tmp
 busybox mount -t tmpfs -o rw,nosuid,nodev tmpfs /dev/shm
@@ -20,13 +18,52 @@ busybox route add default gw 172.18.0.1 dev vec0
 
 nginx -t -c /etc/nginx/nginx-matrix.conf
 if busybox grep -q '^master_process off;$' /etc/nginx/nginx-matrix.conf; then
+	workers=$(busybox sed -n 's/^worker_processes \([0-9][0-9]*\);$/\1/p' \
+		/etc/nginx/nginx-matrix.conf)
+	case "$workers" in
+		1|4|8|16) ;;
+		*) echo "invalid worker_processes: $workers"; busybox poweroff -f ;;
+	esac
+	pids=
+	i=1
+	while [ "$i" -le "$workers" ]; do
+		conf="/run/nginx-matrix-$i.conf"
+		busybox sed \
+			-e 's/^worker_processes [0-9][0-9]*;$/worker_processes 1;/' \
+			-e "s#^pid .*;#pid /run/nginx-matrix-$i.pid;#" \
+			-e 's/listen 0.0.0.0:8080;/listen 0.0.0.0:8080 reuseport;/' \
+			-e 's/listen 0.0.0.0:8443 ssl;/listen 0.0.0.0:8443 ssl reuseport;/' \
+			/etc/nginx/nginx-matrix.conf >"$conf"
+		busybox grep -q 'listen 0.0.0.0:8080 reuseport;' "$conf"
+		busybox grep -q 'listen 0.0.0.0:8443 ssl reuseport;' "$conf"
+		nginx -t -c "$conf"
+		nginx -c "$conf" &
+		pids="$pids $!"
+		i=$((i + 1))
+	done
+	actual=0
+	tries=0
+	while [ "$tries" -lt 20 ]; do
+		actual=0
+		for proc in /proc/[0-9]*; do
+			[ -r "$proc/comm" ] || continue
+			[ "$(busybox cat "$proc/comm")" = nginx ] && actual=$((actual + 1))
+		done
+		[ "$actual" -ge "$workers" ] && break
+		tries=$((tries + 1))
+		busybox sleep 1
+	done
+	echo "$actual" >/run/nginx-worker-count.txt
 	if [ -r /sys/devices/system/cpu/online ]; then
 		busybox cat /sys/devices/system/cpu/online >/run/online-cpus.txt
 	else
 		echo unavailable >/run/online-cpus.txt
 	fi
 	echo NGINX_MATRIX_READY
-	exec nginx -c /etc/nginx/nginx-matrix.conf
+	IFS= read -r _ < /run/nginx-benchmark-stop
+	for pid in $pids; do busybox kill -TERM "$pid" 2>/dev/null || true; done
+	for pid in $pids; do wait "$pid" 2>/dev/null || true; done
+	busybox poweroff -f
 fi
 nginx -c /etc/nginx/nginx-matrix.conf
 if [ -r /sys/devices/system/cpu/online ]; then
