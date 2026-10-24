@@ -103,7 +103,11 @@ at one CPU. Missing measurements are failures, not inferred skips. Forkless
 plain NOMMU implements worker counts with independent single-process nginx
 instances sharing the listeners through `SO_REUSEPORT`; the harness rejects a
 result unless the guest-observed nginx process count equals the request. CI
-execution and issue #4 refresh remain pending.
+run `40075679419` was dispatched from CI commit `255b82664280` with kernel
+`be7f38751f894520101c66c08748aba36b1584a4`, pinned aports
+`a3816eafb3eeb8e1e673d9f43cde169bd684c5a1`, and LTP `fix-nommu`. It must
+complete every expected nginx measurement before issue #4 is accepted as
+refreshed.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
