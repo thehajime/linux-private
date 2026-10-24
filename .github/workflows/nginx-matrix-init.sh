@@ -1,6 +1,13 @@
 #!/bin/sh
-set -e
+set -ex
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+
+report_exit()
+{
+	status=$?
+	echo "NGINX_MATRIX_EXIT status=$status"
+}
+trap report_exit EXIT
 
 busybox mount -t proc proc /proc
 busybox mount -t sysfs sysfs /sys || true

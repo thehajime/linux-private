@@ -138,6 +138,13 @@ panic cannot make every later matrix cell fail with `could not create tap100`.
 Run `40076692042` was cancelled before report publication after its diagnostic
 artifacts confirmed both problems. Validate their fixes together with the init
 fix in a replacement immutable-input run.
+Replacement run `40078799660` confirmed that zpoline now applies
+`vm.mmap_min_addr=0` and initializes its trampoline, and that TAP cleanup keeps
+later cells independent. Plain NOMMU PID 1 still exits with status 1 after the
+generated config passes `nginx -t`, so the original two polling predicates were
+not the only `set -e` trigger. Keep command tracing and an exit-status marker in
+this small benchmark init until the exact failing command is fixed; use the
+run's immutable artifacts for focused profile replay instead of rebuilding.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
