@@ -105,6 +105,18 @@ jobs:
               [[ "$manifest_kernel_sha" == "$candidate_kernel_sha" ]] || continue
               [[ "$manifest_aports_sha" == "$aports_sha" ]] || continue
 
+              candidate_tree_sha=$(gh api \
+                "repos/thehajime/linux-private/git/commits/$candidate_kernel_sha" \
+                --jq .tree.sha)
+              tested_tree_sha=$(gh api \
+                "repos/thehajime/linux-private/git/commits/$kernel_sha" \
+                --jq .tree.sha)
+              if [[ "$candidate_tree_sha" == "$tested_tree_sha" ]]; then
+                compatible_tag=$candidate_tag
+                compatible_kernel_sha=$candidate_kernel_sha
+                break
+              fi
+
               compare=$(gh api "repos/thehajime/linux-private/compare/${candidate_kernel_sha}...${kernel_sha}")
               if jq -e --arg apk_kernel "$candidate_kernel_sha" --arg tested_kernel "$kernel_sha" '
                 .status == "ahead" and
@@ -114,9 +126,12 @@ jobs:
                   # are unchanged; aports and archive manifests checked above/below.
                   # 6c0c5d71 adds kernel-only uaccess/ptrace/MAP_32BIT/timer
                   # fixes and docs; exact delta reviewed locally, ABI unchanged.
+                  # be7f3875 is the timestamp-corrected commit with the exact
+                  # same tree as 6c0c5d71.
                   ($apk_kernel == "52a8dfe6b58adffa2c5e57df1421a7e82cc50d9b" and
                    ($tested_kernel == "6d8e67f9be14d5f612eafd4ca78ee2c813cd6baa" or
-                    $tested_kernel == "6c0c5d71b58a161fa4eb503dff8688156faf3141"))
+                    $tested_kernel == "6c0c5d71b58a161fa4eb503dff8688156faf3141" or
+                    $tested_kernel == "be7f38751f894520101c66c08748aba36b1584a4"))
                 or
                   (.files | length > 0 and length < 300) and
                   all(.files[]; .filename == "arch/um/kernel/trap.c")
@@ -263,7 +278,7 @@ jobs:
               echo "No APK release with identical aports sources and a package-compatible kernel delta is available." >&2
               exit 1
             }
-            echo "Reusing $compatible_tag: kernel delta is limited to trap.c, the SWMMU seccomp bound fix, plain-NOMMU SMP Kconfig/TLS guards, the selftest directory/build rules, or their exact recognized combinations, and aports SHA is unchanged."
+            echo "Reusing $compatible_tag: the tested tree is identical to the packaged tree, or the kernel delta is limited to a reviewed package-compatible file set; aports SHA is unchanged."
             used_release_tag=$compatible_tag
             mkdir -p "$RUNNER_TEMP/apk-reuse"
             gh release download "$compatible_tag" --repo thehajime/aports \

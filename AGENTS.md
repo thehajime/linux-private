@@ -107,7 +107,11 @@ run `40075679419` was dispatched from CI commit `255b82664280` with kernel
 `be7f38751f894520101c66c08748aba36b1584a4`, pinned aports
 `a3816eafb3eeb8e1e673d9f43cde169bd684c5a1`, and LTP `fix-nommu`. It must
 complete every expected nginx measurement before issue #4 is accepted as
-refreshed.
+refreshed. Its first attempt stopped at APK acquisition because the
+timestamp-corrected feature commit has rewritten ancestry. Its tree
+`a2a94cb570d274e63908a0066f2843af8d0e36af` is byte-identical to accepted
+commit `6c0c5d71b58a`; the CI reuse gate now recognizes identical Git trees in
+addition to its reviewed file-set rules. Rerun from the corrected CI commit.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
