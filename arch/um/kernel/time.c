@@ -766,6 +766,9 @@ void timer_handler(int sig, struct siginfo *unused_si, struct uml_pt_regs *regs)
 {
 	unsigned long flags;
 
+	/* Host mcontext has no guest user/kernel accounting state. */
+	regs->is_user = READ_ONCE(current->thread.user_running);
+
 	/*
 	 * In basic time-travel mode we still get real interrupts
 	 * (signals) but since we don't read time from the OS, we

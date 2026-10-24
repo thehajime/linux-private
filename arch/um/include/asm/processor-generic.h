@@ -20,6 +20,8 @@ struct task_struct;
 struct mm_struct;
 
 struct thread_struct {
+	/* This task is waiting for its separate host userspace process. */
+	bool user_running;
 	struct pt_regs *segv_regs;
 	struct task_struct *prev_sched;
 	struct arch_thread arch;
