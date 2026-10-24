@@ -145,6 +145,12 @@ generated config passes `nginx -t`, so the original two polling predicates were
 not the only `set -e` trigger. Keep command tracing and an exit-status marker in
 this small benchmark init until the exact failing command is fixed; use the
 run's immutable artifacts for focused profile replay instead of rebuilding.
+Focused replay `40080246613` traced the remaining trigger exactly: BusyBox
+`ash` treated the startup loop's final false condition (`[ 2 -le 1 ]`) as the
+status of the whole `while` command and exited under `set -e`. Express both
+bounded loops as `while :` plus explicit successful `break` conditions. Retain
+the compact exit-status marker, remove verbose tracing, and replay the same
+artifacts before another full run.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout

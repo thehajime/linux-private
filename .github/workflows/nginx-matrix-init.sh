@@ -1,5 +1,5 @@
 #!/bin/sh
-set -ex
+set -e
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 
 report_exit()
@@ -33,7 +33,10 @@ if busybox grep -q '^master_process off;$' /etc/nginx/nginx-matrix.conf; then
 	esac
 	pids=
 	i=1
-	while [ "$i" -le "$workers" ]; do
+	while :; do
+		if [ "$i" -gt "$workers" ]; then
+			break
+		fi
 		conf="/run/nginx-matrix-$i.conf"
 		busybox sed \
 			-e 's/^worker_processes [0-9][0-9]*;$/worker_processes 1;/' \
@@ -50,7 +53,10 @@ if busybox grep -q '^master_process off;$' /etc/nginx/nginx-matrix.conf; then
 	done
 	actual=0
 	tries=0
-	while [ "$tries" -lt 20 ]; do
+	while :; do
+		if [ "$tries" -ge 20 ]; then
+			break
+		fi
 		actual=0
 		for proc in /proc/[0-9]*; do
 			[ -r "$proc/comm" ] || continue
