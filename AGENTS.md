@@ -198,9 +198,10 @@ the SWMMU zpoline profile produced sixteen valid cells but one otherwise
 passing cell failed only because its final serial `stop` line was not consumed
 before the cleanup timeout. CI helper `25b24a400d3e` retries that idempotent
 command while waiting for guest poweroff. Focused full-profile replay
-`40095411056` reuses the immutable kernel and rootfs artifacts from the full
-run and is the cleanup-fix acceptance gate. The two 64-cell seccomp profiles
-from the original full run must also complete before T2 is closed.
+`40095411056` reused the immutable kernel and rootfs artifacts from the full
+run and passed all 16 cells. Every cell has status PASS, UML exit 0, and the
+`reboot: Power down` marker. The two 64-cell seccomp profiles from the original
+full run must still complete before T2 is closed.
 Do not publish a partial report.
 
 
