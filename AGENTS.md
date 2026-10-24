@@ -28,10 +28,8 @@ unchecked box there does not make a task current unless it is listed here.
 
 ### Tests
 
-- **T1 — LTP upstream series:** finish glibc regression validation and hand the
-  signed 12-patch series to the upstream-submission task.
-- **T2 — Expanded nginx matrix:** validate the profile-grouped 1/4/8/16 worker,
-  connection, and supported CPU measurements, then refresh issue #4.
+- **T1 — LTP upstream series:** finish privileged regression validation and hand
+  the signed 14-patch series to the upstream-submission task.
 - **T3 — Kirk upstream series:** submit the preserved runtime fixes from
   `hajime/kirk-runtime-fixes-review` in the separate Kirk task.
 - **T4 — Future LTP gate:** keep exact selected-test coverage, normal shutdown,
@@ -46,15 +44,11 @@ unchecked box there does not make a task current unless it is listed here.
 
 ### Userspace
 
-- **U1 — Plain NOMMU nginx workers:** validate the independent `SO_REUSEPORT`
-  instance implementation in CI and retain its observed-process-count gate.
 - **U2 — Alpine upstreaming:** prepare the remaining musl/BusyBox/apk profile
   changes for their appropriate upstreams after kernel/runtime interfaces settle.
 
 ### CI, reports, and documentation
 
-- **C1 — Nginx acceptance:** run the expanded per-profile jobs, preserve every
-  measurement, and update plots/report only from a complete run.
 - **C2 — TODO maintenance:** update this index and its matching detail whenever
   a task is added, completed, superseded, or moved to another repository.
 
@@ -212,8 +206,15 @@ nginx child. The incomplete Issue #4 comment was deleted and accepted report
 restore `40100540083` was dispatched. Helper `5ec635176aa8` now skips report
 publication unless the nginx workflow succeeds; the refresh path requires all
 240 expanded nginx rows to be numeric PASS before overlaying focused replay
-artifacts. T2 closes only after both CPU replays and the final report refresh.
+artifacts.
 Do not publish a partial report.
+
+T2/C1/U1 completed with CPU-subset replays `40100053940` and `40100056106`:
+each supplied 32/32 PASS measurements for CPUs 8/16. Together with the original
+CPU 1/4 cells and SWMMU zpoline replay `40095411056`, the strict aggregate has
+240/240 numeric PASS rows. Refresh `40108443577` passed the same gate, updated
+Issue #4 comment `6375108650`, and deployed the expanded charts to Pages. Plain
+NOMMU worker counts 1/4/8/16 are included in its 16 passing cells.
 
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
