@@ -129,6 +129,15 @@ exited init with status 1. The multi-instance polling loop used false `test &&`
 lists under BusyBox `ash` with `set -e`; rewrite those predicates as explicit
 `if` statements so an ordinary non-nginx `/proc` entry or an asynchronous
 startup wait cannot terminate PID 1. Retest every plain NOMMU profile.
+The same run also exposed two harness defects. The profile driver passed
+`--needs-rawio 1`, while the cell runner enables `CAP_SYS_RAWIO` and lowers
+`vm.mmap_min_addr` only for the literal value `true`; zpoline therefore panicked
+in `setup_zpoline_trampoline()` before userspace. Pass a boolean consistently.
+In addition, remove `tap100` during unconditional cell cleanup so one guest
+panic cannot make every later matrix cell fail with `could not create tap100`.
+Run `40076692042` was cancelled before report publication after its diagnostic
+artifacts confirmed both problems. Validate their fixes together with the init
+fix in a replacement immutable-input run.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout

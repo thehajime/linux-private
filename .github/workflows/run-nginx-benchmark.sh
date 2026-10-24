@@ -402,6 +402,9 @@ capture_logs() {
 		docker logs "$CLIENT" >"$OUTPUT/client-container.log" 2>&1 || true
 		docker rm -f "$CLIENT" >/dev/null 2>&1 || true
 	fi
+	# Every profile cell creates the same host TAP.  Remove it even after an
+	# early guest panic so that the next cell starts from a clean host state.
+	sudo ip link delete tap100 >/dev/null 2>&1 || true
 }
 
 start_runtime_probes() {

@@ -33,8 +33,8 @@ kernel_args()
 	esac
 }
 
-needs_rawio=0
-case "$PROFILE" in *-zpoline) needs_rawio=1 ;; esac
+needs_rawio=false
+case "$PROFILE" in *-zpoline) needs_rawio=true ;; esac
 kernel_sha=$(sed -n 's/^kernel_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
 aports_sha=$(sed -n 's/^aports_sha=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
 gcc_version=$(sed -n 's/^gcc_version=//p' "$RUNNER_TEMP/nginx-rootfs/manifest.txt")
