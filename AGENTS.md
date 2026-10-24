@@ -112,6 +112,12 @@ timestamp-corrected feature commit has rewritten ancestry. Its tree
 `a2a94cb570d274e63908a0066f2843af8d0e36af` is byte-identical to accepted
 commit `6c0c5d71b58a`; the CI reuse gate now recognizes identical Git trees in
 addition to its reviewed file-set rules. Rerun from the corrected CI commit.
+Run `40075835158` passed that APK gate but exposed a moving-input problem:
+`fix-nommu` had advanced from the accepted `1bb350a1` to `659b6f7f`, causing
+the compatibility patches to be applied twice. It was cancelled before the
+long matrix. Replacement run `40075930328` pins the accepted full LTP SHA
+`1bb350a1cd55501173e33f1836a674494f2cb48b`; keep this and the kernel/aports
+inputs immutable while assessing T2.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
