@@ -111,7 +111,8 @@ int putreg(struct task_struct *child, int regno, unsigned long value)
 
 int poke_user(struct task_struct *child, long addr, long data)
 {
-	if ((addr & 3) || addr < 0)
+	if ((addr & (sizeof(long) - 1)) || addr < 0 ||
+	    addr > sizeof(struct user) - sizeof(long))
 		return -EIO;
 
 	if (addr < MAX_REG_OFFSET)
@@ -174,7 +175,8 @@ int peek_user(struct task_struct *child, long addr, long data)
 	/* read the word at location addr in the USER area. */
 	unsigned long tmp;
 
-	if ((addr & 3) || addr < 0)
+	if ((addr & (sizeof(long) - 1)) || addr < 0 ||
+	    addr > sizeof(struct user) - sizeof(long))
 		return -EIO;
 
 	tmp = 0;  /* Default return condition */
@@ -183,7 +185,7 @@ int peek_user(struct task_struct *child, long addr, long data)
 	else if ((addr >= offsetof(struct user, u_debugreg[0])) &&
 		(addr <= offsetof(struct user, u_debugreg[7]))) {
 		addr -= offsetof(struct user, u_debugreg[0]);
-		addr = addr >> 2;
+		addr = addr / sizeof(long);
 		tmp = child->thread.arch.debugregs[addr];
 	}
 	return put_user(tmp, (unsigned long *) data);

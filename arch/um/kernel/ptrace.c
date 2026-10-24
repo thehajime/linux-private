@@ -68,10 +68,11 @@ long arch_ptrace(struct task_struct *child, long request,
 			break;
 		}
 		for ( i = 0; i < MAX_REG_OFFSET; i += sizeof(long) ) {
-			__put_user(getreg(child, i), p);
+			ret = __put_user(getreg(child, i), p);
+			if (ret)
+				break;
 			p++;
 		}
-		ret = 0;
 		break;
 	}
 #endif
@@ -83,11 +84,14 @@ long arch_ptrace(struct task_struct *child, long request,
 			break;
 		}
 		for ( i = 0; i < MAX_REG_OFFSET; i += sizeof(long) ) {
-			__get_user(tmp, p);
-			putreg(child, i, tmp);
+			ret = __get_user(tmp, p);
+			if (ret)
+				break;
+			ret = putreg(child, i, tmp);
+			if (ret)
+				break;
 			p++;
 		}
-		ret = 0;
 		break;
 	}
 #endif
