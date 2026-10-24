@@ -71,7 +71,10 @@ separate folded matrix while the UML rootfs and kernels build. APKs are built
 once. MMU, plain NOMMU, and SWMMU rootfs artifacts are each prepared once and
 shared across UML runtime profiles. Each UML profile is one CI matrix job and
 runs worker counts 1/4/8/16 and wrk connections 1/4/8/16 from a separate
-client container. The native baseline remains a separate host measurement.
+client container. The one-connection measurement uses one wrk thread because
+wrk requires connections to be greater than or equal to threads; the remaining
+connection counts use two wrk threads. The native baseline remains a separate
+host measurement.
 MMU and plain-NOMMU seccomp profiles cross 1/4/8/16 online CPUs. Plain NOMMU
 uses a single `CONFIG_SMP=y` kernel build for
 both PTRACE and seccomp profiles; the PTRACE runtime remains limited to one

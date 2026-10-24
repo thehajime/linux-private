@@ -118,6 +118,10 @@ the compatibility patches to be applied twice. It was cancelled before the
 long matrix. Replacement run `40075930328` pins the accepted full LTP SHA
 `1bb350a1cd55501173e33f1836a674494f2cb48b`; keep this and the kernel/aports
 inputs immutable while assessing T2.
+That replacement exposed an nginx matrix parameter error before UML nginx
+started: wrk rejects `connections=1` with two client threads. Use one wrk
+thread for the one-connection cell and two threads for connections 4/8/16 in
+both native and UML profiles; rerun the full immutable-input matrix.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout

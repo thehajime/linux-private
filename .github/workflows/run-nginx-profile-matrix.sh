@@ -18,7 +18,6 @@ case "$PROFILE" in
 esac
 WORKER_COUNTS=(1 4 8 16)
 CONNECTION_COUNTS=(1 4 8 16)
-THREADS=2
 mkdir -p "$OUTPUT_ROOT/$PROFILE"
 
 kernel_args()
@@ -44,6 +43,10 @@ status=0
 for ncpus in "${CPU_COUNTS[@]}"; do
 	for workers in "${WORKER_COUNTS[@]}"; do
 		for connections in "${CONNECTION_COUNTS[@]}"; do
+			threads=2
+			if [[ "$connections" == 1 ]]; then
+				threads=1
+			fi
 			out="$OUTPUT_ROOT/$PROFILE/w${workers}-n${ncpus}-c${connections}"
 			rootfs="$RUNNER_TEMP/nginx-rootfs-${PROFILE}-${ncpus}-${workers}-${connections}"
 			rm -rf "$rootfs"
@@ -57,7 +60,7 @@ for ncpus in "${CPU_COUNTS[@]}"; do
 			if ! NGINX_WRK_WARMUP_SECONDS=15 \
 				bash .github/workflows/run-nginx-benchmark.sh \
 					--kernel "$KERNEL" --rootfs "$rootfs" \
-					--workers "$workers" --ncpus "$ncpus" --threads "$THREADS" \
+					--workers "$workers" --ncpus "$ncpus" --threads "$threads" \
 					--connections "$connections" --duration 30 --profile "$PROFILE" \
 					--kernel-args "$(kernel_args "$ncpus")" --needs-rawio "$needs_rawio" \
 					--kernel-sha "$kernel_sha" --aports-sha "$aports_sha" \

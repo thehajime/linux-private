@@ -144,7 +144,10 @@ fi
 
 case "$WORKERS" in 1|4|8|16) ;; *) echo "unsupported worker count" >&2; usage;; esac
 case "$CONNECTIONS" in 1|4|8|16) ;; *) echo "unsupported connection count" >&2; usage;; esac
-[[ "$THREADS" == 2 ]] || { echo "unsupported wrk thread count" >&2; usage; }
+case "$THREADS:$CONNECTIONS" in
+	1:1|2:4|2:8|2:16) ;;
+	*) echo "unsupported wrk thread/connection combination" >&2; usage;;
+esac
 
 fail() {
 	HARNESS_STATUS=FAIL

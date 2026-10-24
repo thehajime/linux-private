@@ -25,9 +25,13 @@ jobs:
           status=0
           for workers in 1 4 8 16; do
             for connections in 1 4 8 16; do
+              threads=2
+              if [[ "$connections" == 1 ]]; then
+                threads=1
+              fi
               out="output/native/w${workers}-n1-c${connections}"
               if ! bash .github/workflows/run-native-nginx-benchmark.sh \
-                --workers "$workers" --threads 2 \
+                --workers "$workers" --threads "$threads" \
                 --connections "$connections" --duration 30 \
                 --output "$out"; then
                 status=1
