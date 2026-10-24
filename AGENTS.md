@@ -83,8 +83,8 @@ after a concrete binutils fix exists.
 
 ### Test details
 
-**T1:** LTP branch `hajime/ltp-mmu-native-fixes-upstream` contains 12 reviewable
-patches at `3471e27e1`. Every patch carries `Signed-off-by: Hajime Tazaki
+**T1:** LTP branch `hajime/ltp-mmu-native-fixes-upstream` contains 13 reviewable
+patches at `a751a3a48`. Every patch carries `Signed-off-by: Hajime Tazaki
 <thehajime@gmail.com>` and its subject is free of CI-control tags. Ubuntu 24.04
 glibc 2.39 built the changed library and syscall directories. Focused execution
 passed sendmsg01, both signal-wait tests, prctl10, sbrk01, readlink03,
@@ -95,6 +95,10 @@ with initial-user-namespace `CAP_SYS_ADMIN`; the unprivileged container returned
 EACCES. The loop-device and memory-headroom library changes compiled but need
 their privileged/full-suite upstream CI coverage. Preserve these limits in the
 upstream handoff instead of calling the glibc run fully complete.
+The thirteenth patch sizes legacy `sigaltstack01` from `AT_MINSIGSTKSZ` when a
+large host XSAVE frame exceeds compile-time `SIGSTKSZ`. It addresses the native
+ENOMEM seen in CI `40078799660`; its distro build matrix is `40083112594`, and
+focused execution on a matching large-XSAVE runner is still required.
 
 **T2/C1:** The nginx workflow uses one GitHub matrix job per runtime profile.
 Every profile measures workers and connections 1/4/8/16. MMU-seccomp and plain
@@ -155,6 +159,10 @@ The reusable/manual nginx workflow has an opt-in `single_cell` diagnostic input
 that restricts a replay to CPUs=1, workers=1 and connections=1. Keep the default
 full matrix unchanged; use this input with immutable source artifacts for quick
 boot/load/shutdown iterations before consuming runners on another complete run.
+Single-cell replay `40082577298` passed HTTP and TLS smoke, warmup, all five wrk
+samples, observed-worker validation and TAP capture at 1,624.69 requests/s with
+zero socket errors. This validates the corrected plain NOMMU init for the
+1/1/1 cell; the complete 16-cell replay remains the profile acceptance gate.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
