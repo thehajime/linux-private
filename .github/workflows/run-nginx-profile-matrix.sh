@@ -18,6 +18,11 @@ case "$PROFILE" in
 esac
 WORKER_COUNTS=(1 4 8 16)
 CONNECTION_COUNTS=(1 4 8 16)
+if [[ ${NGINX_SINGLE_CELL:-0} == 1 ]]; then
+	CPU_COUNTS=(1)
+	WORKER_COUNTS=(1)
+	CONNECTION_COUNTS=(1)
+fi
 mkdir -p "$OUTPUT_ROOT/$PROFILE"
 
 kernel_args()

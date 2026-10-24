@@ -151,6 +151,10 @@ status of the whole `while` command and exited under `set -e`. Express both
 bounded loops as `while :` plus explicit successful `break` conditions. Retain
 the compact exit-status marker, remove verbose tracing, and replay the same
 artifacts before another full run.
+The reusable/manual nginx workflow has an opt-in `single_cell` diagnostic input
+that restricts a replay to CPUs=1, workers=1 and connections=1. Keep the default
+full matrix unchanged; use this input with immutable source artifacts for quick
+boot/load/shutdown iterations before consuming runners on another complete run.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout

@@ -15,6 +15,9 @@ on:
       control_channel:
         type: string
         default: auto
+      single_cell:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -32,6 +35,10 @@ on:
         type: choice
         default: auto
         options: [auto, legacy, serial]
+      single_cell:
+        description: 'Run only CPUs=1, workers=1, connections=1 for focused diagnosis'
+        type: boolean
+        default: false
 
 jobs:
   nginx_benchmark:
@@ -48,6 +55,7 @@ jobs:
     env:
       NGINX_DIAGNOSTICS: ${{ inputs.capture_diagnostics && '1' || '0' }}
       NGINX_CONTROL_CHANNEL: ${{ inputs.control_channel || 'auto' }}
+      NGINX_SINGLE_CELL: ${{ inputs.single_cell && '1' || '0' }}
       NGINX_PROFILE: ${{ matrix.profile }}
       NGINX_IMAGE_NAME: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'um-nommu-sas' || startsWith(matrix.profile, 'um-mmu') && 'um-mmu' || (matrix.profile == 'um-nommu-plain-sas' || matrix.profile == 'um-nommu-plain-sas-zpoline') && 'um-nommu-plain-sas' || 'um-nommu' }}
       NGINX_ROOTFS_ARTIFACT: ${{ (matrix.profile == 'um-nommu-sas-seccomp' || matrix.profile == 'um-nommu-sas-zpoline') && 'nginx-rootfs-sas' || startsWith(matrix.profile, 'um-mmu') && 'nginx-rootfs-mmu' || 'nginx-rootfs-nommu' }}
