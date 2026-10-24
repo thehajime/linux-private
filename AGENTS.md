@@ -104,8 +104,10 @@ series SHA lacks those downstream NOMMU framework commits.
 The fourteenth patch captures handler/main/alternate-stack addresses as
 `uintptr_t`, uses an exclusive numeric upper bound, and prints exact bounds on
 failure. It removes undefined relational comparison between distinct objects.
-Focused ptrace UML CI `40089568555` and 20/20 local boots pass; final full
-candidate `40091158800` uses the equivalent runtime branch at `7764d45a2`.
+Focused ptrace UML CI `40089568555` and 20/20 local boots pass. A clean
+Ubuntu 24.04/glibc 2.39 archive build of tip `0be9ea13c` compiled the LTP
+library and `sigaltstack01`; the test passed. Final full candidate
+`40091158800` uses the equivalent runtime branch at `7764d45a2`.
 
 **T2/C1:** The nginx workflow uses one GitHub matrix job per runtime profile.
 Every profile measures workers and connections 1/4/8/16. MMU-seccomp and plain
