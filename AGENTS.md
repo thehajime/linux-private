@@ -192,6 +192,15 @@ local has expired, which is undefined C behavior; signed runtime candidate
 Final full candidate run `40091158800` uses that runtime branch and CI helper
 `9bf1f3f15563`; accept T2 only if every LTP and nginx profile completes.
 Focused LTP workflow dispatches now skip unrelated benchmarks and nginx jobs.
+All twelve LTP jobs in that run passed their exact-coverage and zero-error
+gates. Seven of eight nginx profiles completed their requested measurements;
+the SWMMU zpoline profile produced sixteen valid cells but one otherwise
+passing cell failed only because its final serial `stop` line was not consumed
+before the cleanup timeout. CI helper `25b24a400d3e` retries that idempotent
+command while waiting for guest poweroff. Focused full-profile replay
+`40095411056` reuses the immutable kernel and rootfs artifacts from the full
+run and is the cleanup-fix acceptance gate. The two 64-cell seccomp profiles
+from the original full run must also complete before T2 is closed.
 Do not publish a partial report.
 
 
