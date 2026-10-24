@@ -83,8 +83,8 @@ after a concrete binutils fix exists.
 
 ### Test details
 
-**T1:** LTP branch `hajime/ltp-mmu-native-fixes-upstream` contains 13 reviewable
-patches at `a751a3a48`. Every patch carries `Signed-off-by: Hajime Tazaki
+**T1:** LTP branch `hajime/ltp-mmu-native-fixes-upstream` contains 14 reviewable
+patches at `0be9ea13c`. Every patch carries `Signed-off-by: Hajime Tazaki
 <thehajime@gmail.com>` and its subject is free of CI-control tags. Ubuntu 24.04
 glibc 2.39 built the changed library and syscall directories. Focused execution
 passed sendmsg01, both signal-wait tests, prctl10, sbrk01, readlink03,
@@ -101,6 +101,11 @@ ENOMEM seen in CI `40078799660`; its upstream-branch distro build matrix
 `40083112594` passed 16/16 jobs. Runtime CI must use `659c79cba`, which is the
 same signed patch alone on accepted NOMMU runtime base `1bb350a1`; the upstream
 series SHA lacks those downstream NOMMU framework commits.
+The fourteenth patch captures handler/main/alternate-stack addresses as
+`uintptr_t`, uses an exclusive numeric upper bound, and prints exact bounds on
+failure. It removes undefined relational comparison between distinct objects.
+Focused ptrace UML CI `40089568555` and 20/20 local boots pass; final full
+candidate `40091158800` uses the equivalent runtime branch at `7764d45a2`.
 
 **T2/C1:** The nginx workflow uses one GitHub matrix job per runtime profile.
 Every profile measures workers and connections 1/4/8/16. MMU-seccomp and plain
