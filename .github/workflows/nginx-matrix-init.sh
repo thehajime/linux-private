@@ -47,9 +47,13 @@ if busybox grep -q '^master_process off;$' /etc/nginx/nginx-matrix.conf; then
 		actual=0
 		for proc in /proc/[0-9]*; do
 			[ -r "$proc/comm" ] || continue
-			[ "$(busybox cat "$proc/comm")" = nginx ] && actual=$((actual + 1))
+			if [ "$(busybox cat "$proc/comm")" = nginx ]; then
+				actual=$((actual + 1))
+			fi
 		done
-		[ "$actual" -ge "$workers" ] && break
+		if [ "$actual" -ge "$workers" ]; then
+			break
+		fi
 		tries=$((tries + 1))
 		busybox sleep 1
 	done

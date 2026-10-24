@@ -124,6 +124,11 @@ thread for the one-connection cell and two threads for connections 4/8/16 in
 both native and UML profiles. Full immutable-input rerun `40076692042` uses CI
 commit `17fe40492ffd`; accept T2 only after all profile artifacts and the
 aggregate report are complete.
+That run's first plain NOMMU cell reached the generated nginx config and then
+exited init with status 1. The multi-instance polling loop used false `test &&`
+lists under BusyBox `ash` with `set -e`; rewrite those predicates as explicit
+`if` statements so an ordinary non-nginx `/proc` entry or an asynchronous
+startup wait cannot terminate PID 1. Retest every plain NOMMU profile.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
