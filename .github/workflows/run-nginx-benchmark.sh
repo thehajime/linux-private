@@ -359,10 +359,16 @@ capture_logs() {
 	if [[ -n "$UML_PID" ]]; then
 		if [[ -d "$ROOTFS/run" ]]; then
 			if [[ "$CONTROL_CHANNEL" == serial || -p "$ROOTFS/run/nginx-benchmark-stop" ]]; then
-				send_guest_command stop 2>/dev/null || true
-				for _ in {1..15}; do
-					kill -0 "$UML_PID" 2>/dev/null || break
-					sleep 1
+				# A busy zpoline guest has occasionally accepted the host FIFO
+				# write without consuming the corresponding PTY line.  Retry the
+				# idempotent stop command while waiting for the poweroff rather than
+				# turning a valid benchmark cell into a cleanup-only failure.
+				for _ in {1..4}; do
+					send_guest_command stop 2>/dev/null || true
+					for _ in {1..5}; do
+						kill -0 "$UML_PID" 2>/dev/null || break 2
+						sleep 1
+					done
 				done
 			fi
 		fi
