@@ -121,7 +121,9 @@ inputs immutable while assessing T2.
 That replacement exposed an nginx matrix parameter error before UML nginx
 started: wrk rejects `connections=1` with two client threads. Use one wrk
 thread for the one-connection cell and two threads for connections 4/8/16 in
-both native and UML profiles; rerun the full immutable-input matrix.
+both native and UML profiles. Full immutable-input rerun `40076692042` uses CI
+commit `17fe40492ffd`; accept T2 only after all profile artifacts and the
+aggregate report are complete.
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
