@@ -17,6 +17,17 @@ struct arch_thread {
 			   .debugregs_seq	= 0, \
 			   .faultinfo		= { 0, 0, 0 } }
 
+#ifdef CONFIG_MMU
+/* MAP_FIXED ignores MAP_32BIT, matching the x86-64 mmap ABI. */
+#define arch_get_mmap_end(addr, len, flags) ({			\
+	unsigned long __flags = (flags);				\
+	(void)(addr);						\
+	(void)(len);						\
+	(__flags & MAP_32BIT) && !(__flags & MAP_FIXED) ?	\
+		min(TASK_SIZE, 1UL << 31) : TASK_SIZE;		\
+})
+#endif
+
 #define STACKSLOTS_PER_LINE 4
 
 static inline void arch_flush_thread(struct arch_thread *thread)
