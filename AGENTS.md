@@ -201,7 +201,18 @@ command while waiting for guest poweroff. Focused full-profile replay
 `40095411056` reused the immutable kernel and rootfs artifacts from the full
 run and passed all 16 cells. Every cell has status PASS, UML exit 0, and the
 `reboot: Power down` marker. The two 64-cell seccomp profiles from the original
-full run must still complete before T2 is closed.
+full run each produced 32 PASS cells for CPUs 1/4 and 32 false failures for
+CPUs 8/16. The guests correctly reported `0-7` and `0-15` online, but the
+harness only accepted `0` and `0-3`. CI helper `4eb077290389` derives the
+expected online range from the requested count and adds a validated CPU-subset
+replay input. Immutable-artifact replays `40100053940` (MMU seccomp) and
+`40100056106` (plain NOMMU seccomp) cover the missing CPU 8/16 cells.
+Run `40091158800` also exposed that `bench-result` published despite a failed
+nginx child. The incomplete Issue #4 comment was deleted and accepted report
+restore `40100540083` was dispatched. Helper `5ec635176aa8` now skips report
+publication unless the nginx workflow succeeds; the refresh path requires all
+240 expanded nginx rows to be numeric PASS before overlaying focused replay
+artifacts. T2 closes only after both CPU replays and the final report refresh.
 Do not publish a partial report.
 
 
