@@ -11,7 +11,10 @@ PROFILES = (
     ("um-nommu-plain-sas-zpoline", "um-nommu-sas(z)", "#85929e"),
     ("um-nommu-sas-seccomp", "um-nommu-sas-swmmu(s)", "#0000ff"),
     ("um-nommu-sas-zpoline", "um-nommu-sas-swmmu(z)", "#4169e1"),
-    ("native", "(native)", "#c0392b"),
+    ("native", "native", "#c0392b"),
+)
+BENCHMARK_PROFILES = tuple(
+    profile for profile in PROFILES if "-tt-" not in profile[0]
 )
 PROFILE_LABELS = {target: label for target, label, _color in PROFILES}
 PROFILE_RANK = {target: rank for rank, (target, _label, _color) in enumerate(PROFILES)}

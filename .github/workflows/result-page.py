@@ -17,11 +17,11 @@ CHARTS = {
 NGINX_CHARTS = (
     (
         "nginx-workers-1.png",
-        "Nginx throughput versus online CPUs. Profile colors and separate client-connection panels; boxes use repeated same-condition runs, diamonds denote n=1. Native shows host CPU count on a separate runner.",
+        "Nginx throughput versus online CPUs. Bars show median requests/s and whiskers show the observed min-max range. Native shows host CPU count on a separate runner.",
     ),
     (
         "nginx-workers-4.png",
-        "Nginx throughput versus online CPUs. Profile colors and separate client-connection panels; boxes use repeated same-condition runs, diamonds denote n=1. Native shows host CPU count on a separate runner.",
+        "Nginx throughput versus online CPUs. Bars show median requests/s and whiskers show the observed min-max range. Native shows host CPU count on a separate runner.",
     ),
 )
 

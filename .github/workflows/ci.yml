@@ -2017,8 +2017,8 @@ jobs:
               "lmbench-bandwidth.png": "lmbench pipe and memory bandwidth by UML profile, in MB/s.",
               "iperf3.png": "iperf3 forward goodput is positive and reverse goodput is negative. Both directions for each profile share the same x coordinate and legend entry, in Gbit/s.",
               "tcp-stream.png": "netperf TCP_STREAM (positive) and TCP_MAERTS (negative) goodput by payload size. Both directions for a profile share the same x coordinate and legend entry. The vertical range is symmetric and includes native values when available.",
-              "nginx-workers-1.png": "Nginx throughput versus online CPU count, with profile colors and separate client-connection panels. Boxes show repeated same-condition wrk runs; diamonds denote n=1. Native uses host CPU count on a separate runner.",
-              "nginx-workers-4.png": "Nginx throughput versus online CPU count, with profile colors and separate client-connection panels. Boxes show repeated same-condition wrk runs; diamonds denote n=1. Native uses host CPU count on a separate runner.",
+              "nginx-workers-1.png": "Nginx throughput versus online CPU count, with profile colors and separate client-connection panels. Bars show median requests/s and whiskers show the observed min-max range. Native uses host CPU count on a separate runner.",
+              "nginx-workers-4.png": "Nginx throughput versus online CPU count, with profile colors and separate client-connection panels. Bars show median requests/s and whiskers show the observed min-max range. Native uses host CPU count on a separate runner.",
           }
           for filename, description in descriptions.items():
               marker = f"<!-- report-chart:{filename} -->"

@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 
-from report_profiles import PROFILES
+from report_profiles import BENCHMARK_PROFILES
 LATENCY_ROWS = (
     ("select-10", "select-10"),
     ("select-100", "select-100"),
@@ -86,18 +86,21 @@ def symmetric_plot_limit(files, *, paired=False, minimum=0.0):
     return max(minimum, 10 * magnitude)
 
 
-def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, paired=False):
+def render_plot(
+    out_dir, filename, ylabel, labels, files, *, logscale=False, paired=False,
+    group_width=None, width_ratio=None,
+):
     status_path = out_dir / f"{Path(filename).stem}-plot-status.txt"
     if not has_finite_measurement(files, paired=paired):
         status_path.write_text("Plot omitted: no finite measurements are available for this metric.\n")
         print(f"{filename}: omitted because all measurements are unavailable")
         return
 
-    colors = [color for _target, _label, color in PROFILES]
-    names = [label for _target, label, _color in PROFILES]
-    group_width = 0.72 if paired else 0.9
+    names = [label for _target, label, _color in BENCHMARK_PROFILES]
+    group_width = group_width if group_width is not None else (0.72 if paired else 0.9)
     step = group_width / len(files)
-    width = step * 0.62 if paired else step
+    width_ratio = width_ratio if width_ratio is not None else (0.62 if paired else 1.0)
+    width = step * width_ratio
     offsets = [(index - (len(files) - 1) / 2) * step for index in range(len(files))]
     xtics = ", ".join(f"{gnuplot_quote(label)} {position}" for label, position in labels)
     plot_items = []
@@ -152,7 +155,7 @@ def render_plot(out_dir, filename, ylabel, labels, files, *, logscale=False, pai
             limit = symmetric_plot_limit(files, paired=True, minimum=minimum)
             commands.append(f"set yrange [-{limit:g}:{limit:g}]")
             if filename == "tcp-stream.png":
-                native_available = has_finite_measurement([item for item in files if item[1] == "(native)"], paired=True)
+                native_available = has_finite_measurement([item for item in files if item[1] == "native"], paired=True)
                 basis = "native plus other profiles" if native_available else "available non-native profiles (native was unavailable)"
                 range_note = f" Symmetric y-range: +/- {limit:g} Gbps (50 Gbps minimum; expanded to contain the largest finite value in {basis})."
     commands.append("plot \\\n  " + ", \\\n  ".join(plot_items))
@@ -172,7 +175,7 @@ def main():
 
     lmbench = snapshot.get("lmbench_table", {})
     lmbench_files = []
-    for target, label, _color in PROFILES:
+    for target, label, _color in BENCHMARK_PROFILES:
         path = out_dir / f"lmbench-{target}.dat"
         values = [lmbench.get(target, {}).get(operation) for operation, _name in LATENCY_ROWS]
         write_rows(path, values)
@@ -187,7 +190,7 @@ def main():
     )
 
     bandwidth_files = []
-    for target, label, color in PROFILES:
+    for target, label, color in BENCHMARK_PROFILES:
         path = out_dir / f"lmbench-bandwidth-{target}.dat"
         values = [lmbench.get(target, {}).get(operation) for operation, _name in BANDWIDTH_ROWS]
         write_rows(path, values)
@@ -200,10 +203,10 @@ def main():
         bandwidth_files,
     )
 
-    iperf_values = {target: {"forward": None, "reverse": None} for target, _label, _color in PROFILES}
+    iperf_values = {target: {"forward": None, "reverse": None} for target, _label, _color in BENCHMARK_PROFILES}
     netperf_values = {
         target: {test: {size: None for size in PAYLOADS} for test in ("TCP_STREAM", "TCP_MAERTS")}
-        for target, _label, _color in PROFILES
+        for target, _label, _color in BENCHMARK_PROFILES
     }
     for metric in snapshot.get("benchmark", []):
         target = metric.get("target")
@@ -221,7 +224,7 @@ def main():
     iperf_files = []
     netperf_forward_files = []
     netperf_reverse_files = []
-    for target, label, color in PROFILES:
+    for target, label, color in BENCHMARK_PROFILES:
         path = out_dir / f"iperf3-{target}.dat"
         forward = iperf_values[target]["forward"]
         reverse = iperf_values[target]["reverse"]
@@ -237,12 +240,14 @@ def main():
         [("iperf3", 0)],
         iperf_files,
         paired=True,
+        group_width=1.0,
+        width_ratio=0.96,
     )
 
     # Keep STREAM and MAERTS in separate columns on each payload row, so the
     # positive and negative bars for one profile share the same x coordinate.
     interleaved = []
-    for target, label, color in PROFILES:
+    for target, label, color in BENCHMARK_PROFILES:
         path = out_dir / f"netperf-{target}.dat"
         path.write_text("".join(
             f"{index} "
@@ -258,6 +263,7 @@ def main():
         [(str(size), index) for index, size in enumerate(PAYLOADS)],
         interleaved,
         paired=True,
+        width_ratio=0.72,
     )
 
 

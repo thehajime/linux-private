@@ -10,7 +10,13 @@ import math
 import re
 from pathlib import Path
 
-from report_profiles import PROFILES, PROFILE_LABELS, display_profile, profile_sort_key
+from report_profiles import (
+    BENCHMARK_PROFILES,
+    PROFILES,
+    PROFILE_LABELS,
+    display_profile,
+    profile_sort_key,
+)
 
 
 LM_BENCHMARKS = [
@@ -38,7 +44,9 @@ LTP_CRASH_SIGNATURES = (
     ("SIGSEGV", re.compile(r"\bsegfault at\b|^\s*Segmentation fault\b", re.IGNORECASE | re.MULTILINE)),
     ("SIGABRT", re.compile(r"\bAborted \(core dumped\)|\bSIGABRT\b", re.IGNORECASE)),
 )
-LMBENCH_COLUMNS = tuple((target, label) for target, label, _color in PROFILES)
+LMBENCH_COLUMNS = tuple(
+    (target, label) for target, label, _color in BENCHMARK_PROFILES
+)
 LMBENCH_TABLE_ROWS = (
     ("select-10", "select-10"),
     ("select-100", "select-100"),
@@ -678,7 +686,7 @@ def render(snapshot, previous):
                     host_counts = sorted({int(item.get("host_cpu_count", 0)) for item in ordered_matrix
                                           if item.get("profile") == profile and item.get("workers") == worker})
                     host_label = f"host, {host_counts[0]} CPUs" if host_counts and host_counts[0] else "host"
-                    series.extend((profile, cpus, f"(native) ({host_label})") for cpus in cpu_counts)
+                    series.extend((profile, cpus, f"native ({host_label})") for cpus in cpu_counts)
                 else:
                     smp = "SMP=y" if profile.startswith("um-mmu") or profile in ("um-nommu", "um-nommu-seccomp") else "SMP=n"
                     series.extend((profile, cpus,
@@ -711,7 +719,7 @@ def render(snapshot, previous):
             lines.append("")
     else:
         lines.append(f"No nginx matrix results were collected ({nginx.get('state', 'unknown')}).")
-    lines.append("Repeated nginx measurements report median throughput; CPU-axis boxes show within-boot wrk samples. A diamond denotes a single observation, not an estimated distribution.")
+    lines.append("Nginx bars report median throughput; whiskers show the minimum and maximum repeated within-boot wrk samples.")
     lines.extend(["", "<!-- report-chart:nginx-workers-1.png -->",
                   "<!-- report-chart:nginx-workers-4.png -->", ""])
 
@@ -737,7 +745,7 @@ def render(snapshot, previous):
     lines.extend([
         "### LTP results",
         "Status key: 🔴 panic/segfault/abort or failed tests; 🟠 incomplete report or broken tests; 🟢 complete with no failed or broken tests.",
-        "Profiles follow the requested CI matrix order, with `(native)` last. KUnit groups modes that share one kernel build.",
+        "Profiles follow the requested CI matrix order, with `native` last. KUnit groups modes that share one kernel build.",
         "", "| Target | State | Passed | Failed | Broken | Skipped | Warnings |",
         "|---|---|---:|---:|---:|---:|---:|",
     ])

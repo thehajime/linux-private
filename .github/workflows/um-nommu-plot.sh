@@ -9,7 +9,7 @@ profiles=(um-mmu um-mmu-seccomp um-mmu-tt-seccomp um-nommu \
           um-nommu-plain-sas-zpoline um-nommu-sas-seccomp um-nommu-sas-zpoline native)
 display_profile() {
     case "$1" in
-        native) echo '(native)' ;;
+        native) echo 'native' ;;
         um-mmu) echo 'um-mmu(p)' ;;
         um-mmu-seccomp) echo 'um-mmu(s)' ;;
         um-mmu-tt-seccomp) echo 'um-mmu-tt(s)' ;;
