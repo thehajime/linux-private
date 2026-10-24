@@ -174,13 +174,19 @@ Corrected full run `40085710687` proved all native and NOMMU LTP rows clean, but
 `um-mmu(p)` alone reported `sigaltstack01` outside its alternate-stack bounds;
 the same binary passed `um-mmu(s)`, `um-mmu-tt(s)`, and 20/20 local ptrace UML
 boots. The run was cancelled before its long nginx jobs could publish an
-incomplete report. Focused run `40089568555` uses diagnostic runtime branch
-`ci/nommu-runtime-sigaltstack-debug` to print the handler address and exact
-bounds. The legacy test compares pointers from distinct objects after the
-handler local has expired, which is undefined C behavior; signed follow-up
+incomplete report. Focused run `40089568555` used diagnostic runtime branch
+`ci/nommu-runtime-sigaltstack-debug`; `um-mmu(p)` passed with one selected
+record, zero FAIL/BROK/WARN, normal guest shutdown and exit 0. The original
+binary also passes 20/20 local ptrace UML boots, so the prior one-off failure
+is not a reproducible kernel signal-stack selection regression. The legacy
+test nevertheless compares pointers from distinct objects after the handler
+local has expired, which is undefined C behavior; signed runtime candidate
 `7764d45a2` captures addresses as `uintptr_t` and compares integer ranges.
-Do not classify the failure as a kernel regression until the focused address
-evidence distinguishes a real stack-selection error from the test predicate.
+Final full candidate run `40091158800` uses that runtime branch and CI helper
+`9bf1f3f15563`; accept T2 only if every LTP and nginx profile completes.
+Focused LTP workflow dispatches now skip unrelated benchmarks and nginx jobs.
+Do not publish a partial report.
+
 
 **T3:** The Kirk work remains separate from the LTP syscall fixes. Preserve its
 monotonic timing, complete-output, EOF, cancellation, and no-suite-timeout
