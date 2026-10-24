@@ -871,7 +871,7 @@ jobs:
           tags: ghcr.io/thehajime/alpine:${{ matrix.base_tag }}-${{ matrix.testname }}
 
   build_nginx_rootfs:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.ltp_run_pattern == '' }}
     name: Build shared nginx rootfs images once
     needs: [build_nommu_apks]
     runs-on: ubuntu-22.04
@@ -979,7 +979,7 @@ jobs:
 
   # Keep one reusable-workflow call in the graph; the callee owns the matrix.
   nginx_benchmark:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.ltp_run_pattern == '' }}
     name: "nginx benchmark"
     needs: [build_uml, build_nginx_rootfs]
     permissions:
@@ -988,12 +988,13 @@ jobs:
     uses: ./.github/workflows/nginx-benchmark.yml
 
   native_nginx_benchmark:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.ltp_run_pattern == '' }}
     name: "native nginx benchmark"
     permissions:
       contents: read
     uses: ./.github/workflows/native-nginx-benchmark.yml
   benchmark:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.ltp_run_pattern == '' }}
     runs-on: ${{ matrix.runs_on }}
     needs: [build_uml]
     strategy:
